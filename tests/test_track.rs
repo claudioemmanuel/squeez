@@ -56,3 +56,25 @@ fn test_track_no_session_is_noop() {
     assert!(!dir.join("current.json").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_track_zero_bytes_adds_zero_tokens() {
+    let dir = tmp_dir("zero");
+    seed_session(&dir, "2026-03-23-14.jsonl");
+    squeez::commands::track::run_with_dir("Read", "0", &dir);
+    let s = squeez::session::CurrentSession::load(&dir).unwrap();
+    assert_eq!(s.total_tokens, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_track_non_numeric_bytes_no_panic() {
+    let dir = tmp_dir("nonnumeric");
+    seed_session(&dir, "2026-03-23-14.jsonl");
+    // Non-numeric bytes must not panic — unwrap_or(0) gives 0 tokens
+    let code = squeez::commands::track::run_with_dir("Read", "not_a_number", &dir);
+    assert_eq!(code, 0);
+    let s = squeez::session::CurrentSession::load(&dir).unwrap();
+    assert_eq!(s.total_tokens, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}

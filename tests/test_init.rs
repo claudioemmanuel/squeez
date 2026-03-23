@@ -77,3 +77,40 @@ fn test_init_no_prior_session_no_crash() {
     assert_eq!(code, 0);
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
+
+#[test]
+fn test_init_double_init_replaces_session() {
+    let (sessions, memory) = tmp_dirs("double");
+    let cfg = squeez::config::Config::default();
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+    let first = squeez::session::CurrentSession::load(&sessions).unwrap();
+
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+    let second = squeez::session::CurrentSession::load(&sessions).unwrap();
+
+    // After second init: fresh session (0 tokens, not compact_warned)
+    assert_eq!(second.total_tokens, 0);
+    assert!(!second.compact_warned);
+    assert!(second.start_ts >= first.start_ts);
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn test_init_empty_session_log_no_panic() {
+    // Prior session with current.json but empty JSONL — must not panic
+    let (sessions, memory) = tmp_dirs("emptylog");
+    let prior_file = "2026-03-23-08.jsonl";
+    let prior = squeez::session::CurrentSession {
+        session_file: prior_file.to_string(),
+        total_tokens: 0,
+        compact_warned: false,
+        start_ts: 1_774_224_000,
+    };
+    prior.save(&sessions);
+    std::fs::write(sessions.join(prior_file), b"").unwrap();
+
+    let cfg = squeez::config::Config::default();
+    let code = squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+    assert_eq!(code, 0, "empty session log must not crash");
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}

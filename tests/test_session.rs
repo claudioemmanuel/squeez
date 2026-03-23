@@ -71,3 +71,31 @@ fn test_append_event_creates_and_appends() {
     assert!(lines[1].contains("bash"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_current_session_malformed_json_returns_defaults() {
+    let dir = tmp_dir("malformed");
+    std::fs::write(dir.join("current.json"), b"not valid json {{{{").unwrap();
+    // load() is tolerant: malformed JSON must not panic.
+    // Fields fall back to defaults (empty string, 0, false) rather than None.
+    let result = squeez::session::CurrentSession::load(&dir);
+    assert!(result.is_some(), "malformed JSON should not panic — returns default struct");
+    let s = result.unwrap();
+    assert_eq!(s.total_tokens, 0);
+    assert!(!s.compact_warned);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_unix_to_date_leap_year() {
+    // 2024-02-29 00:00:00 UTC = 1709164800
+    let date = squeez::session::unix_to_date(1_709_164_800);
+    assert_eq!(date, "2024-02-29", "got: {}", date);
+}
+
+#[test]
+fn test_unix_to_date_epoch_zero() {
+    // Unix epoch = 1970-01-01
+    let date = squeez::session::unix_to_date(0);
+    assert_eq!(date, "1970-01-01", "got: {}", date);
+}
