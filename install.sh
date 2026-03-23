@@ -42,7 +42,7 @@ start_hook = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/ho
 if not any("squeez" in str(h) for h in settings["SessionStart"]):
     settings["SessionStart"].append(start_hook)
 
-# PostToolUse — token tracking
+# PostToolUse — token tracking (no matcher = fires after all tools, not just Bash)
 if not isinstance(settings.get("PostToolUse"), list):
     settings["PostToolUse"] = []
 post_hook = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/posttooluse.sh"}]}
@@ -55,4 +55,5 @@ with open(tmp, "w") as f:
 os.replace(tmp, path)
 EOF
 
-echo "✅ $($INSTALL_DIR/bin/squeez --version) installed. Restart Claude Code to activate."
+version=$("$INSTALL_DIR/bin/squeez" --version 2>/dev/null || echo "squeez")
+echo "✅ $version installed. Restart Claude Code to activate."
