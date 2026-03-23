@@ -56,3 +56,27 @@ fn wrap_bypassed_command_runs_and_exits_zero() {
     // sh -c "exit 0" should exit 0 (compression or not)
     assert_eq!(out.status.code(), Some(0));
 }
+
+// --- Artifact extraction unit tests ---
+
+#[test]
+fn test_extract_file_paths_from_output() {
+    let text = "error in src/auth.ts:42\nFix src/components/Foo.tsx line 10\n";
+    let files = squeez::commands::wrap::extract_file_paths(text);
+    assert!(files.iter().any(|f| f.contains("src/auth.ts")), "got: {:?}", files);
+}
+
+#[test]
+fn test_extract_errors_from_output() {
+    let text = "ok\nerror: cannot borrow `x` as mutable\nok\n";
+    let errors = squeez::commands::wrap::extract_errors(text);
+    assert!(!errors.is_empty(), "got: {:?}", errors);
+    assert!(errors[0].contains("cannot borrow"), "got: {:?}", errors);
+}
+
+#[test]
+fn test_extract_test_summary_cargo() {
+    let text = "test foo ... ok\ntest result: ok. 5 passed; 1 failed; 0 ignored\n";
+    let summary = squeez::commands::wrap::extract_test_summary(text);
+    assert!(summary.contains("5"), "got: {:?}", summary);
+}

@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::filter;
+use crate::{json_util, session};
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -98,6 +99,16 @@ pub fn run(cmd_str: &str) -> i32 {
     let output_str = compressed.join("\n");
     let output_tokens = output_str.len() / 4;
 
+    // ── Artifact capture + session tracking ───────────────────────────────
+    let files      = extract_file_paths(&combined);
+    let errors     = extract_errors(&combined);
+    let git_events = extract_git_events(cmd_str, &combined);
+    let test_sum   = extract_test_summary(&combined);
+
+    let compact_warning = record_bash_event(
+        cmd_str, input_tokens, output_tokens, &files, &errors, &git_events, &test_sum, &config,
+    );
+
     let reduction = if input_tokens > 0 {
         100usize.saturating_sub(output_tokens * 100 / input_tokens)
     } else {
@@ -111,6 +122,9 @@ pub fn run(cmd_str: &str) -> i32 {
             "# squeez [{}] {}→{} tokens (-{}%) {}ms",
             cmd_name, input_tokens, output_tokens, reduction, elapsed_ms
         );
+        if let Some(ref warning) = compact_warning {
+            println!("{}", warning);
+        }
     }
     if !output_str.is_empty() {
         println!("{}", output_str);
@@ -152,4 +166,113 @@ extern "C" fn forward_signal(sig: libc::c_int) {
             libc::kill(-pid, sig);
         }
     }
+}
+
+// ── Artifact extraction ────────────────────────────────────────────────────
+
+pub fn extract_file_paths(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for word in text.split_whitespace() {
+        let w = word.trim_matches(|c| c == ',' || c == ':' || c == '(' || c == ')' || c == '\'' || c == '"');
+        if looks_like_path(w) && !out.contains(&w.to_string()) {
+            out.push(w.to_string());
+        }
+    }
+    out
+}
+
+fn looks_like_path(s: &str) -> bool {
+    s.contains('/')
+        && !s.starts_with("http")
+        && !s.starts_with("//")
+        && s.len() > 4
+        && s.len() < 160
+        && s.chars().all(|c| c.is_alphanumeric() || "/_.-:".contains(c))
+        && s.contains('.')
+}
+
+pub fn extract_errors(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            t.starts_with("error:") || t.starts_with("Error:")
+                || t.starts_with("error[") || t.starts_with("FAILED")
+                || t.starts_with("fatal:") || t.starts_with("panic:")
+        })
+        .take(3)
+        .map(|l| l.trim().chars().take(120).collect())
+        .collect()
+}
+
+pub fn extract_test_summary(text: &str) -> String {
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with("test result:") { return l.chars().take(80).collect(); }
+        if l.contains(" passed") && l.contains(" failed") { return l.chars().take(80).collect(); }
+        if l.starts_with("PASSED") || l.starts_with("FAILED") { return l.chars().take(80).collect(); }
+    }
+    String::new()
+}
+
+fn extract_git_events(cmd: &str, text: &str) -> Vec<String> {
+    let name = cmd.split_whitespace().next().unwrap_or("");
+    let is_git = name == "git" || name.ends_with("/git");
+    if !is_git { return Vec::new(); }
+    text.lines()
+        .filter(|l| {
+            let t = l.trim();
+            t.len() >= 7 && t[..7.min(t.len())].chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .take(5)
+        .map(|l| l.trim().chars().take(100).collect())
+        .collect()
+}
+
+fn record_bash_event(
+    cmd: &str,
+    in_tk: usize,
+    out_tk: usize,
+    files: &[String],
+    errors: &[String],
+    git: &[String],
+    test_summary: &str,
+    config: &Config,
+) -> Option<String> {
+    let dir = session::sessions_dir();
+    let mut current = session::CurrentSession::load(&dir)?;
+
+    current.total_tokens += out_tk as u64;
+
+    let event = format!(
+        "{{\"type\":\"bash\",\"cmd\":\"{}\",\"in_tk\":{},\"out_tk\":{},\
+\"files\":{},\"errors\":{},\"git\":{},\"test_summary\":\"{}\",\"ts\":{}}}",
+        json_util::escape_str(cmd.split_whitespace().next().unwrap_or("")),
+        in_tk, out_tk,
+        json_util::str_array(files),
+        json_util::str_array(errors),
+        json_util::str_array(git),
+        json_util::escape_str(test_summary),
+        session::unix_now(),
+    );
+    session::append_event(&dir, &current.session_file, &event);
+
+    let warning = if !current.compact_warned
+        && current.total_tokens >= config.compact_threshold_tokens
+    {
+        let budget = config.compact_threshold_tokens * 5 / 4;
+        let pct = current.total_tokens * 100 / budget.max(1);
+        current.compact_warned = true;
+        Some(format!(
+            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Artifacts: {} files touched, {} errors seen.",
+            current.total_tokens / 1000,
+            pct,
+            files.len(),
+            errors.len(),
+        ))
+    } else {
+        None
+    };
+
+    current.save(&dir);
+    warning
 }
