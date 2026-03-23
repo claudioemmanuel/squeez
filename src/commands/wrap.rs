@@ -1,4 +1,5 @@
 use std::process::{Command, Stdio};
+use std::os::unix::process::CommandExt;
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::io::Read;
@@ -24,6 +25,7 @@ pub fn run(cmd_str: &str) -> i32 {
         .arg(cmd_str)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
     {
         Ok(c) => c,
@@ -122,7 +124,10 @@ fn passthrough(cmd: &str) -> i32 {
 }
 
 fn is_streaming(cmd: &str) -> bool {
-    cmd.split_whitespace().any(|a| a == "-f" || a == "--follow")
+    let name = cmd.split_whitespace().next().unwrap_or("");
+    let follow_cmds = ["tail", "docker", "kubectl"];
+    follow_cmds.iter().any(|c| name.contains(c))
+        && cmd.split_whitespace().any(|a| a == "-f" || a == "--follow")
 }
 
 fn setup_signals() {
