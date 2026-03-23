@@ -44,14 +44,16 @@ pub fn run(cmd_str: &str) -> i32 {
     // block writing to a full pipe and never exit, causing a deadlock.
     let mut stdout_pipe = child.stdout.take().expect("stdout piped");
     let mut stderr_pipe = child.stderr.take().expect("stderr piped");
+    // Cap capture at 10 MB per stream to prevent OOM on runaway output.
+    const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
     let stdout_thread = thread::spawn(move || {
         let mut buf = Vec::new();
-        stdout_pipe.read_to_end(&mut buf).ok();
+        stdout_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
         buf
     });
     let stderr_thread = thread::spawn(move || {
         let mut buf = Vec::new();
-        stderr_pipe.read_to_end(&mut buf).ok();
+        stderr_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
         buf
     });
 

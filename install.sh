@@ -5,9 +5,26 @@ RELEASES="https://github.com/claudioemmanuel/squeez/releases/latest/download"
 INSTALL_DIR="$HOME/.claude/squeez"
 
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
+chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 
 echo "Downloading squeez binary..."
 curl -fsSL "$RELEASES/squeez-macos-universal" -o "$INSTALL_DIR/bin/squeez"
+
+echo "Verifying checksum..."
+if curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256 2>/dev/null; then
+    expected=$(grep "squeez-macos-universal" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
+    if [ -n "$expected" ]; then
+        actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+        if [ "$expected" != "$actual" ]; then
+            echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
+            rm -f "$INSTALL_DIR/bin/squeez"
+            exit 1
+        fi
+        echo "Checksum verified."
+    fi
+fi
+rm -f /tmp/squeez-checksums.sha256
+
 chmod +x "$INSTALL_DIR/bin/squeez"
 
 echo "Installing hooks..."

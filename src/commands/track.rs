@@ -19,7 +19,7 @@ pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
 
     let event = format!(
         "{{\"type\":\"tool\",\"tool\":\"{}\",\"tokens_est\":{},\"ts\":{}}}",
-        tool.replace('"', ""),
+        crate::json_util::escape_str(tool),
         tokens,
         session::unix_now(),
     );
