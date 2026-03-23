@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
 pub fn group_files_by_dir(lines: Vec<String>, threshold: usize) -> Vec<String> {
-    let parsed: Vec<(String, String, String)> = lines.iter().map(|l| {
-        let (prefix, path) = split_status_line(l);
-        let dir = parent_dir(path);
-        (prefix.to_string(), dir, l.clone())
-    }).collect();
+    let parsed: Vec<(String, String, String)> = lines
+        .iter()
+        .map(|l| {
+            let (prefix, path) = split_status_line(l);
+            let dir = parent_dir(path);
+            (prefix.to_string(), dir, l.clone())
+        })
+        .collect();
 
     let mut counts: HashMap<String, usize> = HashMap::new();
     for (prefix, dir, _) in &parsed {
@@ -19,7 +22,10 @@ pub fn group_files_by_dir(lines: Vec<String>, threshold: usize) -> Vec<String> {
         let count = counts[&key];
         if count >= threshold {
             if emitted.insert(key.clone()) {
-                result.push(format!("{}{}/  {} modified  [squeez grouped]", prefix, dir, count));
+                result.push(format!(
+                    "{}{}/  {} modified  [squeez grouped]",
+                    prefix, dir, count
+                ));
             }
         } else {
             result.push(original.clone());
@@ -31,10 +37,14 @@ pub fn group_files_by_dir(lines: Vec<String>, threshold: usize) -> Vec<String> {
 fn split_status_line(line: &str) -> (&str, &str) {
     let t = line.trim_start();
     if let Some(i) = t.find(':') {
-        (&t[..=i], t[i+1..].trim())
-    } else { ("", line) }
+        (&t[..=i], t[i + 1..].trim())
+    } else {
+        ("", line)
+    }
 }
 
 fn parent_dir(path: &str) -> String {
-    path.rfind('/').map(|i| path[..i].to_string()).unwrap_or_else(|| ".".to_string())
+    path.rfind('/')
+        .map(|i| path[..i].to_string())
+        .unwrap_or_else(|| ".".to_string())
 }

@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, build::BuildHandler};
+use squeez::commands::{build::BuildHandler, Handler};
 use squeez::config::Config;
 
 #[test]

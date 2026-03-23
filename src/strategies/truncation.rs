@@ -1,7 +1,12 @@
-pub enum Keep { Head, Tail }
+pub enum Keep {
+    Head,
+    Tail,
+}
 
 pub fn apply(lines: Vec<String>, limit: usize, keep: Keep) -> Vec<String> {
-    if lines.len() <= limit { return lines; }
+    if lines.len() <= limit {
+        return lines;
+    }
     let dropped = lines.len() - limit;
     let notice = format!(
         "[... {} lines truncated — prefix command with --no-squeez to see full output]",

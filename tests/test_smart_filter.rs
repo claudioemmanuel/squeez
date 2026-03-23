@@ -8,7 +8,11 @@ fn removes_ansi_codes() {
 
 #[test]
 fn removes_blank_lines() {
-    let input = vec!["line one".to_string(), "".to_string(), "line two".to_string()];
+    let input = vec![
+        "line one".to_string(),
+        "".to_string(),
+        "line two".to_string(),
+    ];
     assert_eq!(apply(input), vec!["line one", "line two"]);
 }
 
@@ -26,7 +30,10 @@ fn removes_progress_bars() {
 
 #[test]
 fn removes_git_hints() {
-    let input = vec!["hint: use git push".to_string(), "On branch main".to_string()];
+    let input = vec![
+        "hint: use git push".to_string(),
+        "On branch main".to_string(),
+    ];
     assert_eq!(apply(input), vec!["On branch main"]);
 }
 

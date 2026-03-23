@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, database::DatabaseHandler};
+use squeez::commands::{database::DatabaseHandler, Handler};
 use squeez::config::Config;
 
 #[test]

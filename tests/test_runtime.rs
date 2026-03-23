@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, runtime::RuntimeHandler};
+use squeez::commands::{runtime::RuntimeHandler, Handler};
 use squeez::config::Config;
 
 #[test]

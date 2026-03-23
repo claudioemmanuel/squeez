@@ -4,7 +4,10 @@ Token compression + context optimization for Claude Code. Runs automatically. No
 
 ## What it does
 
-Intercepts every Bash command Claude runs, compresses noisy output, and returns a token-efficient summary. 90–97% reduction on the most verbose commands.
+- **Bash compression** — intercepts every command, removes noise, 90–97% token reduction
+- **Session memory** — injects a summary of prior sessions at session start
+- **Token tracking** — tracks context usage across all tool calls
+- **Compact warning** — alerts when session approaches context limit (80% of budget)
 
 ## Install
 
@@ -16,15 +19,19 @@ Restart Claude Code. Done.
 
 ## Benchmarks
 
-| Command | Before | After | Reduction |
-|---------|--------|-------|-----------|
-| `git log -200` | ~3,200 tk | ~190 tk | **-94%** |
-| `docker logs (noisy)` | ~8,200 tk | ~620 tk | **-92%** |
-| `npm install` | ~6,100 tk | ~180 tk | **-97%** |
-| `gradle build` | ~18,000 tk | ~400 tk | **-98%** |
-| GraphQL error | ~850 tk | ~80 tk | **-91%** |
+Measured on macOS (Apple Silicon), token estimate = chars/4:
 
-*Token estimate: chars/4*
+| Fixture | Before | After | Reduction | Latency |
+|---------|--------|-------|-----------|---------|
+| `ps aux` | 40,373 tk | 2,352 tk | **-95%** | 7ms |
+| `git log -200` | 2,667 tk | 819 tk | **-70%** | 4ms |
+| `find` (deep tree) | 424 tk | 134 tk | **-69%** | 4ms |
+| `git status` | 50 tk | 16 tk | **-68%** | 4ms |
+| `npm install` | 524 tk | 231 tk | **-56%** | 4ms |
+| `ls -la` | 1,782 tk | 886 tk | **-51%** | 4ms |
+| `env` dump | 441 tk | 287 tk | **-35%** | 3ms |
+
+All 7/7 fixtures pass (`bench/run.sh`). Latency well under 10ms on every fixture.
 
 ## Escape hatch
 
@@ -36,21 +43,27 @@ Restart Claude Code. Done.
 
 Optional `~/.claude/squeez/config.ini` (all fields optional):
 ```ini
+# Compression
 max_lines = 200
 dedup_min = 3
 git_log_max_commits = 20
 docker_logs_max_lines = 100
 bypass = docker exec, psql, ssh
+
+# Session memory
+compact_threshold_tokens = 160000   # warn at 80% of context budget
+memory_retention_days = 30          # how long to keep session summaries
 ```
 
 ## How it works
 
-A Claude Code `PreToolUse` hook rewrites every Bash tool call:
-`git status` → `squeez wrap git status`
+Three Claude Code hooks work together:
 
-`squeez wrap` runs the command via `sh -c`, captures stdout+stderr, applies 4 strategies (smart_filter → dedup → grouping → truncation), prints the compressed result with a savings header.
+**Compression** (`PreToolUse`): Every Bash call is rewritten — `git status` → `squeez wrap git status`. The wrap command runs via `sh -c`, captures stdout+stderr, applies 4 strategies (smart_filter → dedup → grouping → truncation), and prints a compressed result with a savings header.
 
-Claude never sees raw noisy output.
+**Session memory** (`SessionStart`): On each new session, `squeez init` finalizes the previous session into a summary (files touched, errors resolved, test results, git events) and prints a memory banner so Claude has prior-session context from the start.
+
+**Token tracking** (`PostToolUse`): Every tool call's output size is tracked. When cumulative session tokens cross 80% of the context budget, a compact warning is emitted in the next bash output header.
 
 ## Contributing
 

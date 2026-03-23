@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"rustfmt --check tests/test_session.rs 2>&1\",\"description\":\"Check test file formatting\"}",
+  "error": "Exit code 1\nDiff in /Users/claudioemmanuel/Documents/GitHub/squeez/tests/test_session.rs:1:\n use std::path::PathBuf;\n \n fn tmp_dir(label: &str) -> PathBuf {\n\u001b[31m-    let d = std::env::temp_dir().join(format!(\"squeez_sess_{}_{}\", label,\n\u001b(B\u001b[m\u001b[32m+    let d = std::env::temp_dir().join(format!(\n\u001b(B\u001b[m\u001b[32m+        \"squeez_sess_{}_{}\",\n\u001b(B\u001b[m\u001b[32m+        label,\n\u001b(B\u001b[m         std::time::SystemTime::now()\n\u001b[31m-            .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));\n\u001b(B\u001b[m\u001b[...",
+  "timestamp": "2026-03-23T10:52:10.787Z",
+  "retry_count": 4
+}
