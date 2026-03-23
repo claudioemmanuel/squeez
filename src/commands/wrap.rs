@@ -42,8 +42,20 @@ pub fn run(cmd_str: &str) -> i32 {
     // Drain stdout/stderr on background threads to prevent pipe-buffer deadlock.
     // This MUST happen before the try_wait loop — if we wait first, the child can
     // block writing to a full pipe and never exit, causing a deadlock.
-    let mut stdout_pipe = child.stdout.take().expect("stdout piped");
-    let mut stderr_pipe = child.stderr.take().expect("stderr piped");
+    let stdout_pipe = match child.stdout.take() {
+        Some(p) => p,
+        None => {
+            eprintln!("squeez: failed to capture stdout");
+            return 1;
+        }
+    };
+    let stderr_pipe = match child.stderr.take() {
+        Some(p) => p,
+        None => {
+            eprintln!("squeez: failed to capture stderr");
+            return 1;
+        }
+    };
     // Cap capture at 10 MB per stream to prevent OOM on runaway output.
     const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
     let stdout_thread = thread::spawn(move || {
@@ -156,8 +168,8 @@ fn is_streaming(cmd: &str) -> bool {
 
 fn setup_signals() {
     unsafe {
-        libc::signal(libc::SIGTERM, forward_signal as libc::sighandler_t);
-        libc::signal(libc::SIGINT, forward_signal as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, forward_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, forward_signal as *const () as libc::sighandler_t);
     }
 }
 
