@@ -111,12 +111,30 @@ impl CurrentSession {
     pub fn save(&self, sessions_dir: &Path) {
         let json = format!(
             "{{\"session_file\":\"{}\",\"total_tokens\":{},\"compact_warned\":{},\"start_ts\":{}}}",
-            self.session_file.replace('"', ""),
+            crate::json_util::escape_str(&self.session_file),
             self.total_tokens,
             self.compact_warned,
             self.start_ts,
         );
-        let _ = std::fs::write(sessions_dir.join("current.json"), json);
+        let path = sessions_dir.join("current.json");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&path)
+            {
+                use std::io::Write;
+                let _ = f.write_all(json.as_bytes());
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::write(path, json);
+        }
     }
 }
 
@@ -124,15 +142,31 @@ impl CurrentSession {
 
 /// Appends one JSONL line to the session log file (creates if missing).
 pub fn append_event(sessions_dir: &Path, session_file: &str, event_json: &str) {
-    if session_file.is_empty() {
+    // Reject empty names and any path that tries to escape the sessions directory.
+    if session_file.is_empty() || session_file.contains('/') || session_file.contains("..") {
         return;
     }
     let path = sessions_dir.join(session_file);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
+    #[cfg(unix)]
     {
-        let _ = writeln!(f, "{}", event_json);
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            let _ = writeln!(f, "{}", event_json);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(f, "{}", event_json);
+        }
     }
 }

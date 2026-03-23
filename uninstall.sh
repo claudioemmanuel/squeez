@@ -26,7 +26,9 @@ try:
 except (json.JSONDecodeError, IOError) as e:
     print(f"⚠️  Warning: could not read settings.json: {e}", file=sys.stderr)
     exit(0)
-s["PreToolUse"] = [h for h in s.get("PreToolUse", []) if "squeez" not in str(h)]
+s["PreToolUse"]   = [h for h in s.get("PreToolUse",   []) if "squeez" not in str(h)]
+s["SessionStart"] = [h for h in s.get("SessionStart", []) if "squeez" not in str(h)]
+s["PostToolUse"]  = [h for h in s.get("PostToolUse",  []) if "squeez" not in str(h)]
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(s, f, indent=2)
