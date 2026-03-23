@@ -215,6 +215,11 @@ pub fn extract_test_summary(text: &str) -> String {
     String::new()
 }
 
+/// Public wrapper for tests (private logic is `extract_git_events`).
+pub fn extract_git_events_pub(cmd: &str, text: &str) -> Vec<String> {
+    extract_git_events(cmd, text)
+}
+
 fn extract_git_events(cmd: &str, text: &str) -> Vec<String> {
     let name = cmd.split_whitespace().next().unwrap_or("");
     let is_git = name == "git" || name.ends_with("/git");

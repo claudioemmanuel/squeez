@@ -1,0 +1,54 @@
+diff --git a/src/auth.ts b/src/auth.ts
+index a3f4b12..9c8d321 100644
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -1,7 +1,7 @@
+ import { sign, verify } from 'jsonwebtoken';
+-import { SECRET } from './config';
++import { JWT_SECRET } from './config';
+ 
+ export function createToken(userId: string): string {
+-  return sign({ userId }, SECRET, { expiresIn: '7d' });
++  return sign({ userId }, JWT_SECRET, { expiresIn: '24h' });
+ }
+ 
+ export function verifyToken(token: string): { userId: string } | null {
+@@ -9,7 +9,7 @@ export function verifyToken(token: string): { userId: string } | null {
+   try {
+-    return verify(token, SECRET) as { userId: string };
++    return verify(token, JWT_SECRET) as { userId: string };
+   } catch {
+     return null;
+   }
+diff --git a/src/config.ts b/src/config.ts
+index b12c345..e67f891 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -1,5 +1,5 @@
+-export const SECRET = process.env.SECRET || 'dev-secret';
++export const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+ export const PORT = parseInt(process.env.PORT || '3000');
+ export const DB_URL = process.env.DATABASE_URL || 'postgresql://localhost/app';
++export const TOKEN_EXPIRY = process.env.TOKEN_EXPIRY || '24h';
+diff --git a/src/middleware/auth.ts b/src/middleware/auth.ts
+index c23d456..f78a901 100644
+--- a/src/middleware/auth.ts
++++ b/src/middleware/auth.ts
+@@ -3,12 +3,14 @@ import { verifyToken } from '../auth';
+ 
+ export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+   const header = req.headers.authorization;
+-  if (!header) return res.status(401).json({ error: 'Unauthorized' });
++  if (!header || !header.startsWith('Bearer ')) {
++    return res.status(401).json({ error: 'Unauthorized' });
++  }
+   
+-  const token = header.replace('Bearer ', '');
++  const token = header.slice(7);
+   const payload = verifyToken(token);
+   
+   if (!payload) return res.status(401).json({ error: 'Invalid token' });
+   
++  req.userId = payload.userId;
+   next();
+ };

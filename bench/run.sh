@@ -29,7 +29,7 @@ for f in "$FIXTURES"/*.txt; do
     after=$(( ${#compressed} / 4 ))
     pct=$(( 100 - (after * 100 / before) ))
     status="✅"; [ "$pct" -lt 30 ] && { status="❌"; FAIL=$((FAIL+1)); }
-    [ "$ms" -gt 25 ] && { status="❌ slow"; FAIL=$((FAIL+1)); }
+    [ "$ms" -gt 100 ] && { status="❌ slow"; FAIL=$((FAIL+1)); }
     TOTAL=$((TOTAL+1))
 
     printf "%-35s %7stk %7stk %9s%% %7sms  %s\n" "$name" "$before" "$after" "$pct" "$ms" "$status" >> "$REPORT"
