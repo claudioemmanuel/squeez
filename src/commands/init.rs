@@ -62,7 +62,11 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
 }
 
 fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, config: &Config) {
-    if prev.session_file.is_empty() {
+    // Reject empty or path-traversing session_file values (same guard as append_event).
+    if prev.session_file.is_empty()
+        || prev.session_file.contains('/')
+        || prev.session_file.contains("..")
+    {
         return;
     }
     let content = match std::fs::read_to_string(sessions_dir.join(&prev.session_file)) {

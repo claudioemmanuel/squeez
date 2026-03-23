@@ -11,19 +11,21 @@ echo "Downloading squeez binary..."
 curl -fsSL "$RELEASES/squeez-macos-universal" -o "$INSTALL_DIR/bin/squeez"
 
 echo "Verifying checksum..."
-if curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256 2>/dev/null; then
-    expected=$(grep "squeez-macos-universal" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
-    if [ -n "$expected" ]; then
-        actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
-        if [ "$expected" != "$actual" ]; then
-            echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
-            rm -f "$INSTALL_DIR/bin/squeez"
-            exit 1
-        fi
-        echo "Checksum verified."
-    fi
-fi
+curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256
+expected=$(grep "squeez-macos-universal" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
 rm -f /tmp/squeez-checksums.sha256
+if [ -z "$expected" ]; then
+    echo "ERROR: could not find checksum for squeez-macos-universal in release" >&2
+    rm -f "$INSTALL_DIR/bin/squeez"
+    exit 1
+fi
+actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+if [ "$expected" != "$actual" ]; then
+    echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
+    rm -f "$INSTALL_DIR/bin/squeez"
+    exit 1
+fi
+echo "Checksum verified."
 
 chmod +x "$INSTALL_DIR/bin/squeez"
 
