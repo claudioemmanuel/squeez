@@ -24,8 +24,12 @@ fn main() {
             let exit_code = squeez::commands::track::run(tool, bytes);
             std::process::exit(exit_code);
         }
-        Some("init") | Some("compact") => {
-            eprintln!("squeez: {} not yet implemented (Phase 2)", args[1]);
+        Some("init") => {
+            let exit_code = squeez::commands::init::run();
+            std::process::exit(exit_code);
+        }
+        Some("compact") => {
+            eprintln!("squeez: compact not yet implemented");
             std::process::exit(1);
         }
         _ => {

@@ -12,6 +12,7 @@ pub mod filter_stdin;
 pub mod fs;
 pub mod generic;
 pub mod git;
+pub mod init;
 pub mod network;
 pub mod package_mgr;
 pub mod runtime;
