@@ -4,7 +4,10 @@ Token compression + context optimization for Claude Code. Runs automatically. No
 
 ## What it does
 
-Intercepts every Bash command Claude runs, compresses noisy output, and returns a token-efficient summary. 90–97% reduction on the most verbose commands.
+- **Bash compression** — intercepts every command, removes noise, 90–97% token reduction
+- **Session memory** — injects a summary of prior sessions at session start
+- **Token tracking** — tracks context usage across all tool calls
+- **Compact warning** — alerts when session approaches context limit (80% of budget)
 
 ## Install
 

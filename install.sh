@@ -11,10 +11,12 @@ curl -fsSL "$RELEASES/squeez-macos-universal" -o "$INSTALL_DIR/bin/squeez"
 chmod +x "$INSTALL_DIR/bin/squeez"
 
 echo "Installing hooks..."
-curl -fsSL "$REPO_RAW/hooks/pretooluse.sh" -o "$INSTALL_DIR/hooks/pretooluse.sh"
-chmod +x "$INSTALL_DIR/hooks/pretooluse.sh"
+curl -fsSL "$REPO_RAW/hooks/pretooluse.sh"     -o "$INSTALL_DIR/hooks/pretooluse.sh"
+curl -fsSL "$REPO_RAW/hooks/session-start.sh"  -o "$INSTALL_DIR/hooks/session-start.sh"
+curl -fsSL "$REPO_RAW/hooks/posttooluse.sh"    -o "$INSTALL_DIR/hooks/posttooluse.sh"
+chmod +x "$INSTALL_DIR/hooks/pretooluse.sh" "$INSTALL_DIR/hooks/session-start.sh" "$INSTALL_DIR/hooks/posttooluse.sh"
 
-echo "Registering hook in ~/.claude/settings.json..."
+echo "Registering hooks in ~/.claude/settings.json..."
 python3 - <<'EOF'
 import json, os, sys
 path = os.path.expanduser("~/.claude/settings.json")
@@ -25,12 +27,28 @@ try:
             settings = json.load(f)
 except (json.JSONDecodeError, IOError) as e:
     print(f"Warning: could not read settings.json: {e}", file=sys.stderr)
+
+# PreToolUse — Bash compression
 if not isinstance(settings.get("PreToolUse"), list):
     settings["PreToolUse"] = []
-hook = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/pretooluse.sh"}]}
-pre = settings["PreToolUse"]
-if not any("squeez" in str(h) for h in pre):
-    pre.append(hook)
+pre_hook = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/pretooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PreToolUse"]):
+    settings["PreToolUse"].append(pre_hook)
+
+# SessionStart — init + memory banner
+if not isinstance(settings.get("SessionStart"), list):
+    settings["SessionStart"] = []
+start_hook = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/session-start.sh"}]}
+if not any("squeez" in str(h) for h in settings["SessionStart"]):
+    settings["SessionStart"].append(start_hook)
+
+# PostToolUse — token tracking
+if not isinstance(settings.get("PostToolUse"), list):
+    settings["PostToolUse"] = []
+post_hook = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/posttooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PostToolUse"]):
+    settings["PostToolUse"].append(post_hook)
+
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(settings, f, indent=2)
