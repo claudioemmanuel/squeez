@@ -1,2 +1,3 @@
 bin/squeez binary
 bin/squeez -diff
+squeez-macos-universal binary
