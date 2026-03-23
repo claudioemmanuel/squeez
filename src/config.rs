@@ -9,6 +9,8 @@ pub struct Config {
     pub docker_logs_max_lines: usize,
     pub find_max_results: usize,
     pub bypass: Vec<String>,
+    pub compact_threshold_tokens: u64,
+    pub memory_retention_days: u32,
 }
 
 impl Default for Config {
@@ -28,6 +30,8 @@ impl Default for Config {
                 "mysql".to_string(),
                 "ssh".to_string(),
             ],
+            compact_threshold_tokens: 160_000,
+            memory_retention_days: 30,
         }
     }
 }
@@ -61,6 +65,12 @@ impl Config {
                     }
                     "bypass" => {
                         c.bypass = v.split(',').map(|s| s.trim().to_string()).collect()
+                    }
+                    "compact_threshold_tokens" => {
+                        c.compact_threshold_tokens = v.parse().unwrap_or(c.compact_threshold_tokens)
+                    }
+                    "memory_retention_days" => {
+                        c.memory_retention_days = v.parse().unwrap_or(c.memory_retention_days)
                     }
                     _ => {}
                 }

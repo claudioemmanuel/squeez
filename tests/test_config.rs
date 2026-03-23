@@ -50,3 +50,17 @@ fn is_bypassed_matches_prefix() {
     assert!(c.is_bypassed("psql -U user mydb"));
     assert!(!c.is_bypassed("git status"));
 }
+
+#[test]
+fn test_config_compact_threshold_default() {
+    let c = squeez::config::Config::default();
+    assert_eq!(c.compact_threshold_tokens, 160_000);
+    assert_eq!(c.memory_retention_days, 30);
+}
+
+#[test]
+fn test_config_compact_threshold_from_ini() {
+    let c = squeez::config::Config::from_str("compact_threshold_tokens = 80000\nmemory_retention_days = 14\n");
+    assert_eq!(c.compact_threshold_tokens, 80_000);
+    assert_eq!(c.memory_retention_days, 14);
+}
