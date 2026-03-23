@@ -1,0 +1,200 @@
+8f487df fix: atomic settings.json write + uninstall safety guards
+48df751 feat: build.sh compiles + installs squeez, registers hook
+cd8994f fix: harden pretooluse hook (shlex.quote, error handling)
+4a54293 feat: PreToolUse hook script
+3f81c13 feat: fs and runtime handlers — all handler tests passing
+9f8a975 feat: typescript + build handlers implementation
+84cf12e feat: package_mgr + test_runner handlers
+f878ee9 feat: git + docker handlers
+7867df9 feat: Handler Trait + Generic Handler + Command Router
+92aaede feat: Strategy — truncation with Keep::Head and Keep::Tail
+0f6c6f0 feat: Strategy — grouping by directory
+af6e395 feat: Strategy — dedup with threshold
+5d75a39 feat: Strategy — smart_filter removes noise
+36a20f8 feat: Config loader with from_str and load()
+f667742 chore: project scaffold with Cargo.toml
+c1d404a fix: remove unused import in filter.rs
+ffc9c52 refactor: extract extract_name into separate fn
+a01674f test: add unit tests for git handler
+0bf171e test: add unit tests for dedup strategy
+da50f59 docs: update README with installation steps
+fee8970 fix: atomic settings.json write + uninstall safety guards
+d445c20 feat: build.sh compiles + installs squeez, registers hook
+17c6b5d fix: harden pretooluse hook (shlex.quote, error handling)
+d8d6936 feat: PreToolUse hook script
+13c09fa feat: fs and runtime handlers — all handler tests passing
+a9dfc55 feat: typescript + build handlers implementation
+c5eb822 feat: package_mgr + test_runner handlers
+37fc0e4 feat: git + docker handlers
+c0e0199 feat: Handler Trait + Generic Handler + Command Router
+5443f8e feat: Strategy — truncation with Keep::Head and Keep::Tail
+7db4f62 feat: Strategy — grouping by directory
+edb1698 feat: Strategy — dedup with threshold
+5ede5c5 feat: Strategy — smart_filter removes noise
+1321957 feat: Config loader with from_str and load()
+b3ce9f9 chore: project scaffold with Cargo.toml
+3d64dd4 fix: remove unused import in filter.rs
+5b5b9f5 refactor: extract extract_name into separate fn
+49809b1 test: add unit tests for git handler
+c7ce1ca test: add unit tests for dedup strategy
+adf8674 docs: update README with installation steps
+a43d160 fix: atomic settings.json write + uninstall safety guards
+dff6585 feat: build.sh compiles + installs squeez, registers hook
+c3ed1ac fix: harden pretooluse hook (shlex.quote, error handling)
+b30898d feat: PreToolUse hook script
+695b6f5 feat: fs and runtime handlers — all handler tests passing
+61b42da feat: typescript + build handlers implementation
+cf648ca feat: package_mgr + test_runner handlers
+24b62e1 feat: git + docker handlers
+3f43f2b feat: Handler Trait + Generic Handler + Command Router
+17aa9f8 feat: Strategy — truncation with Keep::Head and Keep::Tail
+5265b9b feat: Strategy — grouping by directory
+edcc862 feat: Strategy — dedup with threshold
+715a2a2 feat: Strategy — smart_filter removes noise
+34d8d5d feat: Config loader with from_str and load()
+29814b1 chore: project scaffold with Cargo.toml
+3865edd fix: remove unused import in filter.rs
+6d5f5c1 refactor: extract extract_name into separate fn
+043636d test: add unit tests for git handler
+0594471 test: add unit tests for dedup strategy
+f085e38 docs: update README with installation steps
+513f7b3 fix: atomic settings.json write + uninstall safety guards
+6a313a5 feat: build.sh compiles + installs squeez, registers hook
+f2944b6 fix: harden pretooluse hook (shlex.quote, error handling)
+d06e73c feat: PreToolUse hook script
+1260c5c feat: fs and runtime handlers — all handler tests passing
+3c2da8b feat: typescript + build handlers implementation
+dd5c3ff feat: package_mgr + test_runner handlers
+83857ab feat: git + docker handlers
+9899ae7 feat: Handler Trait + Generic Handler + Command Router
+f0a74f4 feat: Strategy — truncation with Keep::Head and Keep::Tail
+00c9b4b feat: Strategy — grouping by directory
+cfc009b feat: Strategy — dedup with threshold
+6b39834 feat: Strategy — smart_filter removes noise
+ae7cf96 feat: Config loader with from_str and load()
+ef04d59 chore: project scaffold with Cargo.toml
+9923325 fix: remove unused import in filter.rs
+d46bcda refactor: extract extract_name into separate fn
+8497d36 test: add unit tests for git handler
+877d01f test: add unit tests for dedup strategy
+db9ec6d docs: update README with installation steps
+0ab3b81 fix: atomic settings.json write + uninstall safety guards
+6769e5b feat: build.sh compiles + installs squeez, registers hook
+705fc7c fix: harden pretooluse hook (shlex.quote, error handling)
+3db7bb2 feat: PreToolUse hook script
+4cddb1d feat: fs and runtime handlers — all handler tests passing
+76218ec feat: typescript + build handlers implementation
+4485de5 feat: package_mgr + test_runner handlers
+3ca585b feat: git + docker handlers
+32a3522 feat: Handler Trait + Generic Handler + Command Router
+f1370c8 feat: Strategy — truncation with Keep::Head and Keep::Tail
+5cecc57 feat: Strategy — grouping by directory
+c0f561c feat: Strategy — dedup with threshold
+012e76a feat: Strategy — smart_filter removes noise
+b01a384 feat: Config loader with from_str and load()
+284aab4 chore: project scaffold with Cargo.toml
+df23c0d fix: remove unused import in filter.rs
+8b919e7 refactor: extract extract_name into separate fn
+0e6639b test: add unit tests for git handler
+434861e test: add unit tests for dedup strategy
+fcd4858 docs: update README with installation steps
+c6b4e51 fix: atomic settings.json write + uninstall safety guards
+ab0cbd2 feat: build.sh compiles + installs squeez, registers hook
+6673c6a fix: harden pretooluse hook (shlex.quote, error handling)
+6c49e50 feat: PreToolUse hook script
+761b573 feat: fs and runtime handlers — all handler tests passing
+4be5da3 feat: typescript + build handlers implementation
+3c01fcb feat: package_mgr + test_runner handlers
+a6f10db feat: git + docker handlers
+83a2e0b feat: Handler Trait + Generic Handler + Command Router
+a31e8af feat: Strategy — truncation with Keep::Head and Keep::Tail
+4f8f053 feat: Strategy — grouping by directory
+4207940 feat: Strategy — dedup with threshold
+13eb0ef feat: Strategy — smart_filter removes noise
+0fb69f4 feat: Config loader with from_str and load()
+8a9020d chore: project scaffold with Cargo.toml
+dbd54c7 fix: remove unused import in filter.rs
+06c20f1 refactor: extract extract_name into separate fn
+17d3753 test: add unit tests for git handler
+85d7cca test: add unit tests for dedup strategy
+362261a docs: update README with installation steps
+3ad5ccf fix: atomic settings.json write + uninstall safety guards
+2c07411 feat: build.sh compiles + installs squeez, registers hook
+420618a fix: harden pretooluse hook (shlex.quote, error handling)
+ad124a9 feat: PreToolUse hook script
+d58314b feat: fs and runtime handlers — all handler tests passing
+2cd17c9 feat: typescript + build handlers implementation
+9c82736 feat: package_mgr + test_runner handlers
+dd8c5ca feat: git + docker handlers
+1b593b3 feat: Handler Trait + Generic Handler + Command Router
+6bf8cce feat: Strategy — truncation with Keep::Head and Keep::Tail
+d5a9e84 feat: Strategy — grouping by directory
+0b69405 feat: Strategy — dedup with threshold
+ddbd97f feat: Strategy — smart_filter removes noise
+0d1eb9a feat: Config loader with from_str and load()
+f42a206 chore: project scaffold with Cargo.toml
+fffb048 fix: remove unused import in filter.rs
+0dc2fa8 refactor: extract extract_name into separate fn
+05c87ff test: add unit tests for git handler
+c3fee65 test: add unit tests for dedup strategy
+d876469 docs: update README with installation steps
+ed68161 fix: atomic settings.json write + uninstall safety guards
+6761917 feat: build.sh compiles + installs squeez, registers hook
+171338c fix: harden pretooluse hook (shlex.quote, error handling)
+1812362 feat: PreToolUse hook script
+ea22f86 feat: fs and runtime handlers — all handler tests passing
+1a8fce8 feat: typescript + build handlers implementation
+161b89b feat: package_mgr + test_runner handlers
+158e56c feat: git + docker handlers
+582861c feat: Handler Trait + Generic Handler + Command Router
+4273688 feat: Strategy — truncation with Keep::Head and Keep::Tail
+976e92e feat: Strategy — grouping by directory
+cdcb4b5 feat: Strategy — dedup with threshold
+feb30e6 feat: Strategy — smart_filter removes noise
+db5ac1a feat: Config loader with from_str and load()
+5ba48f1 chore: project scaffold with Cargo.toml
+25b0c7e fix: remove unused import in filter.rs
+551a687 refactor: extract extract_name into separate fn
+eafb8f1 test: add unit tests for git handler
+e213ad4 test: add unit tests for dedup strategy
+332183d docs: update README with installation steps
+b2f61c6 fix: atomic settings.json write + uninstall safety guards
+d05bcd7 feat: build.sh compiles + installs squeez, registers hook
+e3587c1 fix: harden pretooluse hook (shlex.quote, error handling)
+914f907 feat: PreToolUse hook script
+bd27838 feat: fs and runtime handlers — all handler tests passing
+4ef5c85 feat: typescript + build handlers implementation
+b20ea2c feat: package_mgr + test_runner handlers
+e78b316 feat: git + docker handlers
+d394af6 feat: Handler Trait + Generic Handler + Command Router
+81e887f feat: Strategy — truncation with Keep::Head and Keep::Tail
+3ca61a0 feat: Strategy — grouping by directory
+774761a feat: Strategy — dedup with threshold
+3c19bfc feat: Strategy — smart_filter removes noise
+82fe18d feat: Config loader with from_str and load()
+a38440e chore: project scaffold with Cargo.toml
+57500e4 fix: remove unused import in filter.rs
+a5b6936 refactor: extract extract_name into separate fn
+2ac7fb0 test: add unit tests for git handler
+a3b7c98 test: add unit tests for dedup strategy
+2e361f5 docs: update README with installation steps
+1ef9426 fix: atomic settings.json write + uninstall safety guards
+f7f1aa2 feat: build.sh compiles + installs squeez, registers hook
+d9d97c5 fix: harden pretooluse hook (shlex.quote, error handling)
+2d67e89 feat: PreToolUse hook script
+c0af81b feat: fs and runtime handlers — all handler tests passing
+52b103c feat: typescript + build handlers implementation
+da00f42 feat: package_mgr + test_runner handlers
+bda9dc6 feat: git + docker handlers
+65da485 feat: Handler Trait + Generic Handler + Command Router
+3dca4cc feat: Strategy — truncation with Keep::Head and Keep::Tail
+6b85bed feat: Strategy — grouping by directory
+a596b5a feat: Strategy — dedup with threshold
+bb693e8 feat: Strategy — smart_filter removes noise
+d0ed655 feat: Config loader with from_str and load()
+4180200 chore: project scaffold with Cargo.toml
+6208355 fix: remove unused import in filter.rs
+1ff8ed7 refactor: extract extract_name into separate fn
+56607e3 test: add unit tests for git handler
+c5cb4ad test: add unit tests for dedup strategy
+60c0bf2 docs: update README with installation steps

@@ -1,0 +1,76 @@
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated lodash@4.17.21: use lodash-es
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+npm warn deprecated rimraf@2.7.1: please update
+added package 0
+added package 1
+added package 2
+added package 3
+added package 4
+added package 5
+added package 6
+added package 7
+added package 8
+added package 9
+added package 10
+added package 11
+added package 12
+added package 13
+added package 14
+added package 15
+added package 16
+added package 17
+added package 18
+added package 19
+added package 20
+added package 21
+added package 22
+added package 23
+added package 24
+added package 25
+added package 26
+added package 27
+added package 28
+added package 29
+added package 30
+added package 31
+added package 32
+added package 33
+added package 34
+added package 35
+added package 36
+added package 37
+added package 38
+added package 39
+added package 40
+added package 41
+added package 42
+added package 43
+added package 44
+added package 45
+added package 46
+added package 47
+added package 48
+added package 49
+added 142 packages in 4.2s
