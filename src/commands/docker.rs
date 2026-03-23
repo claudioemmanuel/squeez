@@ -1,11 +1,13 @@
 use crate::commands::Handler;
-use crate::commands::generic::GenericHandler;
 use crate::config::Config;
+use crate::strategies::{smart_filter, dedup, truncation};
 
 pub struct DockerHandler;
 
 impl Handler for DockerHandler {
-    fn compress(&self, cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
-        GenericHandler.compress(cmd, lines, config)
+    fn compress(&self, _cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
+        let lines = smart_filter::apply(lines);
+        let lines = dedup::apply(lines, config.dedup_min);
+        truncation::apply(lines, config.docker_logs_max_lines, truncation::Keep::Tail)
     }
 }
