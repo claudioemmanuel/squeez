@@ -172,9 +172,10 @@ extern "C" fn forward_signal(sig: libc::c_int) {
 
 pub fn extract_file_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for word in text.split_whitespace() {
         let w = word.trim_matches(|c| c == ',' || c == ':' || c == '(' || c == ')' || c == '\'' || c == '"');
-        if looks_like_path(w) && !out.contains(&w.to_string()) {
+        if looks_like_path(w) && seen.insert(w.to_string()) {
             out.push(w.to_string());
         }
     }
@@ -221,7 +222,7 @@ fn extract_git_events(cmd: &str, text: &str) -> Vec<String> {
     text.lines()
         .filter(|l| {
             let t = l.trim();
-            t.len() >= 7 && t[..7.min(t.len())].chars().all(|c| c.is_ascii_hexdigit())
+            t.chars().take(7).count() == 7 && t.chars().take(7).all(|c| c.is_ascii_hexdigit())
         })
         .take(5)
         .map(|l| l.trim().chars().take(100).collect())
@@ -246,7 +247,7 @@ fn record_bash_event(
     let event = format!(
         "{{\"type\":\"bash\",\"cmd\":\"{}\",\"in_tk\":{},\"out_tk\":{},\
 \"files\":{},\"errors\":{},\"git\":{},\"test_summary\":\"{}\",\"ts\":{}}}",
-        json_util::escape_str(cmd.split_whitespace().next().unwrap_or("")),
+        json_util::escape_str(cmd),
         in_tk, out_tk,
         json_util::str_array(files),
         json_util::str_array(errors),
