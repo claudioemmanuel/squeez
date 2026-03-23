@@ -7,4 +7,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
-      - run: bash bench/run.sh
+      - name: Build release binary
+        run: cargo build --release
+      - name: Install binary for benchmarks
+        run: |
+          mkdir -p "$HOME/.claude/squeez/bin"
+          cp target/release/squeez "$HOME/.claude/squeez/bin/squeez"
+      - name: Run benchmarks
+        run: bash bench/run.sh
