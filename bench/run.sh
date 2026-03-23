@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
+if [ ! -x "$SQUEEZ" ]; then
+    echo "ERROR: squeez binary not found at $SQUEEZ" >&2
+    exit 1
+fi
 FIXTURES="$(dirname "$0")/fixtures"
 REPORT="$(dirname "$0")/report.md"
 FAIL=0; TOTAL=0
