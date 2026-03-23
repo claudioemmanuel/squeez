@@ -18,7 +18,13 @@ fn main() {
             let exit_code = squeez::commands::filter_stdin::run(hint);
             std::process::exit(exit_code);
         }
-        Some("init") | Some("track") | Some("compact") => {
+        Some("track") => {
+            let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
+            let bytes = args.get(3).map(String::as_str).unwrap_or("0");
+            let exit_code = squeez::commands::track::run(tool, bytes);
+            std::process::exit(exit_code);
+        }
+        Some("init") | Some("compact") => {
             eprintln!("squeez: {} not yet implemented (Phase 2)", args[1]);
             std::process::exit(1);
         }
