@@ -1,6 +1,6 @@
 use crate::commands::Handler;
 use crate::config::Config;
-use crate::strategies::{smart_filter, dedup, grouping, truncation};
+use crate::strategies::{dedup, grouping, smart_filter, truncation};
 
 pub struct GitHandler;
 

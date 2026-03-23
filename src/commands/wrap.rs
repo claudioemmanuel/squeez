@@ -1,11 +1,11 @@
-use std::process::{Command, Stdio};
-use std::os::unix::process::CommandExt;
-use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::io::Read;
-use std::thread;
 use crate::config::Config;
 use crate::filter;
+use std::io::Read;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
 
@@ -29,7 +29,10 @@ pub fn run(cmd_str: &str) -> i32 {
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => { eprintln!("squeez: {}", e); return 1; }
+        Err(e) => {
+            eprintln!("squeez: {}", e);
+            return 1;
+        }
     };
 
     // Store PID for signal forwarding
@@ -58,7 +61,9 @@ pub fn run(cmd_str: &str) -> i32 {
             Ok(Some(s)) => break s.code().unwrap_or(1),
             Ok(None) => {
                 if start.elapsed() >= timeout {
-                    unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
+                    unsafe {
+                        libc::kill(-(child.id() as i32), libc::SIGTERM);
+                    }
                     std::thread::sleep(Duration::from_millis(200));
                     let _ = child.kill();
                     eprintln!("squeez: command timed out after 120s");
@@ -68,7 +73,10 @@ pub fn run(cmd_str: &str) -> i32 {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Err(e) => { eprintln!("squeez: wait error: {}", e); return 1; }
+            Err(e) => {
+                eprintln!("squeez: wait error: {}", e);
+                return 1;
+            }
         }
     };
 
@@ -140,6 +148,8 @@ fn setup_signals() {
 extern "C" fn forward_signal(sig: libc::c_int) {
     let pid = CHILD_PID.load(Ordering::SeqCst);
     if pid > 0 {
-        unsafe { libc::kill(-pid, sig); }
+        unsafe {
+            libc::kill(-pid, sig);
+        }
     }
 }

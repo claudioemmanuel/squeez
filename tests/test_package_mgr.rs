@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, package_mgr::PackageMgrHandler};
+use squeez::commands::{package_mgr::PackageMgrHandler, Handler};
 use squeez::config::Config;
 
 #[test]

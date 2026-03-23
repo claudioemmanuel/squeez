@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, cloud::CloudHandler};
+use squeez::commands::{cloud::CloudHandler, Handler};
 use squeez::config::Config;
 
 #[test]

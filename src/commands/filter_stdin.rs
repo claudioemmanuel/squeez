@@ -1,6 +1,6 @@
-use std::io::{self, Read};
 use crate::config::Config;
 use crate::filter;
+use std::io::{self, Read};
 
 pub fn run(hint: &str) -> i32 {
     let mut input = String::new();

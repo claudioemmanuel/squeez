@@ -8,14 +8,17 @@ impl Handler for NetworkHandler {
     fn compress(&self, _cmd: &str, lines: Vec<String>, _config: &Config) -> Vec<String> {
         let lines = smart_filter::apply(lines);
 
-        if lines.iter().any(|l| l.contains("\"errors\"") && l.contains("\"message\"")) {
+        if lines
+            .iter()
+            .any(|l| l.contains("\"errors\"") && l.contains("\"message\""))
+        {
             return extract_graphql_error(&lines);
         }
 
-        let filtered: Vec<String> = lines.into_iter().filter(|l| {
-            l.starts_with("< HTTP") || l.starts_with("HTTP/")
-                || !l.starts_with("< ")
-        }).collect();
+        let filtered: Vec<String> = lines
+            .into_iter()
+            .filter(|l| l.starts_with("< HTTP") || l.starts_with("HTTP/") || !l.starts_with("< "))
+            .collect();
 
         truncation::apply(filtered, 60, truncation::Keep::Head)
     }

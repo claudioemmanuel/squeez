@@ -1,9 +1,14 @@
 use std::path::PathBuf;
 
 fn tmp_dir(label: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("squeez_sess_{}_{}", label,
+    let d = std::env::temp_dir().join(format!(
+        "squeez_sess_{}_{}",
+        label,
         std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
     std::fs::create_dir_all(&d).unwrap();
     d
 }

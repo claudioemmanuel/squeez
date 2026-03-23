@@ -60,7 +60,9 @@ fn test_config_compact_threshold_default() {
 
 #[test]
 fn test_config_compact_threshold_from_ini() {
-    let c = squeez::config::Config::from_str("compact_threshold_tokens = 80000\nmemory_retention_days = 14\n");
+    let c = squeez::config::Config::from_str(
+        "compact_threshold_tokens = 80000\nmemory_retention_days = 14\n",
+    );
     assert_eq!(c.compact_threshold_tokens, 80_000);
     assert_eq!(c.memory_retention_days, 14);
 }

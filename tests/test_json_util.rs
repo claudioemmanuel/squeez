@@ -1,13 +1,22 @@
 #[test]
 fn test_extract_str_basic() {
     let s = r#"{"name":"hello","other":"world"}"#;
-    assert_eq!(squeez::json_util::extract_str(s, "name"), Some("hello".to_string()));
-    assert_eq!(squeez::json_util::extract_str(s, "other"), Some("world".to_string()));
+    assert_eq!(
+        squeez::json_util::extract_str(s, "name"),
+        Some("hello".to_string())
+    );
+    assert_eq!(
+        squeez::json_util::extract_str(s, "other"),
+        Some("world".to_string())
+    );
 }
 
 #[test]
 fn test_extract_str_missing_key() {
-    assert_eq!(squeez::json_util::extract_str(r#"{"name":"hello"}"#, "missing"), None);
+    assert_eq!(
+        squeez::json_util::extract_str(r#"{"name":"hello"}"#, "missing"),
+        None
+    );
 }
 
 #[test]

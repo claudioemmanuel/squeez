@@ -63,9 +63,7 @@ impl Config {
                     "find_max_results" => {
                         c.find_max_results = v.parse().unwrap_or(c.find_max_results)
                     }
-                    "bypass" => {
-                        c.bypass = v.split(',').map(|s| s.trim().to_string()).collect()
-                    }
+                    "bypass" => c.bypass = v.split(',').map(|s| s.trim().to_string()).collect(),
                     "compact_threshold_tokens" => {
                         c.compact_threshold_tokens = v.parse().unwrap_or(c.compact_threshold_tokens)
                     }

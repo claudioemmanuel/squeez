@@ -6,7 +6,10 @@ fn bin() -> String {
 
 #[test]
 fn wrap_runs_and_shows_header() {
-    let out = Command::new(bin()).args(["wrap", "echo hello"]).output().unwrap();
+    let out = Command::new(bin())
+        .args(["wrap", "echo hello"])
+        .output()
+        .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("hello"));
     assert!(stdout.contains("# squeez"));

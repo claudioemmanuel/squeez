@@ -1,4 +1,4 @@
-use squeez::commands::{Handler, fs::FsHandler};
+use squeez::commands::{fs::FsHandler, Handler};
 use squeez::config::Config;
 
 #[test]

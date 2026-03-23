@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 // ── Directory helpers ──────────────────────────────────────────────────────
 
@@ -8,12 +8,18 @@ pub fn squeez_dir() -> PathBuf {
     if let Ok(d) = std::env::var("SQUEEZ_DIR") {
         return PathBuf::from(d);
     }
-    PathBuf::from(format!("{}/.claude/squeez",
-        std::env::var("HOME").unwrap_or_default()))
+    PathBuf::from(format!(
+        "{}/.claude/squeez",
+        std::env::var("HOME").unwrap_or_default()
+    ))
 }
 
-pub fn sessions_dir() -> PathBuf { squeez_dir().join("sessions") }
-pub fn memory_dir() -> PathBuf   { squeez_dir().join("memory") }
+pub fn sessions_dir() -> PathBuf {
+    squeez_dir().join("sessions")
+}
+pub fn memory_dir() -> PathBuf {
+    squeez_dir().join("memory")
+}
 
 // ── Time helpers ───────────────────────────────────────────────────────────
 
@@ -46,17 +52,31 @@ fn days_to_ymd(days: u64) -> (u32, u32, u32) {
     let mut year = 1970i32;
     loop {
         let diy: i64 = if is_leap(year) { 366 } else { 365 };
-        if rem < diy { break; }
+        if rem < diy {
+            break;
+        }
         rem -= diy;
         year += 1;
     }
     let month_days: [i64; 12] = [
-        31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30,
-        31, 31, 30, 31, 30, 31,
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 1u32;
     for &md in &month_days {
-        if rem < md { break; }
+        if rem < md {
+            break;
+        }
         rem -= md;
         month += 1;
     }
@@ -81,10 +101,10 @@ impl CurrentSession {
     pub fn load(sessions_dir: &Path) -> Option<Self> {
         let s = std::fs::read_to_string(sessions_dir.join("current.json")).ok()?;
         Some(Self {
-            session_file:   crate::json_util::extract_str(&s, "session_file").unwrap_or_default(),
-            total_tokens:   crate::json_util::extract_u64(&s, "total_tokens").unwrap_or(0),
+            session_file: crate::json_util::extract_str(&s, "session_file").unwrap_or_default(),
+            total_tokens: crate::json_util::extract_u64(&s, "total_tokens").unwrap_or(0),
             compact_warned: crate::json_util::extract_bool(&s, "compact_warned").unwrap_or(false),
-            start_ts:       crate::json_util::extract_u64(&s, "start_ts").unwrap_or(0),
+            start_ts: crate::json_util::extract_u64(&s, "start_ts").unwrap_or(0),
         })
     }
 
@@ -104,10 +124,14 @@ impl CurrentSession {
 
 /// Appends one JSONL line to the session log file (creates if missing).
 pub fn append_event(sessions_dir: &Path, session_file: &str, event_json: &str) {
-    if session_file.is_empty() { return; }
+    if session_file.is_empty() {
+        return;
+    }
     let path = sessions_dir.join(session_file);
     if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&path)
+        .create(true)
+        .append(true)
+        .open(&path)
     {
         let _ = writeln!(f, "{}", event_json);
     }

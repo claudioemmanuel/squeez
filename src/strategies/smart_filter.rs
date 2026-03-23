@@ -1,7 +1,8 @@
-const SPINNER_CHARS: &[char] = &['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+const SPINNER_CHARS: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 pub fn apply(lines: Vec<String>) -> Vec<String> {
-    lines.into_iter()
+    lines
+        .into_iter()
         .map(strip_ansi)
         .map(|s| s.replace('\r', ""))
         .filter(|l| !l.trim().is_empty())
@@ -22,7 +23,9 @@ fn strip_ansi(s: String) -> String {
             chars.next();
             while let Some(&nc) = chars.peek() {
                 chars.next();
-                if nc.is_ascii_alphabetic() { break; }
+                if nc.is_ascii_alphabetic() {
+                    break;
+                }
             }
         } else {
             out.push(c);
@@ -43,7 +46,9 @@ fn is_progress_bar(s: &str) -> bool {
         || (t.ends_with('%') && t.chars().any(|c| c.is_ascii_digit()))
 }
 
-fn is_git_hint(s: &str) -> bool { s.trim_start().starts_with("hint:") }
+fn is_git_hint(s: &str) -> bool {
+    s.trim_start().starts_with("hint:")
+}
 
 fn is_npm_noise(s: &str) -> bool {
     let t = s.trim_start();

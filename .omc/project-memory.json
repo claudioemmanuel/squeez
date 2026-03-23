@@ -1,0 +1,268 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1774239100818,
+  "projectRoot": "/Users/claudioemmanuel/Documents/GitHub/squeez",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Rust",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Cargo.toml"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "cargo",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "cargo build",
+    "testCommand": "cargo test",
+    "lintCommand": "cargo clippy",
+    "devCommand": "cargo run",
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 4,
+      "lastAccessed": 1774239100808,
+      "keyFiles": [
+        "config.rs",
+        "filter.rs",
+        "lib.rs",
+        "main.rs"
+      ]
+    },
+    "target": {
+      "path": "target",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1774239100808,
+      "keyFiles": [
+        "CACHEDIR.TAG"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 18,
+      "lastAccessed": 1774239100809,
+      "keyFiles": [
+        "test_build.rs",
+        "test_cloud.rs",
+        "test_config.rs",
+        "test_database.rs",
+        "test_dedup.rs"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "",
+      "accessCount": 11,
+      "lastAccessed": 1774261509940,
+      "type": "directory"
+    },
+    {
+      "path": "src/json_util.rs",
+      "accessCount": 10,
+      "lastAccessed": 1774263116897,
+      "type": "file"
+    },
+    {
+      "path": "hooks/pretooluse.sh",
+      "accessCount": 8,
+      "lastAccessed": 1774239470413,
+      "type": "file"
+    },
+    {
+      "path": "uninstall.sh",
+      "accessCount": 8,
+      "lastAccessed": 1774240021167,
+      "type": "file"
+    },
+    {
+      "path": "src/config.rs",
+      "accessCount": 8,
+      "lastAccessed": 1774262742256,
+      "type": "file"
+    },
+    {
+      "path": "src/lib.rs",
+      "accessCount": 8,
+      "lastAccessed": 1774263111242,
+      "type": "file"
+    },
+    {
+      "path": "bench/run.sh",
+      "accessCount": 6,
+      "lastAccessed": 1774239845740,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_config.rs",
+      "accessCount": 5,
+      "lastAccessed": 1774262742366,
+      "type": "file"
+    },
+    {
+      "path": "install.sh",
+      "accessCount": 4,
+      "lastAccessed": 1774261513824,
+      "type": "file"
+    },
+    {
+      "path": "bench/capture.sh",
+      "accessCount": 3,
+      "lastAccessed": 1774239763500,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_session.rs",
+      "accessCount": 3,
+      "lastAccessed": 1774263111067,
+      "type": "file"
+    },
+    {
+      "path": "Cargo.toml",
+      "accessCount": 3,
+      "lastAccessed": 1774263120058,
+      "type": "file"
+    },
+    {
+      "path": "LICENSE",
+      "accessCount": 2,
+      "lastAccessed": 1774240007978,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1774240008154,
+      "type": "file"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "accessCount": 2,
+      "lastAccessed": 1774240008221,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_json_util.rs",
+      "accessCount": 2,
+      "lastAccessed": 1774262912890,
+      "type": "file"
+    },
+    {
+      "path": "src/session.rs",
+      "accessCount": 2,
+      "lastAccessed": 1774263110897,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/fs.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239648481,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/generic.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239652213,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/package_mgr.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239652572,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/git.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239653407,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/truncation.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239657603,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/grouping.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774239658057,
+      "type": "file"
+    },
+    {
+      "path": "bench/report.md",
+      "accessCount": 1,
+      "lastAccessed": 1774239769964,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 1,
+      "lastAccessed": 1774261465885,
+      "type": "directory"
+    },
+    {
+      "path": "src/main.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261471928,
+      "type": "file"
+    },
+    {
+      "path": "src/filter.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261472747,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/mod.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261473169,
+      "type": "file"
+    },
+    {
+      "path": "src/commands/wrap.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261473222,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_wrap_integration.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261508436,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/mod.rs",
+      "accessCount": 1,
+      "lastAccessed": 1774261513978,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
