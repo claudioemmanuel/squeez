@@ -108,7 +108,9 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
     let dirty = git(&["status", "--porcelain"]);
     let files_committed: Vec<String> = files_touched
         .iter()
-        .filter(|f| !dirty.lines().any(|l| l.contains(f.as_str())))
+        // git status --porcelain lines end with the path, so use ends_with
+        // to avoid false positives from substring matches (e.g. "foo.rs" in "foo.rs.bak")
+        .filter(|f| !dirty.lines().any(|l| l.ends_with(f.as_str())))
         .cloned()
         .collect();
 
