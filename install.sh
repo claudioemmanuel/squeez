@@ -4,22 +4,49 @@ REPO_RAW="https://raw.githubusercontent.com/claudioemmanuel/squeez/main"
 RELEASES="https://github.com/claudioemmanuel/squeez/releases/latest/download"
 INSTALL_DIR="$HOME/.claude/squeez"
 
+# Detect OS and architecture
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+case "$OS" in
+  Darwin)  BINARY="squeez-macos-universal" ;;
+  Linux)
+    case "$ARCH" in
+      x86_64)          BINARY="squeez-linux-x86_64" ;;
+      aarch64|arm64)   BINARY="squeez-linux-aarch64" ;;
+      *) echo "ERROR: unsupported arch $ARCH" >&2; exit 1 ;;
+    esac
+    ;;
+  Windows*|MINGW*|CYGWIN*)
+    echo "ERROR: Windows não é suportado. Use macOS ou Linux." >&2
+    exit 1
+    ;;
+  *) echo "ERROR: unsupported OS $OS" >&2; exit 1 ;;
+esac
+
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 
-echo "Downloading squeez binary..."
-curl -fsSL "$RELEASES/squeez-macos-universal" -o "$INSTALL_DIR/bin/squeez"
+echo "Downloading squeez binary for $OS/$ARCH..."
+curl -fsSL "$RELEASES/$BINARY" -o "$INSTALL_DIR/bin/squeez"
 
 echo "Verifying checksum..."
 curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256
-expected=$(grep "squeez-macos-universal" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
+expected=$(grep "$BINARY" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
 rm -f /tmp/squeez-checksums.sha256
 if [ -z "$expected" ]; then
-    echo "ERROR: could not find checksum for squeez-macos-universal in release" >&2
+    echo "ERROR: could not find checksum for $BINARY in release" >&2
     rm -f "$INSTALL_DIR/bin/squeez"
     exit 1
 fi
-actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+
+# Use sha256sum if available (Linux), otherwise fall back to shasum (macOS)
+if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+else
+    actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+fi
+
 if [ "$expected" != "$actual" ]; then
     echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
     rm -f "$INSTALL_DIR/bin/squeez"
