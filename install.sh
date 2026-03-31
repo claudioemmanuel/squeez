@@ -62,6 +62,30 @@ curl -fsSL "$REPO_RAW/hooks/session-start.sh"  -o "$INSTALL_DIR/hooks/session-st
 curl -fsSL "$REPO_RAW/hooks/posttooluse.sh"    -o "$INSTALL_DIR/hooks/posttooluse.sh"
 chmod +x "$INSTALL_DIR/hooks/pretooluse.sh" "$INSTALL_DIR/hooks/session-start.sh" "$INSTALL_DIR/hooks/posttooluse.sh"
 
+echo "Installing OpenCode plugin..."
+OPENCODE_PLUGIN_DIR="$HOME/.config/opencode/plugins"
+mkdir -p "$OPENCODE_PLUGIN_DIR"
+curl -fsSL "$REPO_RAW/opencode-plugin/squeez.js" -o "$OPENCODE_PLUGIN_DIR/squeez.js" 2>/dev/null || {
+    cat > "$OPENCODE_PLUGIN_DIR/squeez.js" <<'PLUGIN_EOF'
+const SQUEEZ_BIN = `${process.env.HOME}/.claude/squeez/bin/squeez`;
+
+export const SqueezPlugin = async () => {
+  return {
+    "tool.execute.before": async (input, output) => {
+      if (input.tool === "bash") {
+        const command = output.args?.command;
+        if (!command || typeof command !== "string") return;
+        if (command.startsWith(SQUEEZ_BIN)) return;
+        if (command.includes("squeez wrap")) return;
+        if (command.startsWith("--no-squeez")) return;
+        output.args.command = `${SQUEEZ_BIN} wrap ${command}`;
+      }
+    },
+  };
+};
+PLUGIN_EOF
+}
+
 echo "Registering hooks in ~/.claude/settings.json..."
 python3 - <<'EOF'
 import json, os, sys
@@ -102,4 +126,7 @@ os.replace(tmp, path)
 EOF
 
 version=$("$INSTALL_DIR/bin/squeez" --version 2>/dev/null || echo "squeez")
-echo "✅ $version installed. Restart Claude Code to activate."
+echo "✅ $version installed."
+echo ""
+echo "Claude Code: Restart Claude Code to activate."
+echo "OpenCode: Restart OpenCode to activate the plugin (automatic Bash compression)."
