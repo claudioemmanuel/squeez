@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-Token compression + context optimization for Claude Code. Runs automatically. No configuration required.
+Token compression + context optimization for Claude Code and OpenCode. Runs automatically in Claude Code. Manual usage in OpenCode.
 
 ## What it does
 
@@ -19,7 +19,8 @@ Token compression + context optimization for Claude Code. Runs automatically. No
 curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
 ```
 
-Restart Claude Code. Done.
+- **Claude Code:** Restart Claude Code to activate
+- **OpenCode:** Restart OpenCode to activate the plugin
 
 ## Benchmarks
 
@@ -70,6 +71,32 @@ Three Claude Code hooks work together:
 **Session memory** (`SessionStart`): On each new session, `squeez init` finalizes the previous session into a summary (files touched, errors resolved, test results, git events) and prints a memory banner so Claude has prior-session context from the start.
 
 **Token tracking** (`PostToolUse`): Every tool call's output size is tracked. When cumulative session tokens cross 80% of the context budget, a compact warning is emitted in the next bash output header.
+
+## OpenCode
+
+OpenCode is supported via an auto-loading plugin that intercepts all Bash commands.
+
+**Install:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
+```
+
+**What happens:**
+- Plugin is installed to `~/.config/opencode/plugins/squeez.js`
+- OpenCode auto-loads plugins on startup
+- All Bash commands are automatically compressed via `squeez wrap`
+
+**Escape hatch:**
+```bash
+--no-squeez git log --all --graph
+```
+
+**Manual usage:**
+```bash
+squeez wrap git status
+squeez wrap docker logs mycontainer
+squeez wrap npm install
+```
 
 ## Local development
 
