@@ -16,6 +16,77 @@ pub fn run() -> i32 {
     run_with_dirs(&sessions, &mem, &cfg)
 }
 
+/// Entry point called from main.rs: `squeez init --copilot`
+/// Same as run() but also injects the memory banner into
+/// ~/.copilot/copilot-instructions.md so Copilot CLI picks it up
+/// at every session start (no hook system required).
+pub fn run_copilot() -> i32 {
+    let home = std::env::var("HOME").unwrap_or_default();
+    // Honour SQUEEZ_DIR override, default to ~/.copilot/squeez
+    let base = std::env::var("SQUEEZ_DIR")
+        .unwrap_or_else(|_| format!("{}/.copilot/squeez", home));
+    let sessions = std::path::PathBuf::from(&base).join("sessions");
+    let mem = std::path::PathBuf::from(&base).join("memory");
+    let _ = std::fs::create_dir_all(&sessions);
+    let _ = std::fs::create_dir_all(&mem);
+
+    // Load config from the copilot squeez dir
+    let cfg = load_config_from(&base);
+
+    let code = run_with_dirs(&sessions, &mem, &cfg);
+
+    // Inject memory banner into Copilot CLI instructions file
+    let summaries = memory::read_last_n(&mem, 3);
+    inject_copilot_instructions(&home, &cfg, &summaries);
+
+    code
+}
+
+fn load_config_from(base: &str) -> Config {
+    let path = format!("{}/config.ini", base);
+    std::fs::read_to_string(&path)
+        .map(|s| Config::from_str(&s))
+        .unwrap_or_default()
+}
+
+/// Replaces the squeez block (<!-- squeez:start --> … <!-- squeez:end -->)
+/// in ~/.copilot/copilot-instructions.md, creating the file if absent.
+fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Summary]) {
+    let path = format!("{}/.copilot/copilot-instructions.md", home);
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+
+    let mut block = String::from("<!-- squeez:start -->\n");
+    block.push_str("## squeez — session context\n");
+    let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
+    block.push_str(&format!(
+        "Context budget: ~{}K tokens | Compression: ON | Memory: ON\n",
+        budget_k
+    ));
+    for s in summaries {
+        block.push_str(&format!("- {}\n", s.display_line()));
+    }
+    if summaries.is_empty() {
+        block.push_str("- No prior sessions recorded yet.\n");
+    }
+    block.push_str("<!-- squeez:end -->\n");
+
+    // Strip previous squeez block if present
+    let cleaned = if existing.contains("<!-- squeez:start -->") {
+        let start = existing.find("<!-- squeez:start -->").unwrap_or(0);
+        let end = existing
+            .find("<!-- squeez:end -->")
+            .map(|i| i + "<!-- squeez:end -->".len() + 1) // include newline
+            .unwrap_or(start);
+        format!("{}{}", &existing[..start], &existing[end.min(existing.len())..])
+    } else {
+        existing
+    };
+
+    // Prepend the fresh block
+    let contents = format!("{}\n{}", block, cleaned.trim_start());
+    let _ = std::fs::write(&path, contents);
+}
+
 /// Testable version with explicit directories.
 pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) -> i32 {
     // 1. Finalise previous session → memory (best-effort)

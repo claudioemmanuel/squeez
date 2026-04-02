@@ -125,8 +125,68 @@ with open(tmp, "w") as f:
 os.replace(tmp, path)
 EOF
 
+echo "Installing Copilot CLI hooks..."
+COPILOT_SQUEEZ_DIR="$HOME/.copilot/squeez"
+mkdir -p "$COPILOT_SQUEEZ_DIR/bin" "$COPILOT_SQUEEZ_DIR/hooks" \
+         "$COPILOT_SQUEEZ_DIR/sessions" "$COPILOT_SQUEEZ_DIR/memory"
+chmod 700 "$COPILOT_SQUEEZ_DIR" "$COPILOT_SQUEEZ_DIR/sessions" "$COPILOT_SQUEEZ_DIR/memory" 2>/dev/null || true
+
+# Symlink the same binary so SQUEEZ_DIR-aware calls work
+ln -sf "$INSTALL_DIR/bin/squeez" "$COPILOT_SQUEEZ_DIR/bin/squeez" 2>/dev/null || \
+    cp "$INSTALL_DIR/bin/squeez" "$COPILOT_SQUEEZ_DIR/bin/squeez"
+
+curl -fsSL "$REPO_RAW/hooks/copilot-pretooluse.sh"     -o "$INSTALL_DIR/hooks/copilot-pretooluse.sh"
+curl -fsSL "$REPO_RAW/hooks/copilot-session-start.sh"  -o "$INSTALL_DIR/hooks/copilot-session-start.sh"
+curl -fsSL "$REPO_RAW/hooks/copilot-posttooluse.sh"    -o "$INSTALL_DIR/hooks/copilot-posttooluse.sh"
+chmod +x "$INSTALL_DIR/hooks/copilot-pretooluse.sh" \
+         "$INSTALL_DIR/hooks/copilot-session-start.sh" \
+         "$INSTALL_DIR/hooks/copilot-posttooluse.sh"
+
+# Seed Copilot instructions (writes ~/.copilot/copilot-instructions.md)
+"$INSTALL_DIR/bin/squeez" init --copilot 2>/dev/null || true
+
+# Register hooks in ~/.copilot/settings.json (Copilot CLI hook format mirrors Claude Code)
+if [ -d "$HOME/.copilot" ]; then
+python3 - <<'COPILOT_EOF'
+import json, os, sys
+path = os.path.expanduser("~/.copilot/settings.json")
+settings = {}
+try:
+    if os.path.exists(path):
+        with open(path) as f:
+            settings = json.load(f)
+except (json.JSONDecodeError, IOError) as e:
+    print(f"Warning: could not read ~/.copilot/settings.json: {e}", file=sys.stderr)
+
+if not isinstance(settings.get("PreToolUse"), list):
+    settings["PreToolUse"] = []
+pre = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/copilot-pretooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PreToolUse"]):
+    settings["PreToolUse"].append(pre)
+
+if not isinstance(settings.get("SessionStart"), list):
+    settings["SessionStart"] = []
+start = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/copilot-session-start.sh"}]}
+if not any("squeez" in str(h) for h in settings["SessionStart"]):
+    settings["SessionStart"].append(start)
+
+if not isinstance(settings.get("PostToolUse"), list):
+    settings["PostToolUse"] = []
+post = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/copilot-posttooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PostToolUse"]):
+    settings["PostToolUse"].append(post)
+
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(settings, f, indent=2)
+os.replace(tmp, path)
+COPILOT_EOF
+fi
+
 version=$("$INSTALL_DIR/bin/squeez" --version 2>/dev/null || echo "squeez")
 echo "✅ $version installed."
 echo ""
-echo "Claude Code: Restart Claude Code to activate."
-echo "OpenCode: Restart OpenCode to activate the plugin (automatic Bash compression)."
+echo "Claude Code:  Restart Claude Code to activate."
+echo "OpenCode:     Restart OpenCode to activate the plugin (automatic Bash compression)."
+echo "Copilot CLI:  Memory injected into ~/.copilot/copilot-instructions.md."
+echo "              Restart Copilot CLI to activate hook-based bash compression."

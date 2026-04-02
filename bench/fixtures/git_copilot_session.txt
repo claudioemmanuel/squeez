@@ -1,0 +1,45 @@
+Cloning into 'openwatch'...
+remote: Enumerating objects: 2745, done.
+remote: Counting objects:   0% (1/150)
+remote: Counting objects:  50% (75/150)
+remote: Counting objects: 100% (150/150), done.
+remote: Compressing objects:  50% (39/78)
+remote: Compressing objects: 100% (78/78), done.
+Receiving objects:  10% (275/2745)
+Receiving objects:  50% (1373/2745)
+Receiving objects: 100% (2745/2745), 1.82 MiB | 8.36 MiB/s, done.
+Resolving deltas:  50% (849/1696)
+Resolving deltas: 100% (1696/1696), done.
+# squeez [git] 950→42 tokens (-95%) 12ms
+1dc6071 Fix systemic limitations and improve data reliability
+6d7c12b chore: track copilot-instructions.md and fix inconsistencies
+68dd123 chore: ignore _worktrees directory
+602e402 feat: expand data coverage via MCP Brasil
+c2d6044 fix(worker): structured logging and resilient startup observability
+branch 'main' set up to track 'origin/main'.
+Already up to date.
+Updating fc86688..1dc6071
+Fast-forward
+ .claude/settings.json                                           |   10 +-
+ .gitattributes                                                  |    7 +
+ shared/connectors/__init__.py                                   |   12 +-
+ shared/connectors/datajud.py                                    |  312 ++++
+ shared/connectors/ibge.py                                       |  287 ++++
+ shared/connectors/tcu.py                                        |  198 +++
+ shared/typologies/base.py                                       |   34 +-
+ shared/typologies/registry.py                                   |   21 +-
+ shared/typologies/t01_concentration.py                          |    8 +-
+ shared/typologies/t02_low_competition.py                        |   15 +-
+ shared/typologies/t03_splitting.py                              |    8 +-
+ tests/conftest.py                                               |   45 +-
+ tests/connectors/test_connectors.py                             |   87 +-
+ tests/worker/test_signal_tasks.py                               |   34 +-
+ web/src/app/globals.css                                         |  112 +-
+ web/src/app/page.tsx                                            |   89 +-
+ web/src/components/Badge.tsx                                    |   45 +-
+ web/src/lib/design-tokens.ts                                    |   78 +-
+ worker/tasks/signal_tasks.py                                    |   56 +-
+ 37 files changed, 1847 insertions(+), 423 deletions(-)
+CONFLICT (content): Merge conflict in shared/connectors/__init__.py
+CONFLICT (content): Merge conflict in tests/conftest.py
+Done

@@ -25,7 +25,12 @@ fn main() {
             std::process::exit(exit_code);
         }
         Some("init") => {
-            let exit_code = squeez::commands::init::run();
+            let copilot = args.get(2).map(String::as_str) == Some("--copilot");
+            let exit_code = if copilot {
+                squeez::commands::init::run_copilot()
+            } else {
+                squeez::commands::init::run()
+            };
             std::process::exit(exit_code);
         }
         Some("compact") => {

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-SQUEEZ="$HOME/.claude/squeez/bin/squeez"
-if [ ! -x "$SQUEEZ" ]; then
-    echo "ERROR: squeez binary not found at $SQUEEZ" >&2
+# Use local dev build if available, otherwise fall back to installed binary
+if [ -x "$(dirname "$0")/../target/release/squeez" ]; then
+    SQUEEZ="$(cd "$(dirname "$0")/.." && pwd)/target/release/squeez"
+elif [ -x "$HOME/.claude/squeez/bin/squeez" ]; then
+    SQUEEZ="$HOME/.claude/squeez/bin/squeez"
+else
+    echo "ERROR: squeez binary not found. Run 'cargo build --release' first." >&2
     exit 1
 fi
 FIXTURES="$(dirname "$0")/fixtures"
