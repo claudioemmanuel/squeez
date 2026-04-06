@@ -25,11 +25,12 @@ fn main() {
             std::process::exit(exit_code);
         }
         Some("init") => {
-            let copilot = args.get(2).map(String::as_str) == Some("--copilot");
-            let exit_code = if copilot {
-                squeez::commands::init::run_copilot()
-            } else {
-                squeez::commands::init::run()
+            let opt = args.get(2).map(String::as_str);
+            let exit_code = match opt {
+                Some("--copilot") => squeez::commands::init::run_copilot(),
+                Some("--codex") => squeez::commands::init::run_codex(),
+                Some("--antigravity") => squeez::commands::init::run_antigravity(),
+                _ => squeez::commands::init::run(),
             };
             std::process::exit(exit_code);
         }

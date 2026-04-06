@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{
     config::Config,
@@ -49,10 +49,8 @@ fn load_config_from(base: &str) -> Config {
         .unwrap_or_default()
 }
 
-/// Replaces the squeez block (<!-- squeez:start --> … <!-- squeez:end -->)
-/// in ~/.copilot/copilot-instructions.md, creating the file if absent.
-fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Summary]) {
-    let path = format!("{}/.copilot/copilot-instructions.md", home);
+/// Generic injector: writes/replaces the squeez block in the given file path.
+fn inject_instructions_into(path: &str, cfg: &Config, summaries: &[memory::Summary]) {
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
 
     let mut block = String::from("<!-- squeez:start -->\n");
@@ -85,6 +83,54 @@ fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Su
     // Prepend the fresh block
     let contents = format!("{}\n{}", block, cleaned.trim_start());
     let _ = std::fs::write(&path, contents);
+}
+
+/// Backwards-compatible wrapper for Copilot injection
+fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Summary]) {
+    let path = format!("{}/.copilot/copilot-instructions.md", home);
+    inject_instructions_into(&path, cfg, summaries);
+}
+
+/// Entry point called from main.rs: `squeez init --codex`
+/// Creates ~/.codex/squeez and injects a squeez block into ~/.codex/codex-instructions.md
+pub fn run_codex() -> i32 {
+    let home = std::env::var("HOME").unwrap_or_default();
+    // Honour SQUEEZ_DIR override, default to ~/.codex/squeez
+    let base = std::env::var("SQUEEZ_DIR")
+        .unwrap_or_else(|_| format!("{}/.codex/squeez", home));
+    let sessions = PathBuf::from(&base).join("sessions");
+    let mem = PathBuf::from(&base).join("memory");
+    let _ = std::fs::create_dir_all(&sessions);
+    let _ = std::fs::create_dir_all(&mem);
+
+    let cfg = load_config_from(&base);
+    let code = run_with_dirs(&sessions, &mem, &cfg);
+
+    let summaries = memory::read_last_n(&mem, 3);
+    inject_instructions_into(&format!("{}/.codex/codex-instructions.md", home), &cfg, &summaries);
+
+    code
+}
+
+/// Entry point called from main.rs: `squeez init --antigravity`
+/// Creates ~/.antigravity/squeez and injects a squeez block into ~/.antigravity/antigravity-instructions.md
+pub fn run_antigravity() -> i32 {
+    let home = std::env::var("HOME").unwrap_or_default();
+    // Honour SQUEEZ_DIR override, default to ~/.antigravity/squeez
+    let base = std::env::var("SQUEEZ_DIR")
+        .unwrap_or_else(|_| format!("{}/.antigravity/squeez", home));
+    let sessions = PathBuf::from(&base).join("sessions");
+    let mem = PathBuf::from(&base).join("memory");
+    let _ = std::fs::create_dir_all(&sessions);
+    let _ = std::fs::create_dir_all(&mem);
+
+    let cfg = load_config_from(&base);
+    let code = run_with_dirs(&sessions, &mem, &cfg);
+
+    let summaries = memory::read_last_n(&mem, 3);
+    inject_instructions_into(&format!("{}/.antigravity/antigravity-instructions.md", home), &cfg, &summaries);
+
+    code
 }
 
 /// Testable version with explicit directories.
