@@ -79,10 +79,7 @@ impl Config {
 
     pub fn load() -> Self {
         let base = std::env::var("SQUEEZ_DIR").unwrap_or_else(|_| {
-            format!(
-                "{}/.claude/squeez",
-                std::env::var("HOME").unwrap_or_default()
-            )
+            format!("{}/.claude/squeez", crate::session::home_dir())
         });
         let path = format!("{}/config.ini", base);
         std::fs::read_to_string(&path)

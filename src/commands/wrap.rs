@@ -2,15 +2,35 @@ use crate::config::Config;
 use crate::filter;
 use crate::{json_util, session};
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+#[cfg(unix)]
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
 
+/// Returns a `Command` pre-configured to run `cmd` through the platform shell.
+/// Unix/Git Bash: `sh -c <cmd>`
+/// Windows native: `cmd /C <cmd>`
+fn shell_command(cmd: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut c = Command::new("cmd");
+        c.args(["/C", cmd]);
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = Command::new("sh");
+        c.args(["-c", cmd]);
+        c
+    }
+}
+
 pub fn run(cmd_str: &str) -> i32 {
+    #[cfg(unix)]
     setup_signals();
     let config = Config::load();
 
@@ -20,15 +40,15 @@ pub fn run(cmd_str: &str) -> i32 {
 
     let start = Instant::now();
 
-    // Spawn via sh -c to handle pipes, &&, redirections, builtins
-    let mut child = match Command::new("sh")
-        .arg("-c")
-        .arg(cmd_str)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .spawn()
+    // Spawn via platform shell to handle pipes, &&, redirections, builtins
+    let mut cmd = shell_command(cmd_str);
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
     {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("squeez: {}", e);
@@ -36,7 +56,8 @@ pub fn run(cmd_str: &str) -> i32 {
         }
     };
 
-    // Store PID for signal forwarding
+    // Store PID for signal forwarding (Unix only)
+    #[cfg(unix)]
     CHILD_PID.store(child.id() as i32, Ordering::SeqCst);
 
     // Drain stdout/stderr on background threads to prevent pipe-buffer deadlock.
@@ -76,10 +97,11 @@ pub fn run(cmd_str: &str) -> i32 {
             Ok(Some(s)) => break s.code().unwrap_or(1),
             Ok(None) => {
                 if start.elapsed() >= timeout {
+                    #[cfg(unix)]
                     unsafe {
                         libc::kill(-(child.id() as i32), libc::SIGTERM);
+                        std::thread::sleep(Duration::from_millis(200));
                     }
-                    std::thread::sleep(Duration::from_millis(200));
                     let _ = child.kill();
                     eprintln!("squeez: command timed out after 120s");
                     let _ = stdout_thread.join();
@@ -148,9 +170,7 @@ pub fn run(cmd_str: &str) -> i32 {
 }
 
 fn passthrough(cmd: &str) -> i32 {
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
+    let status = shell_command(cmd)
         .status()
         .unwrap_or_else(|e| {
             eprintln!("squeez: {}", e);
@@ -166,6 +186,7 @@ fn is_streaming(cmd: &str) -> bool {
         && cmd.split_whitespace().any(|a| a == "-f" || a == "--follow")
 }
 
+#[cfg(unix)]
 fn setup_signals() {
     unsafe {
         libc::signal(libc::SIGTERM, forward_signal as *const () as libc::sighandler_t);
@@ -173,6 +194,7 @@ fn setup_signals() {
     }
 }
 
+#[cfg(unix)]
 extern "C" fn forward_signal(sig: libc::c_int) {
     let pid = CHILD_PID.load(Ordering::SeqCst);
     if pid > 0 {

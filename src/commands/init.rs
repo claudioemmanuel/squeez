@@ -21,7 +21,7 @@ pub fn run() -> i32 {
 /// ~/.copilot/copilot-instructions.md so Copilot CLI picks it up
 /// at every session start (no hook system required).
 pub fn run_copilot() -> i32 {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = crate::session::home_dir();
     // Honour SQUEEZ_DIR override, default to ~/.copilot/squeez
     let base = std::env::var("SQUEEZ_DIR")
         .unwrap_or_else(|_| format!("{}/.copilot/squeez", home));
