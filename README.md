@@ -130,7 +130,18 @@ SQUEEZ_DIR=~/.copilot/squeez ~/.claude/squeez/bin/squeez init --copilot
 
 ## Local development
 
-**Prerequisites:** Rust stable (`rustup update stable`), `bash`, macOS or Linux.
+**Prerequisites:** Rust stable, `bash` (Git Bash on Windows). Works on Windows, macOS, and Linux.
+
+Install Rust via [rustup](https://rust-lang.org/tools/install/):
+```bash
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Windows: download and run rustup-init.exe from https://rust-lang.org/tools/install/
+# Then restart your terminal so cargo is in PATH.
+# Windows users also need MSVC C++ Build Tools:
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+```
 
 ```bash
 # 1. Clone
