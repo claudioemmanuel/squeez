@@ -18,7 +18,7 @@ case "$OS" in
     esac
     ;;
   Windows*|MINGW*|CYGWIN*)
-    echo "ERROR: Windows não é suportado. Use macOS ou Linux." >&2
+    echo "ERROR: Windows is not supported. Use macOS or Linux." >&2
     exit 1
     ;;
   *) echo "ERROR: unsupported OS $OS" >&2; exit 1 ;;
