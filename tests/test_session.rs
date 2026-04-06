@@ -99,3 +99,10 @@ fn test_unix_to_date_epoch_zero() {
     let date = squeez::session::unix_to_date(0);
     assert_eq!(date, "1970-01-01", "got: {}", date);
 }
+
+#[test]
+fn test_home_dir_returns_nonempty() {
+    // HOME (Unix) or USERPROFILE (Windows) must be set in any real environment.
+    let home = squeez::session::home_dir();
+    assert!(!home.is_empty(), "home_dir() returned empty string");
+}
