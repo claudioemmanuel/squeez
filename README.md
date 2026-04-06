@@ -179,6 +179,19 @@ Promotion to main
 - On push to `develop`, a workflow will create or update a PR from `develop` → `main` for final review and merge.
 - Maintainers should review the `develop`→`main` PR, ensure CI/status checks pass, then merge to `main`.
 
+Note about permissions
+
+If the promotion workflow fails with an error like "GitHub Actions is not permitted to create or approve pull requests", you can resolve it by doing one of the following:
+
+- Enable the repository setting: Settings → Actions → General → enable "Allow GitHub Actions to create and approve pull requests" (recommended).
+- Or create a Personal Access Token (PAT) with `repo` scope and add it as a repository secret named `PR_CREATION_TOKEN`. The promotion workflow will use that secret to create/update the PR when present.
+
+Create the secret via the GH CLI:
+
+```bash
+gh secret set PR_CREATION_TOKEN --body '<your-personal-access-token>'
+```
+
 Branch protection & admin notes
 
 - Protect `main` with branch protection rules: require PR reviews (1+), require passing status checks, disallow force pushes, and enable required linear history if desired.
