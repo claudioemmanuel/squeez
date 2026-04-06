@@ -17,18 +17,23 @@ case "$OS" in
       *) echo "ERROR: unsupported arch $ARCH" >&2; exit 1 ;;
     esac
     ;;
-  Windows*|MINGW*|CYGWIN*)
-    echo "ERROR: Windows não é suportado. Use macOS ou Linux." >&2
-    exit 1
+  Windows*|MINGW*|MSYS*|CYGWIN*)
+    BINARY="squeez-windows-x86_64.exe"
     ;;
   *) echo "ERROR: unsupported OS $OS" >&2; exit 1 ;;
 esac
 
+# Local binary name: squeez.exe on Windows, squeez elsewhere
+case "$OS" in
+  Windows*|MINGW*|MSYS*|CYGWIN*) BIN_NAME="squeez.exe" ;;
+  *) BIN_NAME="squeez" ;;
+esac
+
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
-chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
+chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory" 2>/dev/null || true
 
 echo "Downloading squeez binary for $OS/$ARCH..."
-curl -fsSL "$RELEASES/$BINARY" -o "$INSTALL_DIR/bin/squeez"
+curl -fsSL "$RELEASES/$BINARY" -o "$INSTALL_DIR/bin/$BIN_NAME"
 
 echo "Verifying checksum..."
 curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256
@@ -36,25 +41,25 @@ expected=$(grep "$BINARY" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print
 rm -f /tmp/squeez-checksums.sha256
 if [ -z "$expected" ]; then
     echo "ERROR: could not find checksum for $BINARY in release" >&2
-    rm -f "$INSTALL_DIR/bin/squeez"
+    rm -f "$INSTALL_DIR/bin/$BIN_NAME"
     exit 1
 fi
 
-# Use sha256sum if available (Linux), otherwise fall back to shasum (macOS)
+# Use sha256sum if available (Linux/Windows Git Bash), otherwise fall back to shasum (macOS)
 if command -v sha256sum >/dev/null 2>&1; then
-    actual=$(sha256sum "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+    actual=$(sha256sum "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
 else
-    actual=$(shasum -a 256 "$INSTALL_DIR/bin/squeez" | awk '{print $1}')
+    actual=$(shasum -a 256 "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
 fi
 
 if [ "$expected" != "$actual" ]; then
     echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
-    rm -f "$INSTALL_DIR/bin/squeez"
+    rm -f "$INSTALL_DIR/bin/$BIN_NAME"
     exit 1
 fi
 echo "Checksum verified."
 
-chmod +x "$INSTALL_DIR/bin/squeez"
+chmod +x "$INSTALL_DIR/bin/$BIN_NAME" 2>/dev/null || true
 
 echo "Installing hooks..."
 curl -fsSL "$REPO_RAW/hooks/pretooluse.sh"     -o "$INSTALL_DIR/hooks/pretooluse.sh"
@@ -132,8 +137,8 @@ mkdir -p "$COPILOT_SQUEEZ_DIR/bin" "$COPILOT_SQUEEZ_DIR/hooks" \
 chmod 700 "$COPILOT_SQUEEZ_DIR" "$COPILOT_SQUEEZ_DIR/sessions" "$COPILOT_SQUEEZ_DIR/memory" 2>/dev/null || true
 
 # Symlink the same binary so SQUEEZ_DIR-aware calls work
-ln -sf "$INSTALL_DIR/bin/squeez" "$COPILOT_SQUEEZ_DIR/bin/squeez" 2>/dev/null || \
-    cp "$INSTALL_DIR/bin/squeez" "$COPILOT_SQUEEZ_DIR/bin/squeez"
+ln -sf "$INSTALL_DIR/bin/$BIN_NAME" "$COPILOT_SQUEEZ_DIR/bin/$BIN_NAME" 2>/dev/null || \
+    cp "$INSTALL_DIR/bin/$BIN_NAME" "$COPILOT_SQUEEZ_DIR/bin/$BIN_NAME"
 
 curl -fsSL "$REPO_RAW/hooks/copilot-pretooluse.sh"     -o "$INSTALL_DIR/hooks/copilot-pretooluse.sh"
 curl -fsSL "$REPO_RAW/hooks/copilot-session-start.sh"  -o "$INSTALL_DIR/hooks/copilot-session-start.sh"
@@ -143,7 +148,7 @@ chmod +x "$INSTALL_DIR/hooks/copilot-pretooluse.sh" \
          "$INSTALL_DIR/hooks/copilot-posttooluse.sh"
 
 # Seed Copilot instructions (writes ~/.copilot/copilot-instructions.md)
-"$INSTALL_DIR/bin/squeez" init --copilot 2>/dev/null || true
+"$INSTALL_DIR/bin/$BIN_NAME" init --copilot 2>/dev/null || true
 
 # Register hooks in ~/.copilot/settings.json (Copilot CLI hook format mirrors Claude Code)
 if [ -d "$HOME/.copilot" ]; then
@@ -183,7 +188,7 @@ os.replace(tmp, path)
 COPILOT_EOF
 fi
 
-version=$("$INSTALL_DIR/bin/squeez" --version 2>/dev/null || echo "squeez")
+version=$("$INSTALL_DIR/bin/$BIN_NAME" --version 2>/dev/null || echo "squeez")
 echo "✅ $version installed."
 echo ""
 echo "Claude Code:  Restart Claude Code to activate."
