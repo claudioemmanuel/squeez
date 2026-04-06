@@ -15,6 +15,8 @@ Token compression + context optimization for Claude Code, OpenCode, and GitHub C
 
 ## Install
 
+> **Windows users:** squeez requires **Git Bash** to run. PowerShell and CMD are not supported — the hooks and binary rely on a POSIX shell environment. Open Git Bash and run:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
 ```
@@ -130,7 +132,7 @@ SQUEEZ_DIR=~/.copilot/squeez ~/.claude/squeez/bin/squeez init --copilot
 
 ## Local development
 
-**Prerequisites:** Rust stable, `bash` (Git Bash on Windows). Works on Windows, macOS, and Linux.
+**Prerequisites:** Rust stable, `bash` (Git Bash on Windows — PowerShell is not supported). Works on Windows (Git Bash), macOS, and Linux.
 
 Install Rust via [rustup](https://rust-lang.org/tools/install/):
 ```bash
