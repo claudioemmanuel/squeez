@@ -154,4 +154,57 @@ To uninstall: `bash uninstall.sh`
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Please follow the repository branching and pull-request workflow to ensure stable releases and predictable merges.
+
+Branching & PR rules
+
+- Always branch from an up-to-date `develop` branch:
+  - git fetch origin
+  - git checkout develop
+  - git pull
+- Create a feature branch from `develop`:
+  - git checkout -b feature/your-feature develop
+- Implement your changes and run tests locally:
+  - cargo test
+  - cargo build --release
+  - bash bench/run.sh  # optional for performance-sensitive changes
+- Push your branch and create a PR targeting `develop`:
+  - git push -u origin feature/your-feature
+  - gh pr create --base develop --head feature/your-feature -t "Short title" -b "Description of changes and tests"
+- Request reviewers, ensure CI passes and address feedback.
+- Merge into `develop` once approved (follow the repo's merge strategy).
+
+Promotion to main
+
+- On push to `develop`, a workflow will create or update a PR from `develop` → `main` for final review and merge.
+- Maintainers should review the `develop`→`main` PR, ensure CI/status checks pass, then merge to `main`.
+
+Branch protection & admin notes
+
+- Protect `main` with branch protection rules: require PR reviews (1+), require passing status checks, disallow force pushes, and enable required linear history if desired.
+- If history was rewritten (commit messages edited), collaborators must re-sync their local clones:
+  - git fetch origin
+  - git reset --hard origin/develop
+  - or re-clone the repository
+
+Changelog (recent)
+
+- 2026-04-06: Added `--codex` and `--antigravity` init scaffolding (scaffold-only; platform-specific integration may be required).
+- 2026-04-06: Created `develop` branch and added a promotion workflow that creates/updates a PR from `develop` → `main` on push to `develop`.
+- 2026-04-06: Fixed localization: removed Portuguese string in `install.sh` (now English).
+- 2026-04-06: Removed `Co-authored-by: Copilot` trailers from commit messages (history rewritten).
+- 2026-04-06: Deleted merged branches `iss-3/add-platforms-codex-antigravity`, `iss-5/fix-pt-strings`, and removed `feat/memory-subsystem` from the remote.
+
+Benchmarks & running them
+
+Benchmarks are in the `bench/` folder and can be run as follows:
+
+```bash
+cargo build --release
+bash bench/run.sh
+```
+
+Reported results (macOS Apple Silicon; token estimate = chars/4) are shown in the "Benchmarks" table above. Re-run on your platform to verify and submit improvements as PRs.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for additional guidelines and coding standards.
+
