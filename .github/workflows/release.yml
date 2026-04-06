@@ -62,8 +62,23 @@ jobs:
           name: squeez-linux-aarch64
           path: squeez-linux-aarch64
 
+  build-windows-x86_64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      - name: Rename binary
+        run: mv target/x86_64-pc-windows-msvc/release/squeez.exe squeez-windows-x86_64.exe
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: squeez-windows-x86_64
+          path: squeez-windows-x86_64.exe
+
   release:
-    needs: [build-macos, build-linux-x86_64, build-linux-aarch64]
+    needs: [build-macos, build-linux-x86_64, build-linux-aarch64, build-windows-x86_64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,6 +90,7 @@ jobs:
           cd squeez-macos-universal && sha256sum squeez-macos-universal > ../checksums.sha256 && cd ..
           cd squeez-linux-x86_64 && sha256sum squeez-linux-x86_64 >> ../checksums.sha256 && cd ..
           cd squeez-linux-aarch64 && sha256sum squeez-linux-aarch64 >> ../checksums.sha256 && cd ..
+          cd squeez-windows-x86_64 && sha256sum squeez-windows-x86_64.exe >> ../checksums.sha256 && cd ..
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
@@ -82,4 +98,5 @@ jobs:
             squeez-macos-universal/squeez-macos-universal
             squeez-linux-x86_64/squeez-linux-x86_64
             squeez-linux-aarch64/squeez-linux-aarch64
+            squeez-windows-x86_64/squeez-windows-x86_64.exe
             checksums.sha256
