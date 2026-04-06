@@ -1,0 +1,43 @@
+name: Promote develop to main
+on:
+  push:
+    branches: [develop]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  create_pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update PR to main
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const prTitle = 'Promote develop to main';
+            const prBody = 'Automated PR to propose changes from develop to main. Review and merge according to repo policy.';
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:develop`,
+              base: 'main',
+            });
+            if (prs.length === 0) {
+              await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: prTitle,
+                head: 'develop',
+                base: 'main',
+                body: prBody,
+              });
+            } else {
+              const pr = prs[0];
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                title: prTitle,
+                body: prBody,
+              });
+            }
