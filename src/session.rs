@@ -3,15 +3,20 @@ use std::path::{Path, PathBuf};
 
 // ── Directory helpers ──────────────────────────────────────────────────────
 
+/// Returns the user's home directory.
+/// Tries `HOME` first (Unix/Git Bash), then `USERPROFILE` (Windows native).
+pub fn home_dir() -> String {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default()
+}
+
 /// Returns the squeez state directory. Overridable via SQUEEZ_DIR env var (for tests).
 pub fn squeez_dir() -> PathBuf {
     if let Ok(d) = std::env::var("SQUEEZ_DIR") {
         return PathBuf::from(d);
     }
-    PathBuf::from(format!(
-        "{}/.claude/squeez",
-        std::env::var("HOME").unwrap_or_default()
-    ))
+    PathBuf::from(format!("{}/.claude/squeez", home_dir()))
 }
 
 pub fn sessions_dir() -> PathBuf {
