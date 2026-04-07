@@ -67,6 +67,10 @@ curl -fsSL "$REPO_RAW/hooks/session-start.sh"  -o "$INSTALL_DIR/hooks/session-st
 curl -fsSL "$REPO_RAW/hooks/posttooluse.sh"    -o "$INSTALL_DIR/hooks/posttooluse.sh"
 chmod +x "$INSTALL_DIR/hooks/pretooluse.sh" "$INSTALL_DIR/hooks/session-start.sh" "$INSTALL_DIR/hooks/posttooluse.sh"
 
+echo "Installing status line script..."
+curl -fsSL "$REPO_RAW/scripts/statusline.sh" -o "$INSTALL_DIR/bin/statusline.sh"
+chmod +x "$INSTALL_DIR/bin/statusline.sh"
+
 echo "Installing OpenCode plugin..."
 OPENCODE_PLUGIN_DIR="$HOME/.config/opencode/plugins"
 mkdir -p "$OPENCODE_PLUGIN_DIR"
@@ -123,6 +127,20 @@ if not isinstance(settings.get("PostToolUse"), list):
 post_hook = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/posttooluse.sh"}]}
 if not any("squeez" in str(h) for h in settings["PostToolUse"]):
     settings["PostToolUse"].append(post_hook)
+
+
+# StatusLine — show squeez stats in Claude Code status bar
+# Appends to existing statusLine command if claude-hud is present, otherwise sets standalone
+existing_status = settings.get("statusLine", {})
+existing_cmd = existing_status.get("command", "") if isinstance(existing_status, dict) else ""
+squeez_status_cmd = "bash ~/.claude/squeez/bin/statusline.sh"
+if "squeez" not in existing_cmd:
+    if existing_cmd:
+        # Append squeez after existing status (e.g., claude-hud)
+        new_cmd = f"bash -c 'input=$(cat); echo \"$input\" | {{ {existing_cmd.rstrip()}; }} 2>/dev/null; echo \"$input\" | {squeez_status_cmd}'"
+        settings["statusLine"] = {"type": "command", "command": new_cmd}
+    else:
+        settings["statusLine"] = {"type": "command", "command": squeez_status_cmd}
 
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
