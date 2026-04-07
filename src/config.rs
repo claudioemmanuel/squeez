@@ -40,7 +40,7 @@ impl Default for Config {
                 "mysql".to_string(),
                 "ssh".to_string(),
             ],
-            compact_threshold_tokens: 160_000,
+            compact_threshold_tokens: 120_000,
             memory_retention_days: 30,
             adaptive_intensity: true,
             context_cache_enabled: true,

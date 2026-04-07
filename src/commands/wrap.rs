@@ -215,6 +215,7 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.note_files(&files);
         ctx.note_errors(&errors);
         ctx.note_git(&git_events);
+        ctx.note_tool_tokens("Bash", input_tokens as u64);
         ctx.save(&sessions_dir_pp);
     }
 
@@ -356,12 +357,15 @@ fn record_bash_event(
         let budget = config.compact_threshold_tokens * 5 / 4;
         let pct = current.total_tokens * 100 / budget.max(1);
         current.compact_warned = true;
+        // Load context for per-tool breakdown
+        let ctx = crate::context::cache::SessionContext::load(&dir);
         Some(format!(
-            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Artifacts: {} files touched, {} errors seen.",
+            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Other {}K",
             current.total_tokens / 1000,
             pct,
-            files.len(),
-            errors.len(),
+            ctx.tokens_bash / 1000,
+            ctx.tokens_read / 1000,
+            ctx.tokens_other / 1000,
         ))
     } else {
         None

@@ -31,8 +31,8 @@ fn outside_recent_window_misses() {
     let mut ctx = SessionContext::default();
     let target = lines("first", 10);
     record(&mut ctx, "first", &target);
-    // Push 9 more distinct calls (RECENT_WINDOW = 8)
-    for i in 0..9 {
+    // Push 17 more distinct calls to push target outside RECENT_WINDOW=16
+    for i in 0..17 {
         record(&mut ctx, &format!("c{}", i), &lines(&format!("f{}", i), 10));
     }
     assert!(check(&ctx, &target).is_none());
@@ -41,9 +41,20 @@ fn outside_recent_window_misses() {
 #[test]
 fn tiny_output_skipped() {
     let mut ctx = SessionContext::default();
-    let out = lines("x", 3);
+    // MIN_LINES=2: a single-line output should never match
+    let out = lines("x", 1);
     record(&mut ctx, "echo", &out);
     assert!(check(&ctx, &out).is_none());
+}
+
+#[test]
+fn two_line_output_matches() {
+    // MIN_LINES=2: a 2-line output is eligible for redundancy
+    let mut ctx = SessionContext::default();
+    let out = lines("x", 2);
+    record(&mut ctx, "git status", &out);
+    let hit = check(&ctx, &out);
+    assert!(hit.is_some());
 }
 
 #[test]
