@@ -76,14 +76,21 @@ summarize_threshold_lines = 500     # raw lines above this trigger summary fallb
 
 ### Context engine
 
-When `adaptive_intensity = true` (default), squeez automatically scales line/dedup
-limits based on cumulative token usage in the current session:
+When `adaptive_intensity = true` (default), squeez compresses every bash call
+at maximum aggression — limits ×0.3 across the board (Ultra mode):
 
-- **Lite** (<50% of budget) — passthrough, defaults
-- **Full** (50–80%) — limits ×0.6
-- **Ultra** (≥80%) — limits ×0.3
+- `max_lines` × 0.3 (floor 20)
+- `dedup_min` × 0.5 (floor 2)
+- `git_diff_max_lines`, `docker_logs_max_lines`, `find_max_results` × 0.3
+- `summarize_threshold_lines` × 0.3 (floor 50)
 
-The active level is shown in the bash header: `# squeez [git] 841→323 tokens (-62%) 55ms [adaptive: Full]`.
+Set `adaptive_intensity = false` to fall back to **Lite** (no scaling, raw
+defaults). The active level is shown in the bash header:
+`# squeez [git] 841→323 tokens (-62%) 55ms [adaptive: Ultra]`.
+
+The `Lite` and `Full` enum variants remain for forward compatibility but are
+not selected automatically — they exist so future versions can introduce
+softer modes without breaking the public API.
 
 When the same compressed output appears within the last 8 calls (length-equality
 guarded), squeez replaces it with a single reference line:
