@@ -740,7 +740,7 @@ fn replace_word_boundary(s: &str, needle: &str, repl: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if i + nbytes.len() <= bytes.len()
-            && s[i..i + nbytes.len()].eq_ignore_ascii_case(needle)
+            && bytes[i..i + nbytes.len()].eq_ignore_ascii_case(nbytes)
         {
             let prev_ok = i == 0 || !is_word_char(bytes[i - 1] as char);
             let next_ok = i + nbytes.len() == bytes.len()
