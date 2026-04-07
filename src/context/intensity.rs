@@ -22,18 +22,16 @@ pub fn budget(cfg: &Config) -> u64 {
     cfg.compact_threshold_tokens.saturating_mul(5) / 4
 }
 
-/// Derive intensity from current usage as a fraction of budget.
-/// <50% Lite, 50–80% Full, ≥80% Ultra. Adaptive disabled → always Lite.
-pub fn derive(used: u64, cfg: &Config) -> Intensity {
-    if !cfg.adaptive_intensity {
-        return Intensity::Lite;
-    }
-    let b = budget(cfg).max(1);
-    let pct = used.saturating_mul(100) / b;
-    if pct >= 80 {
+/// Derive intensity from config + current usage.
+/// When `adaptive_intensity` is enabled (the default), squeez compresses
+/// at maximum aggression (Ultra) regardless of budget. The Lite/Full tiers
+/// remain in the type so users can opt into a softer mode by disabling
+/// adaptive_intensity (which falls back to Lite — no scaling).
+///
+/// `used` is accepted for forward compatibility but is currently unused.
+pub fn derive(_used: u64, cfg: &Config) -> Intensity {
+    if cfg.adaptive_intensity {
         Intensity::Ultra
-    } else if pct >= 50 {
-        Intensity::Full
     } else {
         Intensity::Lite
     }
@@ -85,51 +83,28 @@ mod tests {
     }
 
     #[test]
-    fn derive_at_zero_is_lite() {
-        assert_eq!(derive(0, &cfg()), Intensity::Lite);
+    fn adaptive_enabled_at_zero_is_ultra() {
+        assert_eq!(derive(0, &cfg()), Intensity::Ultra);
     }
 
     #[test]
-    fn derive_below_50pct_is_lite() {
+    fn adaptive_enabled_at_full_budget_is_ultra() {
         let c = cfg();
-        let half = budget(&c) * 49 / 100;
-        assert_eq!(derive(half, &c), Intensity::Lite);
+        assert_eq!(derive(budget(&c), &c), Intensity::Ultra);
     }
 
     #[test]
-    fn derive_at_50pct_is_full() {
+    fn adaptive_enabled_above_budget_is_ultra() {
         let c = cfg();
-        let half = budget(&c) * 50 / 100;
-        assert_eq!(derive(half, &c), Intensity::Full);
-    }
-
-    #[test]
-    fn derive_at_79pct_is_full() {
-        let c = cfg();
-        let v = budget(&c) * 79 / 100;
-        assert_eq!(derive(v, &c), Intensity::Full);
-    }
-
-    #[test]
-    fn derive_at_80pct_is_ultra() {
-        let c = cfg();
-        let v = budget(&c) * 80 / 100;
-        assert_eq!(derive(v, &c), Intensity::Ultra);
-    }
-
-    #[test]
-    fn derive_above_budget_is_ultra() {
-        let c = cfg();
-        let v = budget(&c) * 200 / 100;
-        assert_eq!(derive(v, &c), Intensity::Ultra);
+        assert_eq!(derive(budget(&c) * 5, &c), Intensity::Ultra);
     }
 
     #[test]
     fn adaptive_disabled_always_lite() {
         let mut c = cfg();
         c.adaptive_intensity = false;
-        let v = budget(&c) * 200 / 100;
-        assert_eq!(derive(v, &c), Intensity::Lite);
+        assert_eq!(derive(0, &c), Intensity::Lite);
+        assert_eq!(derive(budget(&c) * 5, &c), Intensity::Lite);
     }
 
     #[test]
