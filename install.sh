@@ -4,6 +4,14 @@ REPO_RAW="https://raw.githubusercontent.com/claudioemmanuel/squeez/main"
 RELEASES="https://github.com/claudioemmanuel/squeez/releases/latest/download"
 INSTALL_DIR="$HOME/.claude/squeez"
 
+# Parse flags
+SETUP_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --setup-only) SETUP_ONLY=1 ;;
+  esac
+done
+
 # Detect OS and architecture
 OS=$(uname -s)
 ARCH=$(uname -m)
@@ -32,34 +40,49 @@ esac
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory" 2>/dev/null || true
 
-echo "Downloading squeez binary for $OS/$ARCH..."
-curl -fsSL "$RELEASES/$BINARY" -o "$INSTALL_DIR/bin/$BIN_NAME"
-
-echo "Verifying checksum..."
-curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256
-expected=$(grep "$BINARY" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
-rm -f /tmp/squeez-checksums.sha256
-if [ -z "$expected" ]; then
-    echo "ERROR: could not find checksum for $BINARY in release" >&2
-    rm -f "$INSTALL_DIR/bin/$BIN_NAME"
+if [ "$SETUP_ONLY" -eq 1 ]; then
+  # --setup-only: skip download, use existing squeez binary from PATH
+  echo "Setup-only mode: skipping binary download..."
+  EXISTING=$(command -v squeez 2>/dev/null || true)
+  if [ -z "$EXISTING" ]; then
+    echo "ERROR: squeez not found in PATH." >&2
+    echo "Install first with: cargo install squeez" >&2
     exit 1
-fi
-
-# Use sha256sum if available (Linux/Windows Git Bash), otherwise fall back to shasum (macOS)
-if command -v sha256sum >/dev/null 2>&1; then
-    actual=$(sha256sum "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
+  fi
+  echo "Found squeez at: $EXISTING"
+  cp "$EXISTING" "$INSTALL_DIR/bin/$BIN_NAME"
+  chmod +x "$INSTALL_DIR/bin/$BIN_NAME" 2>/dev/null || true
+  echo "Binary copied to $INSTALL_DIR/bin/$BIN_NAME"
 else
-    actual=$(shasum -a 256 "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
-fi
+  echo "Downloading squeez binary for $OS/$ARCH..."
+  curl -fsSL "$RELEASES/$BINARY" -o "$INSTALL_DIR/bin/$BIN_NAME"
 
-if [ "$expected" != "$actual" ]; then
-    echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
-    rm -f "$INSTALL_DIR/bin/$BIN_NAME"
-    exit 1
-fi
-echo "Checksum verified."
+  echo "Verifying checksum..."
+  curl -fsSL "$RELEASES/checksums.sha256" -o /tmp/squeez-checksums.sha256
+  expected=$(grep "$BINARY" /tmp/squeez-checksums.sha256 2>/dev/null | awk '{print $1}')
+  rm -f /tmp/squeez-checksums.sha256
+  if [ -z "$expected" ]; then
+      echo "ERROR: could not find checksum for $BINARY in release" >&2
+      rm -f "$INSTALL_DIR/bin/$BIN_NAME"
+      exit 1
+  fi
 
-chmod +x "$INSTALL_DIR/bin/$BIN_NAME" 2>/dev/null || true
+  # Use sha256sum if available (Linux/Windows Git Bash), otherwise fall back to shasum (macOS)
+  if command -v sha256sum >/dev/null 2>&1; then
+      actual=$(sha256sum "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
+  else
+      actual=$(shasum -a 256 "$INSTALL_DIR/bin/$BIN_NAME" | awk '{print $1}')
+  fi
+
+  if [ "$expected" != "$actual" ]; then
+      echo "ERROR: checksum mismatch — binary may be corrupted or tampered" >&2
+      rm -f "$INSTALL_DIR/bin/$BIN_NAME"
+      exit 1
+  fi
+  echo "Checksum verified."
+
+  chmod +x "$INSTALL_DIR/bin/$BIN_NAME" 2>/dev/null || true
+fi
 
 echo "Installing hooks..."
 curl -fsSL "$REPO_RAW/hooks/pretooluse.sh"     -o "$INSTALL_DIR/hooks/pretooluse.sh"

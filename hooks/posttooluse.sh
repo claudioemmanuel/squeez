@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # squeez PostToolUse hook — tracks token usage per tool call
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
+if [ ! -x "$SQUEEZ" ]; then
+    _sq=$(command -v squeez 2>/dev/null || true)
+    [ -n "$_sq" ] && SQUEEZ="$_sq"
+fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
 input=$(cat)

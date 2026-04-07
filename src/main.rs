@@ -41,6 +41,10 @@ fn main() {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::compress_md::run(&rest));
         }
+        Some("setup") => {
+            let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+            std::process::exit(squeez::commands::setup::run_with_help(&rest));
+        }
         Some("update") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::update::run(&rest));
@@ -61,6 +65,7 @@ fn main() {
             eprintln!("       squeez track-result <tool> (reads stdin)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
             eprintln!("       squeez benchmark [--json] [--output <file>] [--scenario <name>]");
+            eprintln!("       squeez setup [--force]");
             eprintln!("       squeez update [--check] [--insecure]");
             eprintln!("       squeez --version");
             std::process::exit(1);

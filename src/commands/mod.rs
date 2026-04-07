@@ -25,5 +25,6 @@ pub mod track;
 pub mod track_result;
 pub mod typescript;
 pub mod benchmark;
+pub mod setup;
 pub mod update;
 pub mod wrap;
