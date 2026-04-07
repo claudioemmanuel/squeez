@@ -1,0 +1,68 @@
+use crate::commands::compress_md::locale::Locale;
+
+pub static PT_BR: Locale = Locale {
+    code: "pt-BR",
+    fillers: &[
+        "só", "apenas", "realmente", "basicamente", "literalmente",
+        "simplesmente", "certamente", "claramente", "obviamente",
+        "exatamente", "praticamente", "tipo", "meio",
+    ],
+    // Includes definite/indefinite articles AND preposition+article contractions
+    // (do/da/no/na/ao/à/pelo/pela etc.) — all should be dropped in pt-BR prose compression.
+    articles: &[
+        "o", "a", "os", "as",
+        "um", "uma", "uns", "umas",
+        "do", "da", "dos", "das",
+        "no", "na", "nos", "nas",
+        "ao", "aos", "à", "às",
+        "pelo", "pela", "pelos", "pelas",
+    ],
+    phrases: &[
+        "claro que sim",
+        "com certeza",
+        "fico feliz em ajudar",
+        "ficarei feliz em",
+        "deixa eu ",
+        "deixe-me ",
+        "vou te ajudar",
+        "gostaria de ",
+        "por favor, note que",
+        "vale a pena ",
+        "você pode considerar que",
+        "você pode considerar",
+        "de modo geral",
+        "em geral",
+        "como regra",
+        "é importante notar que",
+        "vale ressaltar que",
+        "vale lembrar que",
+    ],
+    hedges: &[
+        "talvez", "possivelmente", "provavelmente", "eventualmente",
+        "porventura", "quiçá",
+    ],
+    conjunctions: &[
+        " e", " ou", " mas", " porém", " contudo", " então", " logo", " pois",
+    ],
+    ultra_subs: &[
+        ("sem",            "s/"),
+        ("com",            "c/"),
+        ("porque",         "pq"),
+        ("por que",        "pq"),
+        ("função",         "fn"),
+        ("funções",        "fns"),
+        ("parâmetro",      "param"),
+        ("parâmetros",     "params"),
+        ("argumento",      "arg"),
+        ("argumentos",     "args"),
+        ("configuração",   "config"),
+        ("configurações",  "configs"),
+        ("documentação",   "docs"),
+        ("diretório",      "dir"),
+        ("repositório",    "repo"),
+        ("aproximadamente","~"),
+        ("também",         "tb"),
+        ("você",           "vc"),
+        ("para",           "p/"),
+    ],
+};

@@ -2,6 +2,10 @@
 // No LLM calls. Preserves code blocks, URLs, headings, file paths, tables.
 // Compresses natural-language prose only.
 
+mod locale;
+mod locales;
+pub use locale::Locale;
+
 use std::path::{Path, PathBuf};
 
 use crate::session::home_dir;
@@ -39,13 +43,24 @@ pub fn run(args: &[String]) -> i32 {
     let mut all = false;
     let mut quiet = false;
     let mut targets: Vec<String> = Vec::new();
+    let mut lang_cli: Option<String> = None;
 
-    for a in args {
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
         match a.as_str() {
             "--ultra" => mode = Mode::Ultra,
             "--dry-run" => dry_run = true,
             "--all" => all = true,
             "--quiet" => quiet = true,
+            "--lang" => {
+                if i + 1 >= args.len() {
+                    eprintln!("squeez compress-md: --lang requires a value");
+                    return 2;
+                }
+                i += 1;
+                lang_cli = Some(args[i].clone());
+            }
             "-h" | "--help" => {
                 print_help();
                 return 0;
@@ -56,7 +71,13 @@ pub fn run(args: &[String]) -> i32 {
             }
             s => targets.push(s.to_string()),
         }
+        i += 1;
     }
+
+    let locale = {
+        let code = lang_cli.unwrap_or_else(|| crate::config::Config::load().lang);
+        Locale::from_code(&code)
+    };
 
     let files: Vec<PathBuf> = if all {
         all_targets()
@@ -78,7 +99,7 @@ pub fn run(args: &[String]) -> i32 {
             continue;
         }
         any_processed = true;
-        match process_file(f, mode, dry_run, quiet) {
+        match process_file(f, mode, dry_run, quiet, locale) {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("squeez compress-md: {} — {}", f.display(), e);
@@ -101,12 +122,14 @@ pub fn run(args: &[String]) -> i32 {
 /// Quiet bulk-compression entry used by `init` when auto_compress_md=true.
 /// Never errors out the caller; failures are silent.
 pub fn run_all_quietly() -> i32 {
+    let cfg = crate::config::Config::load();
+    let locale = Locale::from_code(&cfg.lang);
     let files = all_targets();
     for f in &files {
         if !f.exists() {
             continue;
         }
-        let _ = process_file(f, Mode::Ultra, false, true);
+        let _ = process_file(f, Mode::Ultra, false, true, locale);
     }
     0
 }
@@ -126,6 +149,7 @@ fn print_help() {
     println!("               $PWD/CLAUDE.md, $PWD/AGENTS.md,");
     println!("               $PWD/.github/copilot-instructions.md");
     println!("  --quiet      Suppress informational output");
+    println!("  --lang <code>  Locale: en (default), pt-BR. Overrides config 'lang'.");
     println!();
     println!("Preserved verbatim: code blocks (```...```), inline `code`,");
     println!("URLs, file paths, headings, tables, list markers, version numbers.");
@@ -147,9 +171,15 @@ fn all_targets() -> Vec<PathBuf> {
     v
 }
 
-fn process_file(path: &Path, mode: Mode, dry_run: bool, quiet: bool) -> Result<(), String> {
+fn process_file(
+    path: &Path,
+    mode: Mode,
+    dry_run: bool,
+    quiet: bool,
+    locale: &'static Locale,
+) -> Result<(), String> {
     let original = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let result = compress_text(&original, mode);
+    let result = compress_text_with_locale(&original, mode, locale);
 
     if !result.safe {
         return Err(format!(
@@ -232,11 +262,21 @@ enum State {
 }
 
 pub fn compress_text(input: &str, mode: Mode) -> CompressResult {
-    let mut stats = Stats::default();
-    stats.orig_bytes = input.len();
-    stats.orig_code_blocks = count_code_blocks(input);
-    stats.orig_urls = count_urls(input);
-    stats.orig_headings = count_headings(input);
+    compress_text_with_locale(input, mode, Locale::from_code("en"))
+}
+
+pub fn compress_text_with_locale(
+    input: &str,
+    mode: Mode,
+    locale: &'static Locale,
+) -> CompressResult {
+    let mut stats = Stats {
+        orig_bytes: input.len(),
+        orig_code_blocks: count_code_blocks(input),
+        orig_urls: count_urls(input),
+        orig_headings: count_headings(input),
+        ..Default::default()
+    };
 
     let mut out = String::with_capacity(input.len());
     let mut state = State::Text;
@@ -280,7 +320,7 @@ pub fn compress_text(input: &str, mode: Mode) -> CompressResult {
                     out.push('\n');
                     i += 1;
                 } else {
-                    let compressed = compress_prose_line(line, mode);
+                    let compressed = compress_prose_line(line, mode, locale);
                     out.push_str(&compressed);
                     out.push('\n');
                     i += 1;
@@ -444,7 +484,7 @@ fn split_protected_spans(line: &str) -> Vec<Span<'_>> {
     spans
 }
 
-fn compress_prose_line(line: &str, mode: Mode) -> String {
+fn compress_prose_line(line: &str, mode: Mode, locale: &Locale) -> String {
     // Preserve leading whitespace + list markers
     let leading_ws_len = line.len() - line.trim_start().len();
     let leading = &line[..leading_ws_len];
@@ -458,7 +498,7 @@ fn compress_prose_line(line: &str, mode: Mode) -> String {
     for span in spans {
         match span {
             Span::Verbatim(v) => out.push_str(v),
-            Span::Prose(p) => out.push_str(&compress_prose_span(p, mode)),
+            Span::Prose(p) => out.push_str(&compress_prose_span(p, mode, locale)),
         }
     }
 
@@ -497,58 +537,14 @@ fn split_list_marker(s: &str) -> (&str, &str) {
     ("", s)
 }
 
-const FILLERS: &[&str] = &[
-    "just",
-    "really",
-    "basically",
-    "actually",
-    "simply",
-    "sure",
-    "certainly",
-];
-
-const ARTICLES: &[&str] = &["the", "a", "an"];
-
-const PHRASES: &[&str] = &[
-    "of course",
-    "i'd be happy to",
-    "let me ",
-    "i'll help you",
-    "i would like to",
-    "please note that",
-    "it might be worth",
-    "you could consider",
-    "in general",
-    "as a rule",
-];
-
-const HEDGES: &[&str] = &["perhaps", "maybe"];
-
-const ULTRA_SUBS: &[(&str, &str)] = &[
-    ("without", "w/o"),
-    ("with", "w/"),
-    ("because", "b/c"),
-    ("function", "fn"),
-    ("parameter", "param"),
-    ("arguments", "args"),
-    ("argument", "arg"),
-    ("configuration", "config"),
-    ("documentation", "docs"),
-    ("directory", "dir"),
-    ("repository", "repo"),
-    ("between", "btw"),
-    ("versus", "vs"),
-    ("approximately", "~"),
-];
-
-fn compress_prose_span(text: &str, mode: Mode) -> String {
+fn compress_prose_span(text: &str, mode: Mode, locale: &Locale) -> String {
     if text.trim().is_empty() {
         return text.to_string();
     }
     let mut s = text.to_string();
 
     // Drop multi-word phrases (case-insensitive substring)
-    for phrase in PHRASES {
+    for phrase in locale.phrases {
         s = drop_phrase_ci(&s, phrase);
     }
 
@@ -580,9 +576,9 @@ fn compress_prose_span(text: &str, mode: Mode) -> String {
         // like brackets/parens/braces). Allow trailing comma/period only.
         if is_clean_word(tok) {
             let lower = strip_punct(&tok.to_lowercase());
-            if FILLERS.contains(&lower.as_str())
-                || HEDGES.contains(&lower.as_str())
-                || ARTICLES.contains(&lower.as_str())
+            if locale.fillers.contains(&lower.as_str())
+                || locale.hedges.contains(&lower.as_str())
+                || locale.articles.contains(&lower.as_str())
             {
                 // drop the following whitespace too
                 if matches!(kept.last().map(|s| s.as_str()), Some(s) if s.chars().all(|c| c.is_whitespace())) {
@@ -610,15 +606,18 @@ fn compress_prose_span(text: &str, mode: Mode) -> String {
     }
 
     // Trim trailing dangling conjunctions
-    let trimmed = trim_trailing_conjunction(out.trim_end());
+    let trimmed = trim_trailing_conjunction(out.trim_end(), locale);
 
     // Strip stray leading punctuation left behind by dropped phrases
     // (e.g. "In general, you could…" → ", you could…" → "you could…").
     let cleaned = strip_leading_orphan_punct(&trimmed);
+    // Also clean mid-string orphan commas after sentence boundaries
+    // (e.g. "end. , next" → "end. next" when a phrase starting mid-sentence is dropped).
+    let cleaned = clean_mid_orphan_punct(cleaned);
 
     // Ultra: word substitutions outside protected spans (we are inside one)
     let final_out = if mode == Mode::Ultra {
-        ultra_subs(cleaned)
+        ultra_subs(cleaned, locale)
     } else {
         cleaned
     };
@@ -632,6 +631,41 @@ fn compress_prose_span(text: &str, mode: Mode) -> String {
         (false, true) => format!("{} ", final_out),
         (false, false) => final_out,
     }
+}
+
+/// Remove orphan commas/semicolons that appear after sentence-boundary punctuation
+/// (`. ,` → `. `) or after double-spaces introduced by phrase drops (` , ` → ` `).
+fn clean_mid_orphan_punct(s: String) -> String {
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        // Pattern: sentence-end punct+space then comma — `. ,` or `! ,` or `? ,`
+        if matches!(c, '.' | '!' | '?')
+            && chars.get(i + 1) == Some(&' ')
+            && matches!(chars.get(i + 2), Some(&',') | Some(&';'))
+        {
+            out.push(c);   // keep the sentence-end punct
+            out.push(' '); // keep one space
+            i += 3;        // skip the orphan comma/semicolon
+            // also skip any space that follows the skipped comma
+            while i < chars.len() && chars[i] == ' ' { i += 1; }
+            continue;
+        }
+        // Pattern: space + orphan comma/semicolon + space → single space
+        if c == ' '
+            && matches!(chars.get(i + 1), Some(&',') | Some(&';'))
+            && chars.get(i + 2) == Some(&' ')
+        {
+            out.push(' ');
+            i += 3;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
 }
 
 fn strip_leading_orphan_punct(s: &str) -> String {
@@ -664,61 +698,69 @@ fn strip_punct(s: &str) -> String {
 /// other structural punctuation are NEVER dropped (they may be link
 /// brackets or markup).
 fn is_clean_word(tok: &str) -> bool {
-    let bytes = tok.as_bytes();
-    let mut i = 0;
-    // body: alphanumeric or apostrophe
-    while i < bytes.len() {
-        let c = bytes[i] as char;
+    let mut chars = tok.chars().peekable();
+    let mut body_len = 0;
+    while let Some(&c) = chars.peek() {
         if c.is_alphanumeric() || c == '\'' {
-            i += 1;
+            chars.next();
+            body_len += 1;
         } else {
             break;
         }
     }
-    if i == 0 {
+    if body_len == 0 {
         return false;
     }
-    // optional trailing punctuation
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if matches!(c, ',' | '.' | ';' | ':' | '!' | '?') {
-            i += 1;
-        } else {
+    for c in chars {
+        if !matches!(c, ',' | '.' | ';' | ':' | '!' | '?') {
             return false;
         }
     }
     true
 }
 
+/// Drop all case-insensitive occurrences of `needle` (and any immediately trailing spaces)
+/// from `s`. `needle` must be pre-lowercased.
+///
+/// Uses dual `(s_i, l_i)` byte cursors advanced one `s`-char at a time so that Unicode
+/// case expansion (e.g. ß→ss) never desyncs the cursors.
 fn drop_phrase_ci(s: &str, needle: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let lower = s.to_lowercase();
-    let mut i = 0;
-    while i < s.len() {
-        if lower[i..].starts_with(needle) {
-            // skip following whitespace too
-            let mut end = i + needle.len();
-            while end < s.len() && s.as_bytes()[end] == b' ' {
-                end += 1;
+    // Build lowercase mirror of s for matching.
+    let lower: String = s.chars().flat_map(char::to_lowercase).collect();
+
+    let mut out = String::with_capacity(s.len());
+    let mut s_i = 0usize; // byte cursor in s
+    let mut l_i = 0usize; // byte cursor in lower  (invariant: lower[0..l_i] == lowercase(s[0..s_i]))
+
+    while s_i < s.len() {
+        debug_assert!(l_i <= lower.len(), "l_i cursor must not exceed lower.len()");
+        if lower[l_i..].starts_with(needle) {
+            // Advance both cursors together through the matched chars.
+            let l_end = l_i + needle.len();
+            while l_i < l_end {
+                let ch = s[s_i..].chars().next().unwrap();
+                s_i += ch.len_utf8();
+                l_i += ch.to_lowercase().map(|c| c.len_utf8()).sum::<usize>();
             }
-            i = end;
+            // Skip trailing ASCII spaces in both (space → space: 1 byte each).
+            while s_i < s.len() && s.as_bytes()[s_i] == b' ' {
+                s_i += 1;
+                l_i += 1;
+            }
         } else {
-            // copy one char
-            let next_boundary = s[i..]
-                .char_indices()
-                .nth(1)
-                .map(|(b, _)| i + b)
-                .unwrap_or(s.len());
-            result.push_str(&s[i..next_boundary]);
-            i = next_boundary;
+            // Copy one char from s, advance both cursors.
+            let ch = s[s_i..].chars().next().unwrap();
+            out.push(ch);
+            s_i += ch.len_utf8();
+            l_i += ch.to_lowercase().map(|c| c.len_utf8()).sum::<usize>();
         }
     }
-    result
+    out
 }
 
-fn trim_trailing_conjunction(s: &str) -> String {
+fn trim_trailing_conjunction(s: &str, locale: &Locale) -> String {
     let lower = s.to_lowercase();
-    for c in &[" and", " or", " but", " so"] {
+    for c in locale.conjunctions {
         if lower.ends_with(c) {
             return s[..s.len() - c.len()].trim_end().to_string();
         }
@@ -726,44 +768,53 @@ fn trim_trailing_conjunction(s: &str) -> String {
     s.to_string()
 }
 
-fn ultra_subs(mut s: String) -> String {
-    for (long, short) in ULTRA_SUBS {
+fn ultra_subs(mut s: String, locale: &Locale) -> String {
+    for (long, short) in locale.ultra_subs {
         s = replace_word_boundary(&s, long, short);
     }
     s
 }
 
+fn is_word_char_unicode(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 fn replace_word_boundary(s: &str, needle: &str, repl: &str) -> String {
+    let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
+    let chars: Vec<(usize, char)> = s.char_indices().collect();
     let mut out = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let nbytes = needle.as_bytes();
     let mut i = 0;
-    while i < bytes.len() {
-        if i + nbytes.len() <= bytes.len()
-            && bytes[i..i + nbytes.len()].eq_ignore_ascii_case(nbytes)
-        {
-            let prev_ok = i == 0 || !is_word_char(bytes[i - 1] as char);
-            let next_ok = i + nbytes.len() == bytes.len()
-                || !is_word_char(bytes[i + nbytes.len()] as char);
+    while i < chars.len() {
+        // Try to match needle_lower starting at chars[i]
+        let mut buf = String::new();
+        let mut j = i;
+        let mut matched = false;
+        while j < chars.len() {
+            for lc in chars[j].1.to_lowercase() {
+                buf.push(lc);
+            }
+            j += 1;
+            if buf == needle_lower {
+                matched = true;
+                break;
+            }
+            if !needle_lower.starts_with(&buf as &str) {
+                break;
+            }
+        }
+        if matched {
+            let prev_ok = i == 0 || !is_word_char_unicode(chars[i - 1].1);
+            let next_ok = j == chars.len() || !is_word_char_unicode(chars[j].1);
             if prev_ok && next_ok {
                 out.push_str(repl);
-                i += nbytes.len();
+                i = j;
                 continue;
             }
         }
-        let next_boundary = s[i..]
-            .char_indices()
-            .nth(1)
-            .map(|(b, _)| i + b)
-            .unwrap_or(s.len());
-        out.push_str(&s[i..next_boundary]);
-        i = next_boundary;
+        out.push(chars[i].1);
+        i += 1;
     }
     out
-}
-
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
 }
 
 #[cfg(test)]

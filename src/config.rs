@@ -21,6 +21,7 @@ pub struct Config {
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
     pub auto_compress_md: bool,
+    pub lang: String,
 }
 
 impl Default for Config {
@@ -48,6 +49,7 @@ impl Default for Config {
             summarize_threshold_lines: 500,
             persona: Persona::Ultra,
             auto_compress_md: true,
+            lang: "en".to_string(),
         }
     }
 }
@@ -95,6 +97,7 @@ impl Config {
                     }
                     "persona" => c.persona = crate::commands::persona::from_str(v),
                     "auto_compress_md" => c.auto_compress_md = v == "true",
+                    "lang" => c.lang = v.to_string(),
                     _ => {}
                 }
             }
