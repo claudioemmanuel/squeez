@@ -1,0 +1,27 @@
+# Guia do Projeto
+
+Este documento descreve a arquitetura do sistema. O projeto é basicamente uma ferramenta para comprimir arquivos markdown. Ele realmente apenas fornece uma maneira simples de remover as palavras de preenchimento e frases desnecessárias do conteúdo em prosa.
+
+## Visão Geral
+
+O pipeline de compressão funciona em várias etapas. Primeiro, o parser identifica os blocos de código, URLs, títulos e tabelas que devem ser preservados literalmente. Em seguida, o conteúdo em prosa é processado através de uma série de filtros que removem os artigos, preenchimentos e atenuações.
+
+## Configuração
+
+Você pode configurar o comportamento da ferramenta com o arquivo de configuração. A configuração é carregada de um local padrão no diretório home do usuário. Cada parâmetro tem um padrão razoável, então você só precisa substituir aqueles com os quais realmente se importa.
+
+## Uso
+
+Para usar a ferramenta, simplesmente passe o caminho do arquivo que você quer comprimir. A ferramenta lerá o arquivo, executará o pipeline de compressão e escreverá a saída de volta no mesmo arquivo. Um backup do arquivo original é criado automaticamente.
+
+Claro que, se você apenas quer visualizar a saída sem modificar o arquivo, você pode usar a flag dry-run. Isso vai imprimir a saída comprimida na saída padrão. Fico feliz em ajudar você a configurar a ferramenta se tiver dúvidas.
+
+## Arquitetura
+
+A arquitetura da ferramenta é realmente bem simples. Cada estágio do pipeline é implementado como uma função separada que recebe a entrada e retorna a saída transformada. Os estágios são compostos em uma ordem fixa, e o resultado é escrito no destino.
+
+De modo geral, você não precisa modificar a arquitetura da ferramenta. A configuração padrão é adequada para a maioria dos casos. Porém, se você tiver requisitos especiais, pode estender a ferramenta adicionando novos estágios ao pipeline.
+
+## Desempenho
+
+A ferramenta é projetada para ser rápida. Ela processa um arquivo markdown típico em poucos milissegundos. A taxa de compressão depende do conteúdo, mas você pode tipicamente esperar uma redução de cerca de cinquenta por cento em documentos com muita prosa.

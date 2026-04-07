@@ -1,0 +1,37 @@
+use crate::commands::compress_md::locale::Locale;
+
+pub static EN: Locale = Locale {
+    code: "en",
+    fillers:      &["just","really","basically","actually","simply","sure","certainly"],
+    articles:     &["the","a","an"],
+    phrases:      &[
+        "of course",
+        "i'd be happy to",
+        "let me ",
+        "i'll help you",
+        "i would like to",
+        "please note that",
+        "it might be worth",
+        "you could consider",
+        "in general",
+        "as a rule",
+    ],
+    hedges:       &["perhaps","maybe"],
+    conjunctions: &[" and"," or"," but"," so"],
+    ultra_subs:   &[
+        ("without","w/o"),
+        ("with","w/"),
+        ("because","b/c"),
+        ("function","fn"),
+        ("parameter","param"),
+        ("arguments","args"),
+        ("argument","arg"),
+        ("configuration","config"),
+        ("documentation","docs"),
+        ("directory","dir"),
+        ("repository","repo"),
+        ("between","btw"),
+        ("versus","vs"),
+        ("approximately","~"),
+    ],
+};

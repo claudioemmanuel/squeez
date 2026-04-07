@@ -1,0 +1,27 @@
+# Project Guide
+
+This document describes the architecture of the system. The project is basically a tool for compressing markdown files. It really just provides a simple way to remove the filler words and unnecessary phrases from prose content.
+
+## Overview
+
+The compression pipeline works in several stages. First, the parser identifies code blocks, URLs, headings, and tables that must be preserved verbatim. Then the prose content is processed through a series of filters that drop articles, fillers, and hedges.
+
+## Configuration
+
+You can configure the behavior of the tool with the configuration file. The configuration is loaded from a standard location in the user home directory. Each parameter has a sensible default, so you only need to override the ones that you really care about.
+
+## Usage
+
+To use the tool, simply pass the path to the file that you want to compress. The tool will read the file, run the compression pipeline, and write the output back to the same file. A backup of the original file is created automatically.
+
+Of course, if you just want to preview the output without modifying the file, you can use the dry-run flag. This will print the compressed output to standard output instead. I'd be happy to help you configure the tool if you have any questions.
+
+## Architecture
+
+The architecture of the tool is really quite simple. Each stage of the pipeline is implemented as a separate function that takes the input and returns the transformed output. The stages are composed together in a fixed order, and the result is written to the destination.
+
+In general, you should not need to modify the architecture of the tool. The default configuration is suitable for most use cases. However, if you have special requirements, you can extend the tool by adding new stages to the pipeline.
+
+## Performance
+
+The tool is designed to be fast. It processes a typical markdown file in a few milliseconds. The compression ratio depends on the content, but you can typically expect a reduction of around fifty percent on prose-heavy documents.

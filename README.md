@@ -80,7 +80,7 @@ squeez update --insecure  # skip checksum (not recommended)
 | **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 6 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
-| **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. |
+| **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
 | **Session memory** | On `SessionStart`, injects a summary of the previous session (files touched, errors, test results, git events). Summaries carry temporal validity (`valid_from`/`valid_to`) so invalidated entries age from `valid_to`. |
 | **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
 
@@ -122,6 +122,28 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Quality (signal terms preserved) | **19 / 19 pass** |
 | Latency p50 (filter mode) | **< 0.3 ms** |
 | Latency p95 (incl. wrap/summarize) | **64 ms** |
+
+### compress-md i18n — EN vs pt-BR (Apple Silicon, release build)
+
+| Locale | Mode | Before | After | Reduction | Latency |
+|--------|------|--------|-------|-----------|---------|
+| EN | Full | 514 tk | 445 tk | **−14%** | 170 µs |
+| EN | Ultra | 514 tk | 434 tk | **−16%** | — |
+| pt-BR | Full | 558 tk | 488 tk | **−13%** | 256 µs |
+| pt-BR | Ultra | 558 tk | 468 tk | **−17%** | — |
+
+PT-BR is **~1.5× slower** than EN due to Unicode case folding — still sub-millisecond per call. Both locales produce `result.safe = true`. Run `cargo run --release --bin bench_i18n` to reproduce.
+
+**Before / after — pt-BR Full mode:**
+```
+IN:    O sistema é basicamente apenas uma ferramenta para configurar o repositório.
+       De modo geral, você pode considerar que a função principal inicializa a documentação do projeto.
+
+Full:  sistema é ferramenta para configurar repositório. função principal inicializa documentação projeto.
+Ultra: sistema é ferramenta p/ configurar repo. fn principal inicializa docs projeto.
+```
+
+Drops: articles (`o`, `a`, `do`), fillers (`basicamente`, `apenas`), phrases (`De modo geral`, `você pode considerar que`). Ultra adds abbreviations (`repositório→repo`, `função→fn`, `documentação→docs`, `para→p/`).
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
@@ -177,8 +199,9 @@ docker logs mycontainer 2>&1 | squeez filter docker
 Pure-Rust, zero-LLM compressor for markdown files. Preserves code blocks, inline code, URLs, headings, file paths, and tables. Compresses prose only. Always writes a backup at `<stem>.original.md`.
 
 ```bash
-squeez compress-md CLAUDE.md             # Full mode
+squeez compress-md CLAUDE.md             # Full mode (English default)
 squeez compress-md --ultra CLAUDE.md    # + abbreviations (with→w/, fn, cfg, etc.)
+squeez compress-md --lang pt CLAUDE.md  # pt-BR locale (articles, fillers, phrases)
 squeez compress-md --dry-run CLAUDE.md  # preview, no write
 squeez compress-md --all                # compress all known locations automatically
 ```
@@ -264,6 +287,7 @@ memory_retention_days = 30
 # ── Output / persona ───────────────────────────────────────────
 persona          = ultra    # off | lite | full | ultra
 auto_compress_md = true     # run compress-md on every session start
+lang             = en       # compress-md locale: en | pt (pt-BR) — more languages extensible
 ```
 
 ### Adaptive intensity — Full / Ultra split
@@ -392,7 +416,7 @@ Requires Rust stable. Windows requires Git Bash.
 git clone https://github.com/claudioemmanuel/squeez.git
 cd squeez
 
-cargo test                  # run all tests
+cargo test                  # run all tests (315 tests, 38 suites)
 cargo build --release       # build release binary
 
 bash bench/run.sh           # filter-mode benchmark (14 fixtures)
