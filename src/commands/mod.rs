@@ -24,5 +24,6 @@ pub mod text_proc;
 pub mod track;
 pub mod track_result;
 pub mod typescript;
+pub mod benchmark;
 pub mod update;
 pub mod wrap;
