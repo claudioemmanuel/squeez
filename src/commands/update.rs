@@ -94,6 +94,12 @@ pub fn run(args: &[String]) -> i32 {
     }
 
     println!("squeez update: installed {} → {}", current, latest_clean);
+
+    // Re-register hooks in settings.json (path may have changed, or first-time setup)
+    if let Err(e) = crate::commands::setup::register_claude_settings() {
+        eprintln!("squeez update: warning: could not update settings.json: {}", e);
+    }
+
     0
 }
 
@@ -265,14 +271,44 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        // On Windows the running .exe cannot be renamed. Leave .new in place
-        // and ask the user to move it manually (or rely on a wrapper script).
+        // If target is not the currently-running binary (e.g. running from
+        // ~/.cargo/bin/squeez.exe while updating ~/.claude/squeez/bin/squeez.exe),
+        // the target file is not locked — a direct rename works fine.
+        let is_self = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.canonicalize().ok())
+            .zip(target.canonicalize().ok())
+            .map(|(a, b)| a == b)
+            .unwrap_or(false);
+
+        if !is_self {
+            std::fs::rename(&staging, target).map_err(|e| format!("rename: {}", e))?;
+            return Ok(());
+        }
+
+        // Self-update: try rename dance — Windows allows renaming a running exe.
+        let bak = target.with_extension("exe.bak");
+        let _ = std::fs::remove_file(&bak); // remove stale backup if present
+        if std::fs::rename(target, &bak).is_ok() {
+            match std::fs::rename(&staging, target) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(&bak);
+                    return Ok(());
+                }
+                Err(e) => {
+                    let _ = std::fs::rename(&bak, target); // roll back
+                    return Err(format!("rename new->target failed: {}", e));
+                }
+            }
+        }
+
+        // Rename of running exe failed — leave .new, print instructions.
         eprintln!(
-            "squeez update: wrote {} — Windows cannot replace a running .exe.",
+            "squeez update: wrote {} — to complete, run:",
             staging.display()
         );
         eprintln!(
-            "  Run: move /Y \"{}\" \"{}\"",
+            "  move /Y \"{}\" \"{}\"",
             staging.display(),
             target.display()
         );
