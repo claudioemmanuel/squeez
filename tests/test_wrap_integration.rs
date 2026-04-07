@@ -37,6 +37,7 @@ fn no_squeez_bypasses_compression() {
     assert_ne!(out.status.code(), None);
 }
 
+#[cfg(not(windows))]
 #[test]
 fn wrap_handles_pipes_via_sh() {
     let out = Command::new(bin())
@@ -45,6 +46,17 @@ fn wrap_handles_pipes_via_sh() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("HELLO"));
+}
+
+#[cfg(windows)]
+#[test]
+fn wrap_handles_pipes_via_cmd() {
+    let out = Command::new(bin())
+        .args(["wrap", "echo hello | findstr hello"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.to_lowercase().contains("hello"));
 }
 
 #[test]
