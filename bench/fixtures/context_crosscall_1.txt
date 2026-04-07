@@ -1,0 +1,18 @@
+On branch develop
+Your branch is up to date with origin/develop.
+
+Changes not staged for commit:
+  (use git add to update what will be committed)
+  (use git restore to discard changes in working directory)
+        modified:   src/main.rs
+        modified:   src/lib.rs
+        modified:   src/config.rs
+        modified:   src/commands/wrap.rs
+        modified:   tests/test_intensity.rs
+        modified:   tests/test_redundancy.rs
+        modified:   tests/test_summarize.rs
+        modified:   tests/test_context_cache.rs
+        modified:   bench/run.sh
+        modified:   README.md
+
+no changes added to commit (use git add and/or git commit -a)

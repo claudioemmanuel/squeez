@@ -18,6 +18,11 @@ printf '%.0s─' {1..78} >> "$REPORT"; echo >> "$REPORT"
 
 for f in "$FIXTURES"/*.txt; do
     name=$(basename "$f")
+    # context_crosscall_* fixtures exercise wrap.rs cross-call dedup; they
+    # are run by bench/run_context.sh, not by filter-mode bench.
+    case "$name" in
+        context_crosscall_*) continue ;;
+    esac
     input=$(cat "$f")
     before=$(( ${#input} / 4 ))
     [ "$before" -eq 0 ] && continue

@@ -1,0 +1,629 @@
+   Compiling serde v0.1.0
+   Compiling serde v0.2.0
+   Compiling serde v1.0.0
+   Compiling tokio v0.1.0
+   Compiling tokio v0.2.0
+   Compiling tokio v1.0.0
+   Compiling hyper v0.1.0
+   Compiling hyper v0.2.0
+   Compiling hyper v1.0.0
+   Compiling reqwest v0.1.0
+   Compiling reqwest v0.2.0
+   Compiling reqwest v1.0.0
+   Compiling sqlx v0.1.0
+   Compiling sqlx v0.2.0
+   Compiling sqlx v1.0.0
+   Compiling axum v0.1.0
+   Compiling axum v0.2.0
+   Compiling axum v1.0.0
+   Compiling tower v0.1.0
+   Compiling tower v0.2.0
+   Compiling tower v1.0.0
+   Compiling tracing v0.1.0
+   Compiling tracing v0.2.0
+   Compiling tracing v1.0.0
+warning: unused variable: var_0
+  --> src/lib.rs:10:5
+warning: unused variable: var_1
+  --> src/lib.rs:11:5
+warning: unused variable: var_2
+  --> src/lib.rs:12:5
+warning: unused variable: var_3
+  --> src/lib.rs:13:5
+warning: unused variable: var_4
+  --> src/lib.rs:14:5
+warning: unused variable: var_5
+  --> src/lib.rs:15:5
+warning: unused variable: var_6
+  --> src/lib.rs:16:5
+warning: unused variable: var_7
+  --> src/lib.rs:17:5
+warning: unused variable: var_8
+  --> src/lib.rs:18:5
+warning: unused variable: var_9
+  --> src/lib.rs:19:5
+warning: unused variable: var_10
+  --> src/lib.rs:20:5
+warning: unused variable: var_11
+  --> src/lib.rs:21:5
+warning: unused variable: var_12
+  --> src/lib.rs:22:5
+warning: unused variable: var_13
+  --> src/lib.rs:23:5
+warning: unused variable: var_14
+  --> src/lib.rs:24:5
+warning: unused variable: var_15
+  --> src/lib.rs:25:5
+warning: unused variable: var_16
+  --> src/lib.rs:26:5
+warning: unused variable: var_17
+  --> src/lib.rs:27:5
+warning: unused variable: var_18
+  --> src/lib.rs:28:5
+warning: unused variable: var_19
+  --> src/lib.rs:29:5
+warning: unused variable: var_20
+  --> src/lib.rs:30:5
+warning: unused variable: var_21
+  --> src/lib.rs:31:5
+warning: unused variable: var_22
+  --> src/lib.rs:32:5
+warning: unused variable: var_23
+  --> src/lib.rs:33:5
+warning: unused variable: var_24
+  --> src/lib.rs:34:5
+warning: unused variable: var_25
+  --> src/lib.rs:35:5
+warning: unused variable: var_26
+  --> src/lib.rs:36:5
+warning: unused variable: var_27
+  --> src/lib.rs:37:5
+warning: unused variable: var_28
+  --> src/lib.rs:38:5
+warning: unused variable: var_29
+  --> src/lib.rs:39:5
+warning: unused variable: var_30
+  --> src/lib.rs:40:5
+warning: unused variable: var_31
+  --> src/lib.rs:41:5
+warning: unused variable: var_32
+  --> src/lib.rs:42:5
+warning: unused variable: var_33
+  --> src/lib.rs:43:5
+warning: unused variable: var_34
+  --> src/lib.rs:44:5
+warning: unused variable: var_35
+  --> src/lib.rs:45:5
+warning: unused variable: var_36
+  --> src/lib.rs:46:5
+warning: unused variable: var_37
+  --> src/lib.rs:47:5
+warning: unused variable: var_38
+  --> src/lib.rs:48:5
+warning: unused variable: var_39
+  --> src/lib.rs:49:5
+warning: unused variable: var_40
+  --> src/lib.rs:50:5
+warning: unused variable: var_41
+  --> src/lib.rs:51:5
+warning: unused variable: var_42
+  --> src/lib.rs:52:5
+warning: unused variable: var_43
+  --> src/lib.rs:53:5
+warning: unused variable: var_44
+  --> src/lib.rs:54:5
+warning: unused variable: var_45
+  --> src/lib.rs:55:5
+warning: unused variable: var_46
+  --> src/lib.rs:56:5
+warning: unused variable: var_47
+  --> src/lib.rs:57:5
+warning: unused variable: var_48
+  --> src/lib.rs:58:5
+warning: unused variable: var_49
+  --> src/lib.rs:59:5
+warning: unused variable: var_50
+  --> src/lib.rs:60:5
+warning: unused variable: var_51
+  --> src/lib.rs:61:5
+warning: unused variable: var_52
+  --> src/lib.rs:62:5
+warning: unused variable: var_53
+  --> src/lib.rs:63:5
+warning: unused variable: var_54
+  --> src/lib.rs:64:5
+warning: unused variable: var_55
+  --> src/lib.rs:65:5
+warning: unused variable: var_56
+  --> src/lib.rs:66:5
+warning: unused variable: var_57
+  --> src/lib.rs:67:5
+warning: unused variable: var_58
+  --> src/lib.rs:68:5
+warning: unused variable: var_59
+  --> src/lib.rs:69:5
+warning: unused variable: var_60
+  --> src/lib.rs:70:5
+warning: unused variable: var_61
+  --> src/lib.rs:71:5
+warning: unused variable: var_62
+  --> src/lib.rs:72:5
+warning: unused variable: var_63
+  --> src/lib.rs:73:5
+warning: unused variable: var_64
+  --> src/lib.rs:74:5
+warning: unused variable: var_65
+  --> src/lib.rs:75:5
+warning: unused variable: var_66
+  --> src/lib.rs:76:5
+warning: unused variable: var_67
+  --> src/lib.rs:77:5
+warning: unused variable: var_68
+  --> src/lib.rs:78:5
+warning: unused variable: var_69
+  --> src/lib.rs:79:5
+warning: unused variable: var_70
+  --> src/lib.rs:80:5
+warning: unused variable: var_71
+  --> src/lib.rs:81:5
+warning: unused variable: var_72
+  --> src/lib.rs:82:5
+warning: unused variable: var_73
+  --> src/lib.rs:83:5
+warning: unused variable: var_74
+  --> src/lib.rs:84:5
+warning: unused variable: var_75
+  --> src/lib.rs:85:5
+warning: unused variable: var_76
+  --> src/lib.rs:86:5
+warning: unused variable: var_77
+  --> src/lib.rs:87:5
+warning: unused variable: var_78
+  --> src/lib.rs:88:5
+warning: unused variable: var_79
+  --> src/lib.rs:89:5
+warning: unused variable: var_80
+  --> src/lib.rs:90:5
+warning: unused variable: var_81
+  --> src/lib.rs:91:5
+warning: unused variable: var_82
+  --> src/lib.rs:92:5
+warning: unused variable: var_83
+  --> src/lib.rs:93:5
+warning: unused variable: var_84
+  --> src/lib.rs:94:5
+warning: unused variable: var_85
+  --> src/lib.rs:95:5
+warning: unused variable: var_86
+  --> src/lib.rs:96:5
+warning: unused variable: var_87
+  --> src/lib.rs:97:5
+warning: unused variable: var_88
+  --> src/lib.rs:98:5
+warning: unused variable: var_89
+  --> src/lib.rs:99:5
+warning: unused variable: var_90
+  --> src/lib.rs:100:5
+warning: unused variable: var_91
+  --> src/lib.rs:101:5
+warning: unused variable: var_92
+  --> src/lib.rs:102:5
+warning: unused variable: var_93
+  --> src/lib.rs:103:5
+warning: unused variable: var_94
+  --> src/lib.rs:104:5
+warning: unused variable: var_95
+  --> src/lib.rs:105:5
+warning: unused variable: var_96
+  --> src/lib.rs:106:5
+warning: unused variable: var_97
+  --> src/lib.rs:107:5
+warning: unused variable: var_98
+  --> src/lib.rs:108:5
+warning: unused variable: var_99
+  --> src/lib.rs:109:5
+warning: unused variable: var_100
+  --> src/lib.rs:110:5
+warning: unused variable: var_101
+  --> src/lib.rs:111:5
+warning: unused variable: var_102
+  --> src/lib.rs:112:5
+warning: unused variable: var_103
+  --> src/lib.rs:113:5
+warning: unused variable: var_104
+  --> src/lib.rs:114:5
+warning: unused variable: var_105
+  --> src/lib.rs:115:5
+warning: unused variable: var_106
+  --> src/lib.rs:116:5
+warning: unused variable: var_107
+  --> src/lib.rs:117:5
+warning: unused variable: var_108
+  --> src/lib.rs:118:5
+warning: unused variable: var_109
+  --> src/lib.rs:119:5
+warning: unused variable: var_110
+  --> src/lib.rs:120:5
+warning: unused variable: var_111
+  --> src/lib.rs:121:5
+warning: unused variable: var_112
+  --> src/lib.rs:122:5
+warning: unused variable: var_113
+  --> src/lib.rs:123:5
+warning: unused variable: var_114
+  --> src/lib.rs:124:5
+warning: unused variable: var_115
+  --> src/lib.rs:125:5
+warning: unused variable: var_116
+  --> src/lib.rs:126:5
+warning: unused variable: var_117
+  --> src/lib.rs:127:5
+warning: unused variable: var_118
+  --> src/lib.rs:128:5
+warning: unused variable: var_119
+  --> src/lib.rs:129:5
+warning: unused variable: var_120
+  --> src/lib.rs:130:5
+warning: unused variable: var_121
+  --> src/lib.rs:131:5
+warning: unused variable: var_122
+  --> src/lib.rs:132:5
+warning: unused variable: var_123
+  --> src/lib.rs:133:5
+warning: unused variable: var_124
+  --> src/lib.rs:134:5
+warning: unused variable: var_125
+  --> src/lib.rs:135:5
+warning: unused variable: var_126
+  --> src/lib.rs:136:5
+warning: unused variable: var_127
+  --> src/lib.rs:137:5
+warning: unused variable: var_128
+  --> src/lib.rs:138:5
+warning: unused variable: var_129
+  --> src/lib.rs:139:5
+warning: unused variable: var_130
+  --> src/lib.rs:140:5
+warning: unused variable: var_131
+  --> src/lib.rs:141:5
+warning: unused variable: var_132
+  --> src/lib.rs:142:5
+warning: unused variable: var_133
+  --> src/lib.rs:143:5
+warning: unused variable: var_134
+  --> src/lib.rs:144:5
+warning: unused variable: var_135
+  --> src/lib.rs:145:5
+warning: unused variable: var_136
+  --> src/lib.rs:146:5
+warning: unused variable: var_137
+  --> src/lib.rs:147:5
+warning: unused variable: var_138
+  --> src/lib.rs:148:5
+warning: unused variable: var_139
+  --> src/lib.rs:149:5
+warning: unused variable: var_140
+  --> src/lib.rs:150:5
+warning: unused variable: var_141
+  --> src/lib.rs:151:5
+warning: unused variable: var_142
+  --> src/lib.rs:152:5
+warning: unused variable: var_143
+  --> src/lib.rs:153:5
+warning: unused variable: var_144
+  --> src/lib.rs:154:5
+warning: unused variable: var_145
+  --> src/lib.rs:155:5
+warning: unused variable: var_146
+  --> src/lib.rs:156:5
+warning: unused variable: var_147
+  --> src/lib.rs:157:5
+warning: unused variable: var_148
+  --> src/lib.rs:158:5
+warning: unused variable: var_149
+  --> src/lib.rs:159:5
+warning: unused variable: var_150
+  --> src/lib.rs:160:5
+warning: unused variable: var_151
+  --> src/lib.rs:161:5
+warning: unused variable: var_152
+  --> src/lib.rs:162:5
+warning: unused variable: var_153
+  --> src/lib.rs:163:5
+warning: unused variable: var_154
+  --> src/lib.rs:164:5
+warning: unused variable: var_155
+  --> src/lib.rs:165:5
+warning: unused variable: var_156
+  --> src/lib.rs:166:5
+warning: unused variable: var_157
+  --> src/lib.rs:167:5
+warning: unused variable: var_158
+  --> src/lib.rs:168:5
+warning: unused variable: var_159
+  --> src/lib.rs:169:5
+warning: unused variable: var_160
+  --> src/lib.rs:170:5
+warning: unused variable: var_161
+  --> src/lib.rs:171:5
+warning: unused variable: var_162
+  --> src/lib.rs:172:5
+warning: unused variable: var_163
+  --> src/lib.rs:173:5
+warning: unused variable: var_164
+  --> src/lib.rs:174:5
+warning: unused variable: var_165
+  --> src/lib.rs:175:5
+warning: unused variable: var_166
+  --> src/lib.rs:176:5
+warning: unused variable: var_167
+  --> src/lib.rs:177:5
+warning: unused variable: var_168
+  --> src/lib.rs:178:5
+warning: unused variable: var_169
+  --> src/lib.rs:179:5
+warning: unused variable: var_170
+  --> src/lib.rs:180:5
+warning: unused variable: var_171
+  --> src/lib.rs:181:5
+warning: unused variable: var_172
+  --> src/lib.rs:182:5
+warning: unused variable: var_173
+  --> src/lib.rs:183:5
+warning: unused variable: var_174
+  --> src/lib.rs:184:5
+warning: unused variable: var_175
+  --> src/lib.rs:185:5
+warning: unused variable: var_176
+  --> src/lib.rs:186:5
+warning: unused variable: var_177
+  --> src/lib.rs:187:5
+warning: unused variable: var_178
+  --> src/lib.rs:188:5
+warning: unused variable: var_179
+  --> src/lib.rs:189:5
+warning: unused variable: var_180
+  --> src/lib.rs:190:5
+warning: unused variable: var_181
+  --> src/lib.rs:191:5
+warning: unused variable: var_182
+  --> src/lib.rs:192:5
+warning: unused variable: var_183
+  --> src/lib.rs:193:5
+warning: unused variable: var_184
+  --> src/lib.rs:194:5
+warning: unused variable: var_185
+  --> src/lib.rs:195:5
+warning: unused variable: var_186
+  --> src/lib.rs:196:5
+warning: unused variable: var_187
+  --> src/lib.rs:197:5
+warning: unused variable: var_188
+  --> src/lib.rs:198:5
+warning: unused variable: var_189
+  --> src/lib.rs:199:5
+warning: unused variable: var_190
+  --> src/lib.rs:200:5
+warning: unused variable: var_191
+  --> src/lib.rs:201:5
+warning: unused variable: var_192
+  --> src/lib.rs:202:5
+warning: unused variable: var_193
+  --> src/lib.rs:203:5
+warning: unused variable: var_194
+  --> src/lib.rs:204:5
+warning: unused variable: var_195
+  --> src/lib.rs:205:5
+warning: unused variable: var_196
+  --> src/lib.rs:206:5
+warning: unused variable: var_197
+  --> src/lib.rs:207:5
+warning: unused variable: var_198
+  --> src/lib.rs:208:5
+warning: unused variable: var_199
+  --> src/lib.rs:209:5
+warning: unused variable: var_200
+  --> src/lib.rs:210:5
+warning: unused variable: var_201
+  --> src/lib.rs:211:5
+warning: unused variable: var_202
+  --> src/lib.rs:212:5
+warning: unused variable: var_203
+  --> src/lib.rs:213:5
+warning: unused variable: var_204
+  --> src/lib.rs:214:5
+warning: unused variable: var_205
+  --> src/lib.rs:215:5
+warning: unused variable: var_206
+  --> src/lib.rs:216:5
+warning: unused variable: var_207
+  --> src/lib.rs:217:5
+warning: unused variable: var_208
+  --> src/lib.rs:218:5
+warning: unused variable: var_209
+  --> src/lib.rs:219:5
+warning: unused variable: var_210
+  --> src/lib.rs:220:5
+warning: unused variable: var_211
+  --> src/lib.rs:221:5
+warning: unused variable: var_212
+  --> src/lib.rs:222:5
+warning: unused variable: var_213
+  --> src/lib.rs:223:5
+warning: unused variable: var_214
+  --> src/lib.rs:224:5
+warning: unused variable: var_215
+  --> src/lib.rs:225:5
+warning: unused variable: var_216
+  --> src/lib.rs:226:5
+warning: unused variable: var_217
+  --> src/lib.rs:227:5
+warning: unused variable: var_218
+  --> src/lib.rs:228:5
+warning: unused variable: var_219
+  --> src/lib.rs:229:5
+warning: unused variable: var_220
+  --> src/lib.rs:230:5
+warning: unused variable: var_221
+  --> src/lib.rs:231:5
+warning: unused variable: var_222
+  --> src/lib.rs:232:5
+warning: unused variable: var_223
+  --> src/lib.rs:233:5
+warning: unused variable: var_224
+  --> src/lib.rs:234:5
+warning: unused variable: var_225
+  --> src/lib.rs:235:5
+warning: unused variable: var_226
+  --> src/lib.rs:236:5
+warning: unused variable: var_227
+  --> src/lib.rs:237:5
+warning: unused variable: var_228
+  --> src/lib.rs:238:5
+warning: unused variable: var_229
+  --> src/lib.rs:239:5
+warning: unused variable: var_230
+  --> src/lib.rs:240:5
+warning: unused variable: var_231
+  --> src/lib.rs:241:5
+warning: unused variable: var_232
+  --> src/lib.rs:242:5
+warning: unused variable: var_233
+  --> src/lib.rs:243:5
+warning: unused variable: var_234
+  --> src/lib.rs:244:5
+warning: unused variable: var_235
+  --> src/lib.rs:245:5
+warning: unused variable: var_236
+  --> src/lib.rs:246:5
+warning: unused variable: var_237
+  --> src/lib.rs:247:5
+warning: unused variable: var_238
+  --> src/lib.rs:248:5
+warning: unused variable: var_239
+  --> src/lib.rs:249:5
+warning: unused variable: var_240
+  --> src/lib.rs:250:5
+warning: unused variable: var_241
+  --> src/lib.rs:251:5
+warning: unused variable: var_242
+  --> src/lib.rs:252:5
+warning: unused variable: var_243
+  --> src/lib.rs:253:5
+warning: unused variable: var_244
+  --> src/lib.rs:254:5
+warning: unused variable: var_245
+  --> src/lib.rs:255:5
+warning: unused variable: var_246
+  --> src/lib.rs:256:5
+warning: unused variable: var_247
+  --> src/lib.rs:257:5
+warning: unused variable: var_248
+  --> src/lib.rs:258:5
+warning: unused variable: var_249
+  --> src/lib.rs:259:5
+warning: unused variable: var_250
+  --> src/lib.rs:260:5
+warning: unused variable: var_251
+  --> src/lib.rs:261:5
+warning: unused variable: var_252
+  --> src/lib.rs:262:5
+warning: unused variable: var_253
+  --> src/lib.rs:263:5
+warning: unused variable: var_254
+  --> src/lib.rs:264:5
+warning: unused variable: var_255
+  --> src/lib.rs:265:5
+warning: unused variable: var_256
+  --> src/lib.rs:266:5
+warning: unused variable: var_257
+  --> src/lib.rs:267:5
+warning: unused variable: var_258
+  --> src/lib.rs:268:5
+warning: unused variable: var_259
+  --> src/lib.rs:269:5
+warning: unused variable: var_260
+  --> src/lib.rs:270:5
+warning: unused variable: var_261
+  --> src/lib.rs:271:5
+warning: unused variable: var_262
+  --> src/lib.rs:272:5
+warning: unused variable: var_263
+  --> src/lib.rs:273:5
+warning: unused variable: var_264
+  --> src/lib.rs:274:5
+warning: unused variable: var_265
+  --> src/lib.rs:275:5
+warning: unused variable: var_266
+  --> src/lib.rs:276:5
+warning: unused variable: var_267
+  --> src/lib.rs:277:5
+warning: unused variable: var_268
+  --> src/lib.rs:278:5
+warning: unused variable: var_269
+  --> src/lib.rs:279:5
+warning: unused variable: var_270
+  --> src/lib.rs:280:5
+warning: unused variable: var_271
+  --> src/lib.rs:281:5
+warning: unused variable: var_272
+  --> src/lib.rs:282:5
+warning: unused variable: var_273
+  --> src/lib.rs:283:5
+warning: unused variable: var_274
+  --> src/lib.rs:284:5
+warning: unused variable: var_275
+  --> src/lib.rs:285:5
+warning: unused variable: var_276
+  --> src/lib.rs:286:5
+warning: unused variable: var_277
+  --> src/lib.rs:287:5
+warning: unused variable: var_278
+  --> src/lib.rs:288:5
+warning: unused variable: var_279
+  --> src/lib.rs:289:5
+warning: unused variable: var_280
+  --> src/lib.rs:290:5
+warning: unused variable: var_281
+  --> src/lib.rs:291:5
+warning: unused variable: var_282
+  --> src/lib.rs:292:5
+warning: unused variable: var_283
+  --> src/lib.rs:293:5
+warning: unused variable: var_284
+  --> src/lib.rs:294:5
+warning: unused variable: var_285
+  --> src/lib.rs:295:5
+warning: unused variable: var_286
+  --> src/lib.rs:296:5
+warning: unused variable: var_287
+  --> src/lib.rs:297:5
+warning: unused variable: var_288
+  --> src/lib.rs:298:5
+warning: unused variable: var_289
+  --> src/lib.rs:299:5
+warning: unused variable: var_290
+  --> src/lib.rs:300:5
+warning: unused variable: var_291
+  --> src/lib.rs:301:5
+warning: unused variable: var_292
+  --> src/lib.rs:302:5
+warning: unused variable: var_293
+  --> src/lib.rs:303:5
+warning: unused variable: var_294
+  --> src/lib.rs:304:5
+warning: unused variable: var_295
+  --> src/lib.rs:305:5
+warning: unused variable: var_296
+  --> src/lib.rs:306:5
+warning: unused variable: var_297
+  --> src/lib.rs:307:5
+warning: unused variable: var_298
+  --> src/lib.rs:308:5
+warning: unused variable: var_299
+  --> src/lib.rs:309:5
+error[E0308]: mismatched types
+  --> src/main.rs:42:9
+   |
+42 |     let x: u32 = "hello";
+   |            ---   ^^^^^^^ expected u32, found &str

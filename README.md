@@ -66,7 +66,32 @@ bypass = docker exec, psql, ssh
 # Session memory
 compact_threshold_tokens = 160000   # warn at 80% of context budget
 memory_retention_days = 30          # how long to keep session summaries
+
+# Context engine (PR1)
+adaptive_intensity = true           # auto-tighten compression as budget fills
+context_cache_enabled = true        # persist cross-call state in sessions/context.json
+redundancy_cache_enabled = true     # collapse identical recent outputs to a reference line
+summarize_threshold_lines = 500     # raw lines above this trigger summary fallback
 ```
+
+### Context engine
+
+When `adaptive_intensity = true` (default), squeez automatically scales line/dedup
+limits based on cumulative token usage in the current session:
+
+- **Lite** (<50% of budget) — passthrough, defaults
+- **Full** (50–80%) — limits ×0.6
+- **Ultra** (≥80%) — limits ×0.3
+
+The active level is shown in the bash header: `# squeez [git] 841→323 tokens (-62%) 55ms [adaptive: Full]`.
+
+When the same compressed output appears within the last 8 calls (length-equality
+guarded), squeez replaces it with a single reference line:
+`[squeez: identical to <hash> at bash#<n> — re-run with --no-squeez]`.
+
+When raw output exceeds `summarize_threshold_lines`, squeez emits a dense
+≤40-line summary (top errors, top files, test summary, last 20 lines verbatim)
+instead of running the per-handler truncation pipeline.
 
 ## How it works
 

@@ -76,3 +76,36 @@ pub fn str_array(items: &[String]) -> String {
         .collect();
     format!("[{}]", inner.join(","))
 }
+
+/// Extract a u64 array from a flat JSON object: {"key":[1,2,3],...}
+/// Non-digit values are skipped.
+pub fn extract_u64_array(json: &str, key: &str) -> Vec<u64> {
+    let pat = format!("\"{}\":[", key);
+    let start = match json.find(&pat) {
+        Some(i) => i + pat.len(),
+        None => return Vec::new(),
+    };
+    let end = match json[start..].find(']') {
+        Some(i) => start + i,
+        None => return Vec::new(),
+    };
+    let arr = &json[start..end];
+    if arr.trim().is_empty() {
+        return Vec::new();
+    }
+    arr.split(',')
+        .filter_map(|s| s.trim().parse::<u64>().ok())
+        .collect()
+}
+
+/// Serialize a u64 slice as a JSON array of numbers.
+pub fn u64_array(items: &[u64]) -> String {
+    let inner: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+    format!("[{}]", inner.join(","))
+}
+
+/// Serialize a usize slice as a JSON array of numbers.
+pub fn usize_array(items: &[usize]) -> String {
+    let inner: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+    format!("[{}]", inner.join(","))
+}
