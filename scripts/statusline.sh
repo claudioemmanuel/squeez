@@ -41,45 +41,6 @@ def read_session(path):
 def fmt_k(n):
     return f'{n/1000:.1f}K' if n >= 1000 else str(int(n))
 
-def get_context_pct():
-    """Read last assistant turn from the most-recently-modified Claude session JSONL."""
-    project_dir = os.path.expanduser('~/.claude/projects/')
-    latest = None; latest_mtime = 0
-    try:
-        for proj in os.listdir(project_dir):
-            pp = os.path.join(project_dir, proj)
-            if not os.path.isdir(pp):
-                continue
-            for f in glob.glob(f'{pp}/*.jsonl'):
-                mtime = os.path.getmtime(f)
-                if mtime > latest_mtime:
-                    latest_mtime = mtime; latest = f
-    except:
-        pass
-    if not latest:
-        return None, None
-    last_usage = None
-    try:
-        with open(latest) as f:
-            for line in f:
-                try:
-                    ev = json.loads(line)
-                    if ev.get('type') == 'assistant':
-                        u = ev.get('message', {}).get('usage', {})
-                        if u:
-                            last_usage = u
-                except:
-                    pass
-    except:
-        pass
-    if last_usage:
-        total = (last_usage.get('input_tokens', 0)
-                 + last_usage.get('cache_creation_input_tokens', 0)
-                 + last_usage.get('cache_read_input_tokens', 0))
-        pct = int(total * 100 / 200_000)      # claude-sonnet-4-6 = 200K
-        return total, min(pct, 100)
-    return None, None
-
 # ── hooks status ──────────────────────────────────────────────────
 hooks_ok = False
 try:
@@ -107,10 +68,6 @@ try:
     all_saved = max(0, all_in - all_out)
     all_pct   = int(all_saved * 100 / all_in) if all_in > 0 else 0
 
-    # ── context window (real-time from latest session JSONL) ──────
-    ctx_total, ctx_pct = get_context_pct()
-    ctx_str = f'Ctx {ctx_pct}%' if ctx_pct is not None else None
-
     # ── build output line ─────────────────────────────────────────
     parts = []
 
@@ -118,8 +75,6 @@ try:
         cur_saved = max(0, cur_in - cur_out)
         cur_pct   = int(cur_saved * 100 / cur_in) if cur_in > 0 else 0
         parts.append(f'{CHECK} Squeez ↓{cur_pct}%')
-        if ctx_str:
-            parts.append(ctx_str)
         parts.append(f'{cur_calls} Calls')
         parts.append(f'{fmt_k(cur_saved)} Tk Saved')
         if cur_red:
@@ -128,8 +83,6 @@ try:
             parts.append(f'All-time: {fmt_k(all_saved)} Saved')
     elif all_calls > 0:
         parts.append(f'{CHECK} Squeez')
-        if ctx_str:
-            parts.append(ctx_str)
         parts.append(f'All-time ↓{all_pct}%')
         parts.append(f'{all_calls} Calls')
         parts.append(f'{fmt_k(all_saved)} Tk Saved')
@@ -138,15 +91,10 @@ try:
     else:
         label = 'Active' if hooks_ok else f'{WARN} Restart to Activate'
         parts.append(f'{CHECK} Squeez {label}')
-        if ctx_str:
-            parts.append(ctx_str)
 
     print(' | '.join(parts))
 
 except:
     label = 'Active' if hooks_ok else f'\033[33m⚠\033[0m Restart to Activate'
-    ctx_total, ctx_pct = get_context_pct()
-    ctx_str = f'Ctx {ctx_pct}%' if ctx_pct is not None else ''
-    suffix = f' | {ctx_str}' if ctx_str else ''
-    print(f'{CHECK} Squeez {label}{suffix}')
+    print(f'{CHECK} Squeez {label}')
 PYEOF
