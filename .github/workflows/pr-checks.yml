@@ -1,0 +1,26 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  require-linked-issue:
+    if: github.base_ref == 'develop' || github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for linked issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            // Accept "Closes #N", "Fixes #N", "Resolves #N" (case-insensitive)
+            const linked = /(?:closes|fixes|resolves)\s+#\d+/i.test(body);
+            if (!linked) {
+              core.setFailed(
+                'This PR has no linked issue.\n' +
+                'Add "Closes #<issue-number>" to the PR description before merging.'
+              );
+            } else {
+              console.log('Linked issue found — OK');
+            }
