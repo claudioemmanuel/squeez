@@ -11,6 +11,11 @@ pub struct Config {
     pub bypass: Vec<String>,
     pub compact_threshold_tokens: u64,
     pub memory_retention_days: u32,
+    // ── Context engine flags ────────────────────────────────────────────
+    pub adaptive_intensity: bool,
+    pub context_cache_enabled: bool,
+    pub redundancy_cache_enabled: bool,
+    pub summarize_threshold_lines: usize,
 }
 
 impl Default for Config {
@@ -32,6 +37,10 @@ impl Default for Config {
             ],
             compact_threshold_tokens: 160_000,
             memory_retention_days: 30,
+            adaptive_intensity: true,
+            context_cache_enabled: true,
+            redundancy_cache_enabled: true,
+            summarize_threshold_lines: 500,
         }
     }
 }
@@ -69,6 +78,13 @@ impl Config {
                     }
                     "memory_retention_days" => {
                         c.memory_retention_days = v.parse().unwrap_or(c.memory_retention_days)
+                    }
+                    "adaptive_intensity" => c.adaptive_intensity = v == "true",
+                    "context_cache_enabled" => c.context_cache_enabled = v == "true",
+                    "redundancy_cache_enabled" => c.redundancy_cache_enabled = v == "true",
+                    "summarize_threshold_lines" => {
+                        c.summarize_threshold_lines =
+                            v.parse().unwrap_or(c.summarize_threshold_lines)
                     }
                     _ => {}
                 }
