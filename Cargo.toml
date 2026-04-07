@@ -12,6 +12,8 @@ name = "squeez"
 path = "src/lib.rs"
 
 [dependencies]
+
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [profile.release]
