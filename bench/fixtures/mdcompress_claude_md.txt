@@ -1,0 +1,32 @@
+# Project Name
+
+The quick brown fox really just jumps over the lazy dog. This is basically a sample document that contains some natural language prose along with code blocks and tables.
+
+## Background
+
+The reason we are building this is because the existing solution does not really work the way we would like. I'd be happy to explain more, but the basic idea is to use the new framework with these parameters.
+
+In general, you could consider using the configuration directory for the documentation files. The repository structure is approximately as follows:
+
+```rust
+fn main() {
+    let config = Config::default();
+    println!("{}", config.as_str());
+}
+```
+
+## Usage
+
+Run `cargo build --release` to compile the binary. Then run the function with these arguments:
+
+| flag | description |
+|------|-------------|
+| --check | Just verify, do not write |
+| --all   | Walk all known directories |
+| --quiet | Suppress the informational output |
+
+For more details, see [the documentation](https://example.com/docs/v1.0).
+
+## Notes
+
+It might be worth considering the trade-off between the speed and the accuracy. Perhaps the configuration could be tuned. Maybe the function should be split into smaller pieces. The repository structure is documented in the README file.
