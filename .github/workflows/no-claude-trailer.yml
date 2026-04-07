@@ -1,0 +1,24 @@
+name: No Claude trailer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail if any commit has Claude Co-Authored-By trailer
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          bad=$(git log "$base".."$head" --format="%B" | grep -iE "^Co-Authored-By:.*noreply@anthropic\.com" || true)
+          if [ -n "$bad" ]; then
+            echo "ERROR: commit messages contain Claude Co-Authored-By trailers."
+            echo "Remove them with: git rebase -i <base> and edit the commit messages."
+            exit 1
+          fi
+          echo "No Claude trailers found — OK"
