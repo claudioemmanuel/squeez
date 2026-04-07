@@ -34,12 +34,17 @@ jobs:
 
       - name: Create and push tag
         if: steps.tag_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "v${{ steps.current.outputs.version }}"
           git push origin "v${{ steps.current.outputs.version }}"
           echo "Tagged v${{ steps.current.outputs.version }}"
+          # GITHUB_TOKEN-pushed tags don't trigger other workflows.
+          # Dispatch release.yml manually on the tag ref instead.
+          gh workflow run release.yml --ref "v${{ steps.current.outputs.version }}"
 
       - name: Skip (tag already exists)
         if: steps.tag_check.outputs.exists == 'true'
