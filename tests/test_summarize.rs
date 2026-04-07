@@ -15,10 +15,23 @@ fn should_apply_under_threshold_false() {
 }
 
 #[test]
-fn should_apply_over_threshold_true() {
+fn should_apply_over_threshold_true_when_errors_present() {
+    // Non-benign output: threshold stays at 100, so 200 triggers.
     let c = cfg(100);
-    let lines: Vec<String> = (0..200).map(|i| format!("l{}", i)).collect();
+    let mut lines: Vec<String> = (0..199).map(|i| format!("l{}", i)).collect();
+    lines.push("error: cannot resolve type".to_string());
     assert!(should_apply(&lines, &c));
+}
+
+#[test]
+fn should_apply_relaxed_for_benign_output() {
+    // 150 benign lines → 100 × 2 = 200 effective threshold → not applied.
+    let c = cfg(100);
+    let lines: Vec<String> = (0..150).map(|i| format!("l{}", i)).collect();
+    assert!(!should_apply(&lines, &c));
+    // 250 benign lines → exceeds 200 → applied.
+    let big: Vec<String> = (0..250).map(|i| format!("l{}", i)).collect();
+    assert!(should_apply(&big, &c));
 }
 
 #[test]

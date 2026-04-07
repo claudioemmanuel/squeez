@@ -6,8 +6,27 @@ fn cfg() -> Config {
 }
 
 #[test]
-fn adaptive_on_zero_usage_is_ultra() {
-    assert_eq!(derive(0, &cfg()), Intensity::Ultra);
+fn adaptive_on_zero_usage_is_full() {
+    // Empty session → gentler Full compression (was always-Ultra previously).
+    assert_eq!(derive(0, &cfg()), Intensity::Full);
+}
+
+#[test]
+fn adaptive_on_half_budget_is_full() {
+    let c = cfg();
+    assert_eq!(derive(budget(&c) / 2, &c), Intensity::Full);
+}
+
+#[test]
+fn adaptive_on_seventy_nine_percent_is_full() {
+    let c = cfg();
+    assert_eq!(derive(budget(&c) * 79 / 100, &c), Intensity::Full);
+}
+
+#[test]
+fn adaptive_on_eighty_percent_is_ultra() {
+    let c = cfg();
+    assert_eq!(derive(budget(&c) * 80 / 100, &c), Intensity::Ultra);
 }
 
 #[test]

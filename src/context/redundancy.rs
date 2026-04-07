@@ -1,14 +1,23 @@
-use crate::context::cache::{CallEntry, SessionContext};
-use crate::context::hash::fnv1a_64;
+use crate::context::cache::SessionContext;
+use crate::context::hash::{fnv1a_64, shingle_minhash};
 
 /// Minimum number of compressed lines for an output to be eligible for
 /// redundancy lookup. Below this we don't dedup — collapses too much signal.
 const MIN_LINES: usize = 2;
 
+/// Minimum number of lines for fuzzy (shingle-Jaccard) matching to engage.
+/// Below this, only exact-hash matches are returned. Short outputs have too
+/// few trigrams for Jaccard to discriminate reliably.
+const MIN_LINES_FUZZY: usize = 6;
+
 #[derive(Debug, Clone)]
 pub struct RedundancyHit {
     pub short_hash: String,
     pub call_n: u64,
+    /// `Some(j)` if this hit came from the fuzzy similarity branch
+    /// (where `j` is the Jaccard score in [SIMILARITY_THRESHOLD, 1.0]),
+    /// `None` if it was an exact hash+length match.
+    pub similarity: Option<f32>,
 }
 
 /// Compute the canonical hash + length for a compressed output.
@@ -17,25 +26,54 @@ fn fingerprint(output: &[String]) -> (u64, usize) {
     (fnv1a_64(joined.as_bytes()), joined.len())
 }
 
-/// If `output` matches a recent call's hash AND length, return a hit.
+/// If `output` matches a recent call, return a hit. The fast path is exact
+/// hash + length match (existing behavior). On miss, the fuzzy path computes
+/// a MinHash sketch of `output` and checks for a Jaccard ≥ SIMILARITY_THRESHOLD
+/// match against any recent call within a length-ratio guard.
 pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
     if output.len() < MIN_LINES {
         return None;
     }
     let (h, len) = fingerprint(output);
-    let entry: &CallEntry = ctx.lookup_recent(h, len)?;
+    // Fast path: exact hash + length match.
+    if let Some(entry) = ctx.lookup_recent(h, len) {
+        return Some(RedundancyHit {
+            short_hash: entry.short_hash.clone(),
+            call_n: entry.call_n,
+            similarity: None,
+        });
+    }
+    // Fuzzy path: shingle-Jaccard against recent calls. Skip for short outputs
+    // where trigram count is too low to discriminate.
+    if output.len() < MIN_LINES_FUZZY {
+        return None;
+    }
+    let joined = output.join("\n");
+    let shingles = shingle_minhash(&joined);
+    if shingles.is_empty() {
+        return None;
+    }
+    let m = ctx.lookup_similar(&shingles, len)?;
     Some(RedundancyHit {
-        short_hash: entry.short_hash.clone(),
-        call_n: entry.call_n,
+        short_hash: m.short_hash,
+        call_n: m.call_n,
+        similarity: Some(m.similarity),
     })
 }
 
 /// Record this call's output for future redundancy lookups.
-/// Returns the assigned call_n.
+/// Returns the assigned call_n. Stores both the exact hash and the MinHash
+/// sketch so that future calls can match either exactly or fuzzily.
 pub fn record(ctx: &mut SessionContext, cmd: &str, output: &[String]) -> u64 {
     let (h, len) = fingerprint(output);
     let call_n = ctx.next_call_n();
-    ctx.record_call(cmd, h, len, call_n);
+    let shingles = if output.len() >= MIN_LINES_FUZZY {
+        let joined = output.join("\n");
+        shingle_minhash(&joined)
+    } else {
+        Vec::new()
+    };
+    ctx.record_call_with_shingles(cmd, h, len, call_n, shingles);
     call_n
 }
 

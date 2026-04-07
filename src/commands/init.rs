@@ -236,6 +236,12 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
             errors_resolved,
             git_events,
             ts: prev.start_ts,
+            // Validity window: facts are valid from session start, indefinitely
+            // (valid_to = 0). A future feature may invalidate the entry when
+            // files get committed in a later session — see comparison report
+            // Phase 5 §3.D.
+            valid_from: prev.start_ts,
+            valid_to: 0,
         },
     );
     memory::prune_old(memory_dir, config.memory_retention_days);

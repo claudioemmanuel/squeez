@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::context::hash::{fnv1a_64, short_hex};
+use crate::context::hash::{fnv1a_64, jaccard, short_hex};
 use crate::json_util;
 
 // ── Bounds ─────────────────────────────────────────────────────────────────
@@ -12,6 +12,17 @@ const MAX_SEEN_GIT_REFS: usize = 64;
 
 /// How many recent calls are eligible for redundancy lookup.
 pub const RECENT_WINDOW: u64 = 16;
+
+/// Minimum Jaccard similarity for `lookup_similar` to consider a match.
+/// Tuned to suppress whitespace-only and tiny-token diffs while rejecting
+/// genuinely different outputs. Validated by tests/test_redundancy_shingle.rs.
+pub const SIMILARITY_THRESHOLD: f32 = 0.85;
+
+/// Allowed length ratio (in either direction) for similarity matching.
+/// A 100-line output and a 1000-line output should never match even if
+/// their shingle sets overlap heavily — this guards against false positives
+/// when one output is a strict prefix or repetition of another.
+pub const LENGTH_RATIO_GUARD: f32 = 0.80;
 
 // ── Data structures ────────────────────────────────────────────────────────
 
@@ -39,10 +50,27 @@ pub struct SessionContext {
     pub seen_errors: Vec<u64>, // FNV of normalized error
     pub seen_git_refs: Vec<String>, // 7-char SHAs
     pub call_log: Vec<CallEntry>,
+    /// Bottom-k MinHash sketch parallel to `call_log`. Each entry is the
+    /// sorted-deduplicated trigram-shingle hash set for that call's output.
+    /// Used by `lookup_similar` for fuzzy redundancy matching that survives
+    /// whitespace/timestamp/single-line-edit perturbations.
+    ///
+    /// May be shorter than `call_log` after loading older context.json files
+    /// that pre-date this field; callers must check length parity defensively.
+    pub call_log_shingles: Vec<Vec<u64>>,
     /// Cumulative token counts by tool category (Bash, Read, Other)
     pub tokens_bash: u64,
     pub tokens_read: u64,
     pub tokens_other: u64,
+}
+
+/// Result of `SessionContext::lookup_similar` — the matched call entry plus
+/// the Jaccard similarity score (always ≥ `SIMILARITY_THRESHOLD`).
+#[derive(Debug, Clone)]
+pub struct SimilarMatch {
+    pub call_n: u64,
+    pub short_hash: String,
+    pub similarity: f32,
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -93,6 +121,19 @@ impl SessionContext {
         output_len: usize,
         call_n: u64,
     ) {
+        self.record_call_with_shingles(cmd, output_hash, output_len, call_n, Vec::new());
+    }
+
+    /// Like `record_call`, but additionally stores a MinHash shingle sketch
+    /// of the output so that `lookup_similar` can find near-matches later.
+    pub fn record_call_with_shingles(
+        &mut self,
+        cmd: &str,
+        output_hash: u64,
+        output_len: usize,
+        call_n: u64,
+        shingles: Vec<u64>,
+    ) {
         let short = short_hex(output_hash);
         let cmd_short: String = cmd.chars().take(40).collect();
         self.call_log.push(CallEntry {
@@ -102,9 +143,17 @@ impl SessionContext {
             output_len,
             short_hash: short,
         });
+        // Keep shingles parallel to call_log (pad with empty if missing).
+        while self.call_log_shingles.len() < self.call_log.len() - 1 {
+            self.call_log_shingles.push(Vec::new());
+        }
+        self.call_log_shingles.push(shingles);
         if self.call_log.len() > MAX_CALL_LOG {
             let drop_n = self.call_log.len() - MAX_CALL_LOG;
             self.call_log.drain(0..drop_n);
+            // Drop the same prefix from shingles to keep parity.
+            let drop_s = self.call_log_shingles.len().min(drop_n);
+            self.call_log_shingles.drain(0..drop_s);
         }
     }
 
@@ -115,6 +164,64 @@ impl SessionContext {
         self.call_log[start..]
             .iter()
             .find(|e| e.output_hash == hash && e.output_len == len)
+    }
+
+    /// Lookup the highest-similarity recent call whose Jaccard distance to
+    /// `query_shingles` is at least `SIMILARITY_THRESHOLD` AND whose length
+    /// ratio with `query_len` is within `LENGTH_RATIO_GUARD`. Considers only
+    /// the last `RECENT_WINDOW` entries.
+    ///
+    /// Returns `None` when:
+    /// - the query has no shingles (text too short for trigrams)
+    /// - no candidate clears the threshold
+    /// - shingles have not been recorded yet for the matching call (legacy load)
+    pub fn lookup_similar(
+        &self,
+        query_shingles: &[u64],
+        query_len: usize,
+    ) -> Option<SimilarMatch> {
+        if query_shingles.is_empty() {
+            return None;
+        }
+        let log_len = self.call_log.len();
+        let start = log_len.saturating_sub(RECENT_WINDOW as usize);
+        // Walk only the part of call_log that has parallel shingles.
+        let s_len = self.call_log_shingles.len();
+        // Calls without recorded shingles (older entries) are skipped silently.
+        let mut best: Option<SimilarMatch> = None;
+        for i in start..log_len {
+            if i >= s_len {
+                break;
+            }
+            let candidate_shingles = &self.call_log_shingles[i];
+            if candidate_shingles.is_empty() {
+                continue;
+            }
+            let entry = &self.call_log[i];
+            // Length-ratio guard (symmetric): min/max ≥ LENGTH_RATIO_GUARD.
+            let qlen = query_len.max(1) as f32;
+            let elen = entry.output_len.max(1) as f32;
+            let ratio = qlen.min(elen) / qlen.max(elen);
+            if ratio < LENGTH_RATIO_GUARD {
+                continue;
+            }
+            let sim = jaccard(query_shingles, candidate_shingles);
+            if sim < SIMILARITY_THRESHOLD {
+                continue;
+            }
+            let take = match &best {
+                Some(b) => sim > b.similarity,
+                None => true,
+            };
+            if take {
+                best = Some(SimilarMatch {
+                    call_n: entry.call_n,
+                    short_hash: entry.short_hash.clone(),
+                    similarity: sim,
+                });
+            }
+        }
+        best
     }
 
     pub fn note_files(&mut self, files: &[String]) {
@@ -272,6 +379,26 @@ impl SessionContext {
         let cl_len: Vec<usize> = self.call_log.iter().map(|c| c.output_len).collect();
         let cl_short: Vec<String> = self.call_log.iter().map(|c| c.short_hash.clone()).collect();
 
+        // Encode each shingle set as a `;`-joined string and wrap in str_array.
+        // We use `;` rather than `,` because json_util::extract_str_array splits
+        // its outer items on `,`, so commas inside string values would break
+        // round-trip. Padding ensures parallelism with call_log even if some
+        // entries pre-date the shingle field.
+        let mut cl_sh_strs: Vec<String> = Vec::with_capacity(self.call_log.len());
+        for i in 0..self.call_log.len() {
+            let s = self
+                .call_log_shingles
+                .get(i)
+                .map(|v| {
+                    v.iter()
+                        .map(|n| n.to_string())
+                        .collect::<Vec<_>>()
+                        .join(";")
+                })
+                .unwrap_or_default();
+            cl_sh_strs.push(s);
+        }
+
         let sf_path: Vec<String> = self.seen_files.iter().map(|f| f.path.clone()).collect();
         let sf_size: Vec<u64> =
             self.seen_files.iter().map(|f| f.size_class as u64).collect();
@@ -280,8 +407,10 @@ impl SessionContext {
         format!(
             "{{\"session_file\":\"{}\",\"call_counter\":{},\
 \"call_log_n\":{},\"call_log_cmd\":{},\"call_log_hash\":{},\"call_log_len\":{},\"call_log_short\":{},\
+\"call_log_shingles\":{},\
 \"seen_files_path\":{},\"seen_files_size\":{},\"seen_files_last\":{},\
-\"seen_errors\":{},\"seen_git_refs\":{}}}",
+\"seen_errors\":{},\"seen_git_refs\":{},\
+\"tokens_bash\":{},\"tokens_read\":{},\"tokens_other\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -289,11 +418,15 @@ impl SessionContext {
             json_util::u64_array(&cl_hash),
             json_util::usize_array(&cl_len),
             json_util::str_array(&cl_short),
+            json_util::str_array(&cl_sh_strs),
             json_util::str_array(&sf_path),
             json_util::u64_array(&sf_size),
             json_util::u64_array(&sf_last),
             json_util::u64_array(&self.seen_errors),
             json_util::str_array(&self.seen_git_refs),
+            self.tokens_bash,
+            self.tokens_read,
+            self.tokens_other,
         )
     }
 
@@ -321,6 +454,21 @@ impl SessionContext {
                 output_len: cl_len[i] as usize,
                 short_hash: cl_short[i].clone(),
             });
+        }
+
+        // Shingles — optional field for backwards compatibility with older
+        // context.json files. Inner separator is `;` (see to_json comment).
+        // If absent or shorter than call_log, missing entries are left as
+        // empty Vec and lookup_similar will skip them.
+        let cl_sh_strs = json_util::extract_str_array(s, "call_log_shingles");
+        for raw in cl_sh_strs.iter().take(n) {
+            if raw.is_empty() {
+                c.call_log_shingles.push(Vec::new());
+            } else {
+                let parsed: Vec<u64> =
+                    raw.split(';').filter_map(|t| t.parse::<u64>().ok()).collect();
+                c.call_log_shingles.push(parsed);
+            }
         }
 
         let sf_path = json_util::extract_str_array(s, "seen_files_path");
