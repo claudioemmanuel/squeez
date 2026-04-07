@@ -14,7 +14,11 @@ pub fn run() -> i32 {
     let mem = session::memory_dir();
     let _ = std::fs::create_dir_all(&sessions);
     let _ = std::fs::create_dir_all(&mem);
-    run_with_dirs(&sessions, &mem, &cfg)
+    let code = run_with_dirs(&sessions, &mem, &cfg);
+    // Inject persona into ~/.claude/CLAUDE.md so Claude Code loads it
+    // natively at every session start (more reliable than hook stdout).
+    inject_claude_md(&cfg);
+    code
 }
 
 /// Entry point called from main.rs: `squeez init --copilot`
@@ -251,4 +255,54 @@ fn dedup_extend(dest: &mut Vec<String>, src: Vec<String>) {
             dest.push(item);
         }
     }
+}
+
+/// Writes the squeez persona block into ~/.claude/CLAUDE.md so Claude Code
+/// picks it up natively at every session start. Idempotent: replaces the
+/// existing squeez block on subsequent runs.
+fn inject_claude_md(cfg: &Config) {
+    let home = session::home_dir();
+    let claude_dir = format!("{}/.claude", home);
+    let path = format!("{}/CLAUDE.md", claude_dir);
+
+    // Ensure ~/.claude/ exists (it should, but be safe)
+    let _ = std::fs::create_dir_all(&claude_dir);
+
+    let persona_text = persona::text(cfg.persona);
+    if persona_text.is_empty() {
+        return;
+    }
+
+    let mut block = String::from("<!-- squeez:start -->\n");
+    block.push_str("## squeez — always-on compression\n\n");
+    block.push_str(&format!(
+        "Persona: {} | Bash compression: ON | Memory: ON\n\n",
+        persona::as_str(cfg.persona)
+    ));
+    block.push_str(persona_text);
+    if !persona_text.ends_with('\n') {
+        block.push('\n');
+    }
+    block.push_str("<!-- squeez:end -->\n");
+
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+
+    let cleaned = if existing.contains("<!-- squeez:start -->") {
+        let start = existing.find("<!-- squeez:start -->").unwrap_or(0);
+        let end = existing
+            .find("<!-- squeez:end -->")
+            .map(|i| i + "<!-- squeez:end -->".len() + 1)
+            .unwrap_or(start);
+        format!(
+            "{}{}",
+            &existing[..start],
+            &existing[end.min(existing.len())..]
+        )
+    } else {
+        existing
+    };
+
+    // Prepend squeez block so it's the first thing Claude Code reads
+    let contents = format!("{}\n{}", block, cleaned.trim_start());
+    let _ = std::fs::write(&path, contents);
 }
