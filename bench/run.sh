@@ -20,8 +20,16 @@ for f in "$FIXTURES"/*.txt; do
     name=$(basename "$f")
     # context_crosscall_* fixtures exercise wrap.rs cross-call dedup; they
     # are run by bench/run_context.sh, not by filter-mode bench.
+    # Synthetic fixtures (cargo_build, tsc_errors, verbose_log, repetitive,
+    # kubectl_pods) are exercised by `squeez benchmark`, not this script —
+    # their expected reduction ratios and latency bounds differ.
     case "$name" in
         context_crosscall_*) continue ;;
+        cargo_build.txt)     continue ;;
+        tsc_errors.txt)      continue ;;
+        verbose_log.txt)     continue ;;
+        repetitive.txt)      continue ;;
+        kubectl_pods.txt)    continue ;;
     esac
     input=$(cat "$f")
     before=$(( ${#input} / 4 ))
