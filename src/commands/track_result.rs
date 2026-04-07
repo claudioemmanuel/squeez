@@ -65,8 +65,15 @@ pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
         ctx.note_files(&files);
     }
 
+    // Track tokens consumed by this tool call (estimate from content length)
+    if let Some(ref c) = content {
+        let tokens = (c.len() / 4) as u64;
+        if tokens > 0 {
+            ctx.note_tool_tokens(tool, tokens);
+        }
+    }
+
     ctx.save(sessions_dir);
-    let _ = tool;
     0
 }
 

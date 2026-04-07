@@ -34,8 +34,6 @@ Measured on macOS (Apple Silicon), token estimate = chars/4. Run with `bash benc
 
 | Fixture | Before | After | Reduction | Latency |
 |---------|--------|-------|-----------|---------|
-| Fixture | Before | After | Reduction | Latency |
-|---------|--------|-------|-----------|---------|
 | `ps aux` | 40,373 tk | 2,352 tk | **-95%** | 6ms |
 | 5,000-line log (summarize) | 82,257 tk | 47 tk | **-100%** | 12ms |
 | `git log` (200 commits) | 2,667 tk | 819 tk | **-70%** | 3ms |
@@ -72,7 +70,7 @@ docker_logs_max_lines = 100
 bypass = docker exec, psql, ssh
 
 # Session memory
-compact_threshold_tokens = 160000   # warn at 80% of context budget
+compact_threshold_tokens = 120000   # warn when approaching context limit (120K default)
 memory_retention_days = 30          # how long to keep session summaries
 
 # Context engine (PR1)
@@ -144,13 +142,35 @@ The `Lite` and `Full` enum variants remain for forward compatibility but are
 not selected automatically — they exist so future versions can introduce
 softer modes without breaking the public API.
 
-When the same compressed output appears within the last 8 calls (length-equality
-guarded), squeez replaces it with a single reference line:
+When the same compressed output appears within the last **16 calls** (length-equality
+guarded, min 2 lines), squeez replaces it with a single reference line:
 `[squeez: identical to <hash> at bash#<n> — re-run with --no-squeez]`.
 
 When raw output exceeds `summarize_threshold_lines`, squeez emits a dense
 ≤40-line summary (top errors, top files, test summary, last 20 lines verbatim)
 instead of running the per-handler truncation pipeline.
+
+When the session token count crosses `compact_threshold_tokens` (default 120K), the
+compact warning now shows a per-tool breakdown:
+`⚠️  squeez: session ~85K tokens (70% of budget). Token breakdown: Bash 60K | Read 20K | Other 5K`
+
+**Supported command handlers:**
+
+| Category | Commands |
+|---|---|
+| Git | `git` |
+| Docker/Containers | `docker`, `docker-compose`, `podman` |
+| Package managers | `npm`, `pnpm`, `bun`, `yarn` |
+| Build systems | `make`, `cmake`, `gradle`, `mvn`, `cargo` (non-test) |
+| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest` |
+| TypeScript | `tsc`, `eslint`, `biome` |
+| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az` |
+| Databases | `psql`, `prisma`, `mysql` |
+| Filesystem | `find`, `ls`, `du`, `ps`, `env` |
+| JSON/YAML/IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
+| Text processing | `grep`, `rg`, `awk`, `sed` |
+| Network | `curl`, `wget` |
+| Runtimes | `node`, `python`, `ruby` |
 
 ## How it works
 
@@ -299,7 +319,8 @@ Branch protection & admin notes
 
 Changelog (recent)
 
-- 2026-04-07: **Context engine** — adaptive Ultra intensity (×0.3 limits), cross-call redundancy cache (8-call window), summarize fallback for >500-line outputs, SessionContext persisted to `sessions/context.json`.
+- 2026-04-07: **Gap fixes** — `jq`/`yq`/`terraform`/`helm`/`grep`/`rg`/`awk`/`sed` handlers; redundancy window 8→16, min-lines 5→2; `compact_threshold_tokens` default 160K→120K; per-tool token breakdown in compact warning.
+- 2026-04-07: **Context engine** — adaptive Ultra intensity (×0.3 limits), cross-call redundancy cache (16-call window), summarize fallback for >500-line outputs, SessionContext persisted to `sessions/context.json`.
 - 2026-04-07: **`squeez compress-md`** — pure-Rust markdown compressor; Ultra mode with abbreviations; damage heuristic; `auto_compress_md` runs on every session start.
 - 2026-04-07: **Caveman persona** — Ultra prompt injected into session banner and `copilot-instructions.md` by default.
 - 2026-04-07: **`squeez update`** — self-updater via `curl` + SHA-256 verification; atomic install.

@@ -11,7 +11,7 @@ const MAX_SEEN_ERRORS: usize = 128;
 const MAX_SEEN_GIT_REFS: usize = 64;
 
 /// How many recent calls are eligible for redundancy lookup.
-pub const RECENT_WINDOW: u64 = 8;
+pub const RECENT_WINDOW: u64 = 16;
 
 // ── Data structures ────────────────────────────────────────────────────────
 
@@ -39,6 +39,10 @@ pub struct SessionContext {
     pub seen_errors: Vec<u64>, // FNV of normalized error
     pub seen_git_refs: Vec<String>, // 7-char SHAs
     pub call_log: Vec<CallEntry>,
+    /// Cumulative token counts by tool category (Bash, Read, Other)
+    pub tokens_bash: u64,
+    pub tokens_read: u64,
+    pub tokens_other: u64,
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -161,6 +165,15 @@ impl SessionContext {
         if self.seen_git_refs.len() > MAX_SEEN_GIT_REFS {
             let drop_n = self.seen_git_refs.len() - MAX_SEEN_GIT_REFS;
             self.seen_git_refs.drain(0..drop_n);
+        }
+    }
+
+    /// Record token usage by tool category.
+    pub fn note_tool_tokens(&mut self, tool: &str, tokens: u64) {
+        match tool.to_lowercase().as_str() {
+            "bash" => self.tokens_bash = self.tokens_bash.saturating_add(tokens),
+            "read" => self.tokens_read = self.tokens_read.saturating_add(tokens),
+            _ => self.tokens_other = self.tokens_other.saturating_add(tokens),
         }
     }
 
@@ -324,6 +337,9 @@ impl SessionContext {
 
         c.seen_errors = json_util::extract_u64_array(s, "seen_errors");
         c.seen_git_refs = json_util::extract_str_array(s, "seen_git_refs");
+        c.tokens_bash = json_util::extract_u64(s, "tokens_bash").unwrap_or(0);
+        c.tokens_read = json_util::extract_u64(s, "tokens_read").unwrap_or(0);
+        c.tokens_other = json_util::extract_u64(s, "tokens_other").unwrap_or(0);
         c
     }
 }
@@ -355,14 +371,15 @@ mod tests {
     #[test]
     fn lookup_recent_only_within_window() {
         let mut c = SessionContext::default();
-        for i in 1..=20u64 {
+        // Record 25 calls: window=16 covers last 16 (calls 10..=25)
+        for i in 1..=25u64 {
             c.next_call_n();
             c.record_call(&format!("c{}", i), i * 10, i as usize, i);
         }
-        // Last call hash present
-        assert!(c.lookup_recent(200, 20).is_some());
-        // Older than window — should be None
-        assert!(c.lookup_recent(50, 5).is_none());
+        // Last call hash present (call 25, hash=250, len=25)
+        assert!(c.lookup_recent(250, 25).is_some());
+        // Call 9 is outside window (window starts at call 10)
+        assert!(c.lookup_recent(90, 9).is_none());
     }
 
     #[test]

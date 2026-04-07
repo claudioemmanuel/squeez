@@ -54,7 +54,7 @@ fn is_bypassed_matches_prefix() {
 #[test]
 fn test_config_compact_threshold_default() {
     let c = squeez::config::Config::default();
-    assert_eq!(c.compact_threshold_tokens, 160_000);
+    assert_eq!(c.compact_threshold_tokens, 120_000);
     assert_eq!(c.memory_retention_days, 30);
 }
 

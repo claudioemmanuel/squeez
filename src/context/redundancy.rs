@@ -3,7 +3,7 @@ use crate::context::hash::fnv1a_64;
 
 /// Minimum number of compressed lines for an output to be eligible for
 /// redundancy lookup. Below this we don't dedup — collapses too much signal.
-const MIN_LINES: usize = 5;
+const MIN_LINES: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct RedundancyHit {
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn tiny_output_never_matches() {
         let mut ctx = SessionContext::default();
-        let out = lines(3);
+        let out = lines(1); // 1 < MIN_LINES=2
         record(&mut ctx, "cmd", &out);
         assert!(check(&ctx, &out).is_none(), "should not match tiny output");
     }
@@ -79,8 +79,8 @@ mod tests {
         let mut ctx = SessionContext::default();
         let target = lines(10);
         record(&mut ctx, "first", &target);
-        // Push 9 more calls past the window
-        for i in 0..9 {
+        // Push 17 more calls past the window (RECENT_WINDOW=16)
+        for i in 0..17 {
             let other = (0..10).map(|j| format!("o{}-{}", i, j)).collect::<Vec<_>>();
             record(&mut ctx, &format!("c{}", i), &other);
         }
