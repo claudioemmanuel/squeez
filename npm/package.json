@@ -1,0 +1,37 @@
+{
+  "name": "squeez",
+  "version": "0.2.0",
+  "description": "Hook-based token compressor for Claude Code, Copilot CLI, and OpenCode. Compresses bash output up to 95%, collapses redundant calls, injects caveman persona.",
+  "keywords": [
+    "claude-code",
+    "token-optimizer",
+    "context-window",
+    "llm-tools",
+    "copilot-cli",
+    "compression"
+  ],
+  "homepage": "https://github.com/claudioemmanuel/squeez",
+  "bugs": {
+    "url": "https://github.com/claudioemmanuel/squeez/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/claudioemmanuel/squeez.git"
+  },
+  "license": "MIT",
+  "author": "claudioemmanuel",
+  "bin": {
+    "squeez": "bin.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}
