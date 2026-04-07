@@ -37,9 +37,9 @@ No Makefile — all build tooling is Cargo-native.
 
 Cross-call awareness across 16 recent invocations:
 - **cache.rs** — tracks seen outputs, file paths, errors from Read/Glob/Grep/Bash results
-- **redundancy.rs** — two-path dedup: exact FNV-1a hash (fast), then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 (whitespace/timestamp changes don't break match). Emits `[squeez: identical to ...]` or `[squeez: ~P% similar to ...]`
+- **redundancy.rs** — two-path dedup: exact FNV-1a hash (fast), then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 (whitespace/timestamp changes don't break match). Emits `[squeez: identical to ...]`  `[squeez: ~P% similar to ...]`
 - **summarize.rs** — triggered at >500 lines; benign outputs (no error markers) get 2× threshold (1000 lines). Produces ≤40-line dense summary (errors, files, test status, verbatim tail)
-- **intensity.rs** — truly adaptive: **Full** (×0.6) when used < 80% of budget, **Ultra** (×0.3) when ≥80%. `[adaptive: Full]` or `[adaptive: Ultra]` in header
+- **intensity.rs** — truly adaptive: **Full** (×0.6) when used < 80% of budget, **Ultra** (×0.3) when ≥80%. `[adaptive: Full]`  `[adaptive: Ultra]` in header
 - **hash.rs** — FNV-1a-64 + `shingle_minhash()` (bottom-k=96, whitespace-token trigrams) + `jaccard()` (sorted-merge O(n+m))
 
 ### Key files
@@ -47,7 +47,7 @@ Cross-call awareness across 16 recent invocations:
 | File | Role |
 |------|------|
 | `src/commands/wrap.rs` | Main orchestrator: spawn subprocess, capture, compress, inject header |
-| `src/commands/compress_md.rs` | Markdown compressor: preserves code blocks, URLs, tables; compresses prose |
+| `src/commands/compress_md/` | Markdown compressor module: `mod.rs` (core logic), `locale.rs` (Locale struct + `from_code`), `locales/en.rs` + `locales/pt_br.rs` (word lists). Exposes `compress_text` (EN default) and `compress_text_with_locale`. Select locale via `lang=` in config or `--lang` CLI flag. |
 | `src/commands/init.rs` | Session start: finalize previous session memory, inject persona prompt |
 | `src/commands/benchmark.rs` | 19-scenario reproducible benchmark suite |
 | `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults |
@@ -62,7 +62,7 @@ Cross-call awareness across 16 recent invocations:
 
 ### Tests
 
-35 integration test files under `tests/`. Each strategy and handler has dedicated test file. Notable new ones: `test_redundancy_shingle.rs` (8 fuzzy-match tests), `test_mcp_server.rs` (10 JSON-RPC tests). Benchmark fixtures live in `bench/fixtures/`; capture new ones w/ `bash bench/capture.sh`.
+35 integration test files under `tests/`. Each strategy and handler has dedicated test file. Notable new ones: `test_redundancy_shingle.rs` (8 fuzzy-match tests), `test_mcp_server.rs` (10 JSON-RPC tests). Benchmark fixtures live in `bench/fixtures/`capture new ones w/ `bash bench/capture.sh`.
 
 ### Release & distribution
 

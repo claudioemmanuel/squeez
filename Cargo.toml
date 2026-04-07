@@ -8,10 +8,15 @@ license = "MIT"
 keywords = ["claude-code", "token", "compression", "llm", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+autobenches = false
 
 [[bin]]
 name = "squeez"
 path = "src/main.rs"
+
+[[bin]]
+name = "bench_i18n"
+path = "benches/bench_i18n.rs"
 
 [lib]
 name = "squeez"
