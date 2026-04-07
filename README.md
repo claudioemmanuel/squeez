@@ -1,368 +1,374 @@
 # squeez
 
 [![CI](https://github.com/claudioemmanuel/squeez/actions/workflows/ci.yml/badge.svg)](https://github.com/claudioemmanuel/squeez/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/squeez.svg)](https://www.npmjs.com/package/squeez)
+[![Crates.io](https://img.shields.io/crates/v/squeez.svg)](https://crates.io/crates/squeez)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Attacks tokens on three axes: **bash output** (compression), **context** (cross-call engine), and **output** (prompt persona). Runs automatically; zero new runtime dependencies.
+End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
 
-## What it does
-
-- **Bash compression** — intercepts every command, removes noise, up to 95% token reduction. Always-Ultra mode (×0.3 limits by default).
-- **Context engine** — cross-call redundancy cache collapses identical outputs; summarize fallback converts >500-line dumps to ≤40-line dense reports.
-- **Caveman persona** — injects an ultra-terse prompt at session start so the model responds with fewer tokens. Default: Ultra.
-- **Memory-file compression** — `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place; pure Rust, zero-LLM.
-- **Session memory** — injects a summary of prior sessions at session start.
-- **Token tracking** — every PostToolUse result (Bash, Read, Grep, Glob) feeds a SessionContext so squeez knows what the agent has already seen.
-- **Self-update** — `squeez update` downloads and atomically installs the latest binary.
+---
 
 ## Install
 
-> **Windows users:** squeez requires **Git Bash** to run. PowerShell and CMD are not supported — the hooks and binary rely on a POSIX shell environment. Open Git Bash and run:
+Three methods — all produce the same result (binary at `~/.claude/squeez/bin/squeez`, hooks registered).
+
+### curl (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
 ```
 
-- **Claude Code:** Restart Claude Code to activate
-- **OpenCode:** Restart OpenCode to activate the plugin
-- **Copilot CLI:** Memory injected into `~/.copilot/copilot-instructions.md`; restart Copilot CLI to activate hook-based bash compression
+> **Windows:** requires [Git Bash](https://git-scm.com/downloads). Run the command above inside Git Bash — PowerShell/CMD are not supported.
+
+### npm / npx
+
+```bash
+# Install globally
+npm install -g squeez
+
+# Or run once without installing
+npx squeez
+```
+
+Downloads the correct pre-built binary for your platform (macOS universal, Linux x86_64/aarch64, Windows x86_64). Requires Node ≥ 16.
+
+### cargo (build from source)
+
+```bash
+cargo install squeez
+```
+
+Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. On Windows you also need [MSVC C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+
+---
+
+### After install
+
+| Platform | What to do |
+|----------|-----------|
+| **Claude Code** | Restart Claude Code — hooks activate automatically |
+| **OpenCode** | Restart OpenCode — plugin auto-loads from `~/.config/opencode/plugins/` |
+| **Copilot CLI** | Restart Copilot CLI — hooks registered in `~/.copilot/settings.json` |
+
+### Uninstall
+
+```bash
+bash ~/.claude/squeez/uninstall.sh
+# or, if you cloned the repo:
+bash uninstall.sh
+```
+
+### Self-update
+
+```bash
+squeez update             # download latest binary + verify SHA256
+squeez update --check     # check for update without installing
+squeez update --insecure  # skip checksum (not recommended)
+```
+
+---
+
+## What it does
+
+| Feature | Description |
+|---------|-------------|
+| **Bash compression** | Intercepts every command via `PreToolUse` hook, applies smart filter → dedup → grouping → truncation. Up to 95% reduction. |
+| **Context engine** | Cross-call redundancy cache: identical outputs within 16 calls collapse to a single reference line. |
+| **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). |
+| **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
+| **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. |
+| **Session memory** | On `SessionStart`, injects a summary of the previous session (files touched, errors, test results, git events). |
+| **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
+
+---
 
 ## Benchmarks
 
-Measured on macOS (Apple Silicon). Token estimate = chars/4 (matches Claude tokenizer at ~4 chars/token).
-Run `squeez benchmark` for the full reproducible report. Full JSON at `bench/benchmark_report.json`.
+Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce.
 
-### Per-scenario results (19 scenarios, 3 iterations each)
+### Per-scenario results — 19 scenarios × 3 iterations
 
-| Scenario | Before | After | Reduction | Latency | Quality |
-|----------|--------|-------|-----------|---------|---------|
-| `ps aux` (161 KB real output) | 40,373 tk | 2,352 tk | **-94%** | 1.8ms | ✅ |
-| 5,003-line log (summarize path) | 82,257 tk | 420 tk | **-99.5%** | 63ms | ✅ |
-| Repetitive output (300× dedup) | 4,692 tk | 37 tk | **-99.2%** | 0.2ms | ✅ |
-| `git log` (200 commits) | 2,692 tk | 289 tk | **-89%** | 0.2ms | ✅ |
-| `tsc` errors (86 lines → errors only) | 731 tk | 101 tk | **-86%** | 0.06ms | ✅ |
-| `cargo build` (noisy + errors) | 2,106 tk | 452 tk | **-79%** | 0.2ms | ✅ |
-| `docker logs` | 665 tk | 186 tk | **-72%** | 0.05ms | ✅ |
-| `find` (deep tree) | 424 tk | 134 tk | **-68%** | 0.07ms | ✅ |
-| `git status` | 50 tk | 16 tk | **-68%** | 0.02ms | ✅ |
-| Verbose app log (250 lines) | 4,957 tk | 1,991 tk | **-60%** | 0.3ms | ✅ |
-| `npm install` | 524 tk | 232 tk | **-56%** | 0.04ms | ✅ |
-| Cross-call redundancy (3× same output) | 486 tk | 241 tk | **-50%** | 58ms | ✅ |
-| `ls -la` | 1,782 tk | 886 tk | **-50%** | 0.1ms | ✅ |
-| `env` dump | 441 tk | 287 tk | **-35%** | 0.03ms | ✅ |
-| `git diff` | 502 tk | 497 tk | **-1%** | 0.05ms | ✅ |
-| CLAUDE.md prose (compress-md) | 316 tk | 247 tk | **-22%** | 0.2ms | ✅ |
+| Scenario | Before | After | Reduction | Latency |
+|----------|--------|-------|-----------|---------|
+| `ps aux` (161 KB real output) | 40,373 tk | 2,352 tk | **−94%** | 1.8 ms |
+| 5,003-line log (summarize path) | 82,257 tk | 420 tk | **−99.5%** | 63 ms |
+| Repetitive output (300× dedup) | 4,692 tk | 37 tk | **−99.2%** | 0.2 ms |
+| `git log` (200 commits) | 2,692 tk | 289 tk | **−89%** | 0.2 ms |
+| `tsc` errors | 731 tk | 101 tk | **−86%** | 0.06 ms |
+| `cargo build` (noisy + errors) | 2,106 tk | 452 tk | **−79%** | 0.2 ms |
+| `docker logs` | 665 tk | 186 tk | **−72%** | 0.05 ms |
+| `find` (deep tree) | 424 tk | 134 tk | **−68%** | 0.07 ms |
+| `git status` | 50 tk | 16 tk | **−68%** | 0.02 ms |
+| Verbose app log (250 lines) | 4,957 tk | 1,991 tk | **−60%** | 0.3 ms |
+| `npm install` | 524 tk | 232 tk | **−56%** | 0.04 ms |
+| Cross-call redundancy (3× same) | 486 tk | 241 tk | **−50%** | 58 ms |
+| `ls -la` | 1,782 tk | 886 tk | **−50%** | 0.1 ms |
+| `env` dump | 441 tk | 287 tk | **−35%** | 0.03 ms |
+| `git diff` | 502 tk | 497 tk | **−1%** | 0.05 ms |
+| CLAUDE.md (compress-md) | 316 tk | 247 tk | **−22%** | 0.2 ms |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **92.8%** (145,338 tk → 10,441 tk) |
-| Bash output compression | **84.9%** |
-| Markdown / context files | **23.3%** |
-| Wrap / cross-call engine | **99.2%** |
-| Quality (signal terms preserved) | **19/19 pass** |
-| Latency p50 (filter mode) | **< 0.3ms** |
-| Latency p95 (incl. wrap/summarize) | **64ms** |
+| **Total token reduction** | **92.8%** — 145,338 tk → 10,441 tk |
+| Bash output | **−84.9%** |
+| Markdown / context files | **−23.3%** |
+| Wrap / cross-call engine | **−99.2%** |
+| Quality (signal terms preserved) | **19 / 19 pass** |
+| Latency p50 (filter mode) | **< 0.3 ms** |
+| Latency p95 (incl. wrap/summarize) | **64 ms** |
 
-### Estimated cost savings (Claude Sonnet 4.6 · $3.00/MTok input)
+### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
-| Usage | Baseline/month | Saved/month |
-|-------|---------------|-------------|
-| 100 calls/day | $18.00 | **$16.71** (93%) |
-| 1,000 calls/day | $180.00 | **$167.07** (93%) |
-| 10,000 calls/day | $1,800.00 | **$1,670.69** (93%) |
+| Usage | Baseline / month | Saved / month |
+|-------|-----------------|---------------|
+| 100 calls / day | $18.00 | **$16.71 (93%)** |
+| 1,000 calls / day | $180.00 | **$167.07 (93%)** |
+| 10,000 calls / day | $1,800.00 | **$1,670.69 (93%)** |
 
-## Escape hatch
+---
 
+## Commands
+
+```bash
+squeez wrap <cmd>                        # compress a command's output end-to-end
+squeez filter <hint>                     # compress stdin (piped usage)
+squeez compress-md [--ultra] [--dry-run] [--all] <file>...   # compress markdown files
+squeez benchmark [--json] [--output <file>] [--scenario <name>] [--iterations <n>]
+squeez update [--check] [--insecure]     # self-update
+squeez init [--copilot]                  # session-start hook (called by hook, not manually)
+squeez --version
 ```
+
+### Escape hatch — bypass compression for one command
+
+```bash
 --no-squeez git log --all --graph
 ```
 
+Prefix any command with `--no-squeez` to run it raw without squeez touching it.
+
+### `squeez wrap`
+
+Runs a command, compresses its output, and prints a savings header:
+
+```
+# squeez [git log] 2692→289 tokens (-89%) 0.2ms [adaptive: Ultra]
+```
+
+### `squeez filter`
+
+Reads from stdin. Use for manual pipelines:
+
+```bash
+git log --oneline | squeez filter git
+docker logs mycontainer 2>&1 | squeez filter docker
+```
+
+### `squeez compress-md`
+
+Pure-Rust, zero-LLM compressor for markdown files. Preserves code blocks, inline code, URLs, headings, file paths, and tables. Compresses prose only. Always writes a backup at `<stem>.original.md`.
+
+```bash
+squeez compress-md CLAUDE.md             # Full mode
+squeez compress-md --ultra CLAUDE.md    # + abbreviations (with→w/, fn, cfg, etc.)
+squeez compress-md --dry-run CLAUDE.md  # preview, no write
+squeez compress-md --all                # compress all known locations automatically
+```
+
+When `auto_compress_md = true` (default), `squeez init` runs `--all` silently on every session start.
+
+### `squeez benchmark`
+
+Reproducible measurement of token reduction, cost, latency, and quality across 19 scenarios:
+
+```bash
+squeez benchmark                          # human-readable report
+squeez benchmark --json                   # JSON to stdout
+squeez benchmark --output report.json     # save JSON report
+squeez benchmark --scenario git           # run only git scenarios
+squeez benchmark --iterations 5           # more iterations per scenario
+squeez benchmark --list                   # list all scenarios
+```
+
+Quality is scored by checking that **signal terms** (words from error/warning/failed lines in the baseline) survive compression. 19/19 pass at ≥ 50% threshold.
+
+---
+
 ## Configuration
 
-Optional config file (all fields optional):
-- Claude Code / default: `~/.claude/squeez/config.ini`
-- Copilot CLI: `~/.copilot/squeez/config.ini`
+Optional config file — all fields have defaults, none are required.
+
+| Platform | Config path |
+|----------|------------|
+| Claude Code / default | `~/.claude/squeez/config.ini` |
+| Copilot CLI | `~/.copilot/squeez/config.ini` |
+
 ```ini
-# Compression
-max_lines = 200
-dedup_min = 3
-git_log_max_commits = 20
-docker_logs_max_lines = 100
-bypass = docker exec, psql, ssh
+# ── Compression ────────────────────────────────────────────────
+max_lines              = 200     # generic truncation limit
+dedup_min              = 3       # collapse lines appearing ≥N times
+git_log_max_commits    = 20
+git_diff_max_lines     = 150
+docker_logs_max_lines  = 100
+find_max_results       = 50
+bypass                 = docker exec, psql, mysql, ssh   # never compress these
 
-# Session memory
-compact_threshold_tokens = 120000   # warn when approaching context limit (120K default)
-memory_retention_days = 30          # how long to keep session summaries
+# ── Context engine ─────────────────────────────────────────────
+adaptive_intensity         = true    # Ultra mode (×0.3 all limits); recommended
+context_cache_enabled      = true    # track seen files/errors across calls
+redundancy_cache_enabled   = true    # collapse identical recent outputs
+summarize_threshold_lines  = 500     # outputs above this trigger summarize fallback
+compact_threshold_tokens   = 120000  # warn when session approaches context limit
 
-# Context engine (PR1)
-adaptive_intensity = true           # auto-tighten compression as budget fills
-context_cache_enabled = true        # persist cross-call state in sessions/context.json
-redundancy_cache_enabled = true     # collapse identical recent outputs to a reference line
-summarize_threshold_lines = 500     # raw lines above this trigger summary fallback
+# ── Session memory ─────────────────────────────────────────────
+memory_retention_days = 30
 
-# Output / memory-file (PR2)
-persona = ultra                     # off|lite|full|ultra — caveman prompt injected at session start
-auto_compress_md = true             # compress CLAUDE.md / copilot-instructions.md on every session start
+# ── Output / persona ───────────────────────────────────────────
+persona          = ultra    # off | lite | full | ultra
+auto_compress_md = true     # run compress-md on every session start
 ```
 
-### Output compression — caveman persona
+### Adaptive intensity (Ultra mode)
 
-squeez cannot intercept the model's response stream from the hook layer.
-Instead it ships a short caveman-style prompt text and injects it into:
-
-- The Claude Code session banner (printed by `squeez init` at session start)
-- The `<!-- squeez:start --> ... <!-- squeez:end -->` block in `~/.copilot/copilot-instructions.md`
-
-Three intensity levels (`lite`, `full`, `ultra`) plus `off`. Default is `ultra`.
-
-### Memory-file compression — `squeez compress-md`
-
-Pure-Rust, zero-LLM caveman compressor for `CLAUDE.md`, `AGENTS.md`,
-`copilot-instructions.md`, and any other markdown file. Preserves code
-blocks, inline code, URLs, headings, file paths, tables, and list markers.
-Compresses prose only. Backups always written to `<stem>.original.md`.
-
-```bash
-squeez compress-md path/to/file.md          # Full mode
-squeez compress-md --ultra path/to/file.md  # + abbreviations (with→w/, fn, etc.)
-squeez compress-md --dry-run path/to/file.md
-squeez compress-md --all                    # Walk known locations
-```
-
-When `auto_compress_md = true` (default), `squeez init` runs `--all`
-silently on every session start. The integrity heuristic aborts the
-write if any code block, URL, or heading was lost — your files are safe.
-
-### Self-update — `squeez update`
-
-```bash
-squeez update             # Download + verify SHA256 + atomic install
-squeez update --check     # Report only, do not install
-squeez update --insecure  # Skip checksum (NOT recommended)
-```
-
-Uses `curl` and `sha256sum`/`shasum -a 256` (both already required by
-`install.sh`). Atomic on Unix; on Windows the running .exe is replaced
-via a `.new` + manual `move` shim.
-
-### Context engine
-
-When `adaptive_intensity = true` (default), squeez compresses every bash call
-at maximum aggression — limits ×0.3 across the board (Ultra mode):
+When `adaptive_intensity = true` (default), all compression limits are scaled to **30%** of their configured values on every call:
 
 - `max_lines` × 0.3 (floor 20)
 - `dedup_min` × 0.5 (floor 2)
 - `git_diff_max_lines`, `docker_logs_max_lines`, `find_max_results` × 0.3
 - `summarize_threshold_lines` × 0.3 (floor 50)
 
-Set `adaptive_intensity = false` to fall back to **Lite** (no scaling, raw
-defaults). The active level is shown in the bash header:
-`# squeez [git] 841→323 tokens (-62%) 55ms [adaptive: Ultra]`.
+The active level is shown in every bash header: `[adaptive: Ultra]`.
 
-The `Lite` and `Full` enum variants remain for forward compatibility but are
-not selected automatically — they exist so future versions can introduce
-softer modes without breaking the public API.
+### Caveman persona
 
-When the same compressed output appears within the last **16 calls** (length-equality
-guarded, min 2 lines), squeez replaces it with a single reference line:
-`[squeez: identical to <hash> at bash#<n> — re-run with --no-squeez]`.
+Three intensity levels (`lite`, `full`, `ultra`) and `off`. Default is `ultra`. The persona prompt is injected into:
+- The Claude Code session banner (printed at `SessionStart`)
+- The `<!-- squeez:start -->…<!-- squeez:end -->` block in `~/.copilot/copilot-instructions.md` for Copilot CLI
 
-When raw output exceeds `summarize_threshold_lines`, squeez emits a dense
-≤40-line summary (top errors, top files, test summary, last 20 lines verbatim)
-instead of running the per-handler truncation pipeline.
-
-When the session token count crosses `compact_threshold_tokens` (default 120K), the
-compact warning now shows a per-tool breakdown:
-`⚠️  squeez: session ~85K tokens (70% of budget). Token breakdown: Bash 60K | Read 20K | Other 5K`
-
-**Supported command handlers:**
-
-| Category | Commands |
-|---|---|
-| Git | `git` |
-| Docker/Containers | `docker`, `docker-compose`, `podman` |
-| Package managers | `npm`, `pnpm`, `bun`, `yarn` |
-| Build systems | `make`, `cmake`, `gradle`, `mvn`, `cargo` (non-test) |
-| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest` |
-| TypeScript | `tsc`, `eslint`, `biome` |
-| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az` |
-| Databases | `psql`, `prisma`, `mysql` |
-| Filesystem | `find`, `ls`, `du`, `ps`, `env` |
-| JSON/YAML/IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
-| Text processing | `grep`, `rg`, `awk`, `sed` |
-| Network | `curl`, `wget` |
-| Runtimes | `node`, `python`, `ruby` |
+---
 
 ## How it works
 
-### Claude Code & Copilot CLI
+### Compression pipeline
 
-Three hooks work together:
+Each bash command passes through four strategies in order:
 
-**Compression** (`PreToolUse`): Every Bash call is rewritten — `git status` → `squeez wrap git status`. The wrap command runs via `sh -c`, captures stdout+stderr, applies 4 strategies (smart_filter → dedup → grouping → truncation), and prints a compressed result with a savings header.
+1. **smart_filter** — strips ANSI codes, progress bars, spinner chars, timestamps, and tool-specific noise (npm download lines, stack frame noise, etc.)
+2. **dedup** — lines appearing ≥ `dedup_min` times are collapsed to one entry annotated `[×N]`
+3. **grouping** — files in the same directory (≥5 siblings) are collapsed to `dir/  N modified  [squeez grouped]`
+4. **truncation** — `Head` (keep first N) or `Tail` (keep last N) depending on handler; truncated portion noted
 
-**Session memory** (`SessionStart`): On each new session, `squeez init` finalizes the previous session into a summary (files touched, errors resolved, test results, git events) and prints a memory banner so the agent has prior-session context from the start. For Copilot CLI, this banner is also written to `~/.copilot/copilot-instructions.md` which is loaded automatically at every session.
+### Supported handlers
 
-**Token tracking** (`PostToolUse`): Every tool call's result (Bash, Read, Grep, Glob) is scanned for file paths and errors. These feed a persistent `SessionContext` so squeez knows what the agent has already seen. When cumulative session tokens cross 80% of the context budget, a compact warning is emitted in the next bash output header.
+| Category | Commands |
+|----------|----------|
+| Git | `git` |
+| Docker / containers | `docker`, `docker-compose`, `podman` |
+| Package managers | `npm`, `pnpm`, `bun`, `yarn` |
+| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build) |
+| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest` |
+| TypeScript / linters | `tsc`, `eslint`, `biome` |
+| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az` |
+| Databases | `psql`, `prisma`, `mysql` |
+| Filesystem | `find`, `ls`, `du`, `ps`, `env`, `lsof`, `netstat` |
+| JSON / YAML / IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
+| Text processing | `grep`, `rg`, `awk`, `sed` |
+| Network | `curl`, `wget` |
+| Runtimes | `node`, `python`, `ruby` |
+| Generic fallback | everything else |
 
-## OpenCode
+### Hooks (Claude Code & Copilot CLI)
 
-OpenCode is supported via an auto-loading plugin that intercepts all Bash commands.
+Three hooks work together automatically after install:
 
-**Install:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
+- **`PreToolUse`** — rewrites every Bash call: `git status` → `squeez wrap git status`
+- **`SessionStart`** — runs `squeez init`: finalizes previous session into a memory summary, injects the persona prompt
+- **`PostToolUse`** — runs `squeez track-result`: scans every tool result (Bash, Read, Grep, Glob) for file paths and errors, feeding `SessionContext`
+
+### Cross-call redundancy
+
+When the same compressed output appears within the last 16 calls (length-equality guarded, minimum 2 lines), it is replaced with a single reference line:
+
+```
+[squeez: identical to 515ba5b2 at bash#35 — re-run with --no-squeez]
 ```
 
-**What happens:**
-- Plugin is installed to `~/.config/opencode/plugins/squeez.js`
-- OpenCode auto-loads plugins on startup
-- All Bash commands are automatically compressed via `squeez wrap`
+### Summarize fallback
 
-**Escape hatch:**
-```bash
---no-squeez git log --all --graph
+When raw output exceeds `summarize_threshold_lines` (default 500), the full pipeline is bypassed and replaced with a ≤40-line dense summary:
+
+```
+squeez:summary cmd=docker logs app
+total_lines=5003
+top_errors:
+  - error: connection refused on tcp://10.0.0.1:5432
+top_files:
+  - /var/log/app/error.log
+test_summary=FAILED: 3 of 248
+tail_preserved=20
+[last 20 lines verbatim...]
 ```
 
-**Manual usage:**
-```bash
-squeez wrap git status
-squeez wrap docker logs mycontainer
-squeez wrap npm install
-```
+---
 
-## GitHub Copilot CLI
+## Platform notes
 
-Copilot CLI is supported via hooks registered in `~/.copilot/settings.json` and session memory injected into `~/.copilot/copilot-instructions.md`.
+### OpenCode
 
-**Install:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
-```
+Plugin installed at `~/.config/opencode/plugins/squeez.js`. OpenCode auto-loads plugins on startup. All Bash commands are automatically compressed via `squeez wrap`.
 
-**What happens:**
-- Session memory is written to `~/.copilot/copilot-instructions.md` — Copilot CLI reads this automatically at every session start, giving the agent prior-session context without re-discovery tokens
-- Hooks are registered in `~/.copilot/settings.json` for PreToolUse (bash compression), SessionStart (memory refresh), and PostToolUse (token tracking)
-- Session state is stored separately in `~/.copilot/squeez/` (independent from Claude Code state)
+### GitHub Copilot CLI
 
-**Refresh memory manually:**
+Hooks registered in `~/.copilot/settings.json`. Session memory written to `~/.copilot/copilot-instructions.md` (Copilot CLI reads this automatically). State stored separately at `~/.copilot/squeez/`.
+
+Refresh memory manually:
+
 ```bash
 SQUEEZ_DIR=~/.copilot/squeez ~/.claude/squeez/bin/squeez init --copilot
 ```
 
-**Escape hatch:**
-```bash
---no-squeez git log --all --graph
-```
+---
 
 ## Local development
 
-**Prerequisites:** Rust stable, `bash` (Git Bash on Windows — PowerShell is not supported). Works on Windows (Git Bash), macOS, and Linux.
-
-Install Rust via [rustup](https://rust-lang.org/tools/install/):
-```bash
-# macOS / Linux
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Windows: download and run rustup-init.exe from https://rust-lang.org/tools/install/
-# Then restart your terminal so cargo is in PATH.
-# Windows users also need MSVC C++ Build Tools:
-# https://visualstudio.microsoft.com/visual-cpp-build-tools/
-```
+Requires Rust stable. Windows requires Git Bash.
 
 ```bash
-# 1. Clone
 git clone https://github.com/claudioemmanuel/squeez.git
 cd squeez
 
-# 2. Build & test
-cargo test
+cargo test                  # run all tests
+cargo build --release       # build release binary
 
-# 3. Run benchmarks (uses local release binary automatically)
-cargo build --release
-bash bench/run.sh
+bash bench/run.sh           # filter-mode benchmark (14 fixtures)
+bash bench/run_context.sh   # context-engine benchmark (3 wrap scenarios)
+./target/release/squeez benchmark   # full 19-scenario benchmark suite
 
-# 4. Install hooks into Claude Code and Copilot CLI config
-bash install.sh
-
-# 5. Restart Claude Code / Copilot CLI — squeez is active
+bash build.sh               # build + install to ~/.claude/squeez/bin/
 ```
 
-To uninstall: `bash uninstall.sh`
+---
 
 ## Contributing
 
-Please follow the repository branching and pull-request workflow to ensure stable releases and predictable merges.
-
-Branching & PR rules
-
-- Always branch from an up-to-date `develop` branch:
-  - git fetch origin
-  - git checkout develop
-  - git pull
-- Create a feature branch from `develop`:
-  - git checkout -b feature/your-feature develop
-- Implement your changes and run tests locally:
-  - cargo test
-  - cargo build --release
-  - bash bench/run.sh  # optional for performance-sensitive changes
-- Push your branch and create a PR targeting `develop`:
-  - git push -u origin feature/your-feature
-  - gh pr create --base develop --head feature/your-feature -t "Short title" -b "Description of changes and tests"
-- Request reviewers, ensure CI passes and address feedback.
-- Merge into `develop` once approved (follow the repo's merge strategy).
-
-Promotion to main
-
-- On push to `develop`, a workflow will create or update a PR from `develop` → `main` for final review and merge.
-- Maintainers should review the `develop`→`main` PR, ensure CI/status checks pass, then merge to `main`.
-
-Note about permissions
-
-If the promotion workflow fails with an error like "GitHub Actions is not permitted to create or approve pull requests", you can resolve it by doing one of the following:
-
-- Enable the repository setting: Settings → Actions → General → enable "Allow GitHub Actions to create and approve pull requests" (recommended).
-- Or create a Personal Access Token (PAT) with `repo` scope and add it as a repository secret named `PR_CREATION_TOKEN`. The promotion workflow will use that secret to create/update the PR when present.
-
-Create the secret via the GH CLI:
-
 ```bash
-gh secret set PR_CREATION_TOKEN --body '<your-personal-access-token>'
-```
-
-Branch protection & admin notes
-
-- Protect `main` with branch protection rules: require PR reviews (1+), require passing status checks, disallow force pushes, and enable required linear history if desired.
-- If history was rewritten (commit messages edited), collaborators must re-sync their local clones:
-  - git fetch origin
-  - git reset --hard origin/develop
-  - or re-clone the repository
-
-Changelog (recent)
-
-- 2026-04-07: **Gap fixes** — `jq`/`yq`/`terraform`/`helm`/`grep`/`rg`/`awk`/`sed` handlers; redundancy window 8→16, min-lines 5→2; `compact_threshold_tokens` default 160K→120K; per-tool token breakdown in compact warning.
-- 2026-04-07: **Context engine** — adaptive Ultra intensity (×0.3 limits), cross-call redundancy cache (16-call window), summarize fallback for >500-line outputs, SessionContext persisted to `sessions/context.json`.
-- 2026-04-07: **`squeez compress-md`** — pure-Rust markdown compressor; Ultra mode with abbreviations; damage heuristic; `auto_compress_md` runs on every session start.
-- 2026-04-07: **Caveman persona** — Ultra prompt injected into session banner and `copilot-instructions.md` by default.
-- 2026-04-07: **`squeez update`** — self-updater via `curl` + SHA-256 verification; atomic install.
-- 2026-04-07: **PostToolUse extension** — Read/Grep/Glob results feed SessionContext via `track-result` hook.
-- 2026-04-06: Added `--codex` and `--antigravity` init scaffolding.
-- 2026-04-06: Created `develop` branch; added promotion workflow (`develop` → `main`).
-- 2026-04-06: Fixed localization (Portuguese string removed from `install.sh`).
-
-Benchmarks & running them
-
-Benchmarks are in the `bench/` folder and can be run as follows:
-
-```bash
+git checkout -b feature/your-change
+cargo test
 cargo build --release
 bash bench/run.sh
+git push -u origin feature/your-change
+gh pr create --base main --title "Short title" --body "Description"
 ```
 
-Reported results (macOS Apple Silicon; token estimate = chars/4) are shown in the "Benchmarks" table above. Re-run on your platform to verify and submit improvements as PRs.
+CI runs `cargo test`, `bench/run.sh`, `bench/run_context.sh`, and `squeez benchmark` on every push and pull request.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for additional guidelines and coding standards.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards.
 
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
