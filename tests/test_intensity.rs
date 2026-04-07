@@ -6,42 +6,31 @@ fn cfg() -> Config {
 }
 
 #[test]
-fn boundary_zero_pct_lite() {
-    assert_eq!(derive(0, &cfg()), Intensity::Lite);
+fn adaptive_on_zero_usage_is_ultra() {
+    assert_eq!(derive(0, &cfg()), Intensity::Ultra);
 }
 
 #[test]
-fn boundary_49_pct_lite() {
+fn adaptive_on_full_budget_is_ultra() {
     let c = cfg();
-    assert_eq!(derive(budget(&c) * 49 / 100, &c), Intensity::Lite);
+    assert_eq!(derive(budget(&c), &c), Intensity::Ultra);
 }
 
 #[test]
-fn boundary_50_pct_full() {
-    let c = cfg();
-    assert_eq!(derive(budget(&c) * 50 / 100, &c), Intensity::Full);
-}
-
-#[test]
-fn boundary_79_pct_full() {
-    let c = cfg();
-    assert_eq!(derive(budget(&c) * 79 / 100, &c), Intensity::Full);
-}
-
-#[test]
-fn boundary_80_pct_ultra() {
-    let c = cfg();
-    assert_eq!(derive(budget(&c) * 80 / 100, &c), Intensity::Ultra);
-}
-
-#[test]
-fn over_budget_still_ultra() {
+fn adaptive_on_overbudget_is_ultra() {
     let c = cfg();
     assert_eq!(derive(budget(&c) * 5, &c), Intensity::Ultra);
 }
 
 #[test]
-fn adaptive_disabled_always_lite_even_overbudget() {
+fn adaptive_off_zero_usage_is_lite() {
+    let mut c = cfg();
+    c.adaptive_intensity = false;
+    assert_eq!(derive(0, &c), Intensity::Lite);
+}
+
+#[test]
+fn adaptive_off_overbudget_still_lite() {
     let mut c = cfg();
     c.adaptive_intensity = false;
     assert_eq!(derive(budget(&c) * 5, &c), Intensity::Lite);
