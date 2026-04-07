@@ -1,8 +1,9 @@
 use crate::commands::Handler;
 use crate::commands::{
-    build::BuildHandler, cloud::CloudHandler, database::DatabaseHandler, docker::DockerHandler,
-    fs::FsHandler, generic::GenericHandler, git::GitHandler, network::NetworkHandler,
-    package_mgr::PackageMgrHandler, runtime::RuntimeHandler, test_runner::TestRunnerHandler,
+    build::BuildHandler, cloud::CloudHandler, data_tool::DataToolHandler,
+    database::DatabaseHandler, docker::DockerHandler, fs::FsHandler, generic::GenericHandler,
+    git::GitHandler, network::NetworkHandler, package_mgr::PackageMgrHandler,
+    runtime::RuntimeHandler, test_runner::TestRunnerHandler, text_proc::TextProcHandler,
     typescript::TypescriptHandler,
 };
 use crate::config::Config;
@@ -16,7 +17,7 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
     let name = extract_name(cmd);
     match name.as_str() {
         "git" => Box::new(GitHandler),
-        "docker" | "docker-compose" => Box::new(DockerHandler),
+        "docker" | "docker-compose" | "podman" => Box::new(DockerHandler),
         "npm" | "pnpm" | "bun" | "yarn" => Box::new(PackageMgrHandler),
         "cargo" => {
             if cmd.split_whitespace().any(|a| a == "test") {
@@ -25,7 +26,7 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
                 Box::new(PackageMgrHandler)
             }
         }
-        "jest" | "vitest" | "pytest" | "py.test" => Box::new(TestRunnerHandler),
+        "jest" | "vitest" | "pytest" | "py.test" | "nextest" => Box::new(TestRunnerHandler),
         "tsc" | "eslint" | "biome" => Box::new(TypescriptHandler),
         "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => Box::new(BuildHandler),
         "vite" | "next" | "turbo" => {
@@ -35,11 +36,15 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
                 Box::new(GenericHandler)
             }
         }
-        "kubectl" | "gh" | "aws" | "gcloud" => Box::new(CloudHandler),
+        "kubectl" | "gh" | "aws" | "gcloud" | "az" => Box::new(CloudHandler),
         "psql" | "prisma" | "mysql" => Box::new(DatabaseHandler),
         "curl" | "wget" | "http" => Box::new(NetworkHandler),
         "node" | "python" | "python3" | "ruby" => Box::new(RuntimeHandler),
         "find" | "ls" | "du" | "ps" | "env" | "lsof" | "netstat" => Box::new(FsHandler),
+        // JSON/YAML/IaC tools
+        "jq" | "yq" | "terraform" | "tofu" | "helm" | "pulumi" => Box::new(DataToolHandler),
+        // Text-processing tools: grep match output
+        "grep" | "rg" | "awk" | "sed" => Box::new(TextProcHandler),
         _ => Box::new(GenericHandler),
     }
 }
