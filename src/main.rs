@@ -37,8 +37,27 @@ fn main() {
             eprintln!("squeez: compact not yet implemented");
             std::process::exit(1);
         }
+        Some("compress-md") => {
+            let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+            std::process::exit(squeez::commands::compress_md::run(&rest));
+        }
+        Some("update") => {
+            let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+            std::process::exit(squeez::commands::update::run(&rest));
+        }
+        Some("track-result") => {
+            let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
+            std::process::exit(squeez::commands::track_result::run(tool));
+        }
         _ => {
-            eprintln!("Usage: squeez wrap <command>\n       squeez filter <hint>\n       squeez --version");
+            eprintln!("Usage: squeez wrap <command>");
+            eprintln!("       squeez filter <hint>");
+            eprintln!("       squeez init [--copilot]");
+            eprintln!("       squeez track <tool> <bytes>");
+            eprintln!("       squeez track-result <tool> (reads stdin)");
+            eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
+            eprintln!("       squeez update [--check] [--insecure]");
+            eprintln!("       squeez --version");
             std::process::exit(1);
         }
     }

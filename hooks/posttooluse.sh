@@ -31,3 +31,7 @@ except Exception:
 " 2>/dev/null || echo 0)
 
 "$SQUEEZ" track "$tool" "$size" 2>/dev/null || true
+
+# Also feed the raw JSON to track-result so non-Bash tool outputs
+# (Read, Grep, LS, Glob) update SessionContext for cross-call dedup.
+printf '%s' "$input" | "$SQUEEZ" track-result "$tool" 2>/dev/null || true

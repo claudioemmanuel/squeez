@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::{
+    commands::{compress_md, persona},
     config::Config,
     json_util, memory,
     session::{self, CurrentSession},
@@ -39,6 +40,11 @@ pub fn run_copilot() -> i32 {
     let summaries = memory::read_last_n(&mem, 3);
     inject_copilot_instructions(&home, &cfg, &summaries);
 
+    // Auto-compress copilot-instructions.md after we just rewrote it.
+    if cfg.auto_compress_md {
+        let _ = compress_md::run_all_quietly();
+    }
+
     code
 }
 
@@ -59,14 +65,20 @@ fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Su
     block.push_str("## squeez — session context\n");
     let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
     block.push_str(&format!(
-        "Context budget: ~{}K tokens | Compression: ON | Memory: ON\n",
-        budget_k
+        "Context budget: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}\n",
+        budget_k,
+        persona::as_str(cfg.persona)
     ));
     for s in summaries {
         block.push_str(&format!("- {}\n", s.display_line()));
     }
     if summaries.is_empty() {
         block.push_str("- No prior sessions recorded yet.\n");
+    }
+    let persona_text = persona::text(cfg.persona);
+    if !persona_text.is_empty() {
+        block.push('\n');
+        block.push_str(persona_text);
     }
     block.push_str("<!-- squeez:end -->\n");
 
@@ -122,13 +134,25 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     let summaries = memory::read_last_n(memory_dir, 3);
     println!("─── squeez active ─────────────────────────────────────────");
     println!(
-        "Context budget: ~{}K tokens | Compression: ON | Memory: ON",
-        budget_k
+        "Context budget: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}",
+        budget_k,
+        persona::as_str(config.persona)
     );
     for s in &summaries {
         println!("{}", s.display_line());
     }
+    let persona_text = persona::text(config.persona);
+    if !persona_text.is_empty() {
+        println!();
+        print!("{}", persona_text);
+    }
     println!("────────────────────────────────────────────────────────────");
+
+    // 5. Auto-compress known memory files (idempotent — backup is never clobbered)
+    if config.auto_compress_md {
+        let _ = compress_md::run_all_quietly();
+    }
+
     0
 }
 
