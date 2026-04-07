@@ -141,12 +141,16 @@ mod tests {
     use super::*;
 
     fn tmp() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static CTR: AtomicU64 = AtomicU64::new(0);
+        let n = CTR.fetch_add(1, Ordering::Relaxed);
         let d = std::env::temp_dir().join(format!(
-            "squeez_track_result_{}",
+            "squeez_track_result_{}_{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .subsec_nanos()
+                .as_nanos(),
+            n
         ));
         std::fs::create_dir_all(&d).unwrap();
         d

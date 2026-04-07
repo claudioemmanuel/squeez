@@ -8,15 +8,14 @@ permissions:
   contents: write
 
 jobs:
-  bump-and-tag:
+  tag-and-release:
     runs-on: ubuntu-latest
-    # Skip if this push is the version-bump commit itself
+    # Skip if commit message contains [skip release]
     if: "!contains(github.event.head_commit.message, '[skip release]')"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.PR_CREATION_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Read current version
         id: current
@@ -33,49 +32,15 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump patch version
-        id: bump
-        if: steps.tag_check.outputs.exists == 'true'
-        run: |
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${{ steps.current.outputs.version }}"
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-
-          # Update Cargo.toml (first occurrence)
-          sed -i "0,/^version = \"${{ steps.current.outputs.version }}\"/{s/^version = \"${{ steps.current.outputs.version }}\"/version = \"$NEW_VERSION\"/}" Cargo.toml
-
-          # Update Cargo.lock if present
-          if [ -f Cargo.lock ]; then
-            sed -i "0,/name = \"squeez\"/{/name = \"squeez\"/{n;s/version = \"${{ steps.current.outputs.version }}\"/version = \"$NEW_VERSION\"/}}" Cargo.lock
-          fi
-
-          # Update npm/package.json
-          if [ -f npm/package.json ]; then
-            sed -i "s/\"version\": \"${{ steps.current.outputs.version }}\"/\"version\": \"$NEW_VERSION\"/" npm/package.json
-          fi
-
-      - name: Resolve final version
-        id: final
-        run: |
-          if [ "${{ steps.tag_check.outputs.exists }}" == "true" ]; then
-            echo "version=${{ steps.bump.outputs.new_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${{ steps.current.outputs.version }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Commit version bump
-        if: steps.tag_check.outputs.exists == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock npm/package.json
-          git commit -m "chore: bump version to ${{ steps.final.outputs.version }} [skip release]"
-          git push
-
       - name: Create and push tag
+        if: steps.tag_check.outputs.exists == 'false'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ steps.final.outputs.version }}"
-          git push origin "v${{ steps.final.outputs.version }}"
+          git tag "v${{ steps.current.outputs.version }}"
+          git push origin "v${{ steps.current.outputs.version }}"
+          echo "Tagged v${{ steps.current.outputs.version }}"
+
+      - name: Skip (tag already exists)
+        if: steps.tag_check.outputs.exists == 'true'
+        run: echo "Tag v${{ steps.current.outputs.version }} already exists — bump version in Cargo.toml via PR to trigger a new release."
