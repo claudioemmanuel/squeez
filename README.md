@@ -74,11 +74,14 @@ squeez update --insecure  # skip checksum (not recommended)
 | Feature | Description |
 |---------|-------------|
 | **Bash compression** | Intercepts every command via `PreToolUse` hook, applies smart filter → dedup → grouping → truncation. Up to 95% reduction. |
-| **Context engine** | Cross-call redundancy cache: identical outputs within 16 calls collapse to a single reference line. |
-| **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). |
+| **Context engine** | Cross-call redundancy with two paths: exact-hash match (FNV-1a, fast) **and** fuzzy trigram-shingle Jaccard ≥0.85 (whitespace, timestamps, single-line edits no longer defeat dedup). |
+| **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). **Benign outputs get 2× the threshold** so successful builds stay verbatim. |
+| **Adaptive intensity** | Truly adaptive: **Full** (×0.6 limits) below 80% of token budget, **Ultra** (×0.3) above. Used to be always-Ultra; now actually responds to session pressure. |
+| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 6 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
+| **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. |
-| **Session memory** | On `SessionStart`, injects a summary of the previous session (files touched, errors, test results, git events). |
+| **Session memory** | On `SessionStart`, injects a summary of the previous session (files touched, errors, test results, git events). Summaries carry temporal validity (`valid_from`/`valid_to`) so invalidated entries age from `valid_to`. |
 | **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
 
 ---
@@ -137,6 +140,8 @@ squeez wrap <cmd>                        # compress a command's output end-to-en
 squeez filter <hint>                     # compress stdin (piped usage)
 squeez compress-md [--ultra] [--dry-run] [--all] <file>...   # compress markdown files
 squeez benchmark [--json] [--output <file>] [--scenario <name>] [--iterations <n>]
+squeez mcp                               # JSON-RPC 2.0 MCP server over stdin/stdout
+squeez protocol                          # print the auto-teach payload (markers + protocol)
 squeez update [--check] [--insecure]     # self-update
 squeez init [--copilot]                  # session-start hook (called by hook, not manually)
 squeez --version
@@ -195,6 +200,36 @@ squeez benchmark --list                   # list all scenarios
 
 Quality is scored by checking that **signal terms** (words from error/warning/failed lines in the baseline) survive compression. 19/19 pass at ≥ 50% threshold.
 
+### `squeez mcp`
+
+Runs a Model Context Protocol JSON-RPC 2.0 server over stdin/stdout. Hand-rolled, no `mcp.server` / `fastmcp` dependency — keeps the `libc`-only constraint intact. Wire it into Claude Code:
+
+```bash
+claude mcp add squeez -- /path/to/squeez mcp
+```
+
+Six read-only tools become available to the LLM:
+
+| Tool | Returns |
+|------|---------|
+| `squeez_recent_calls` | Last N bash invocations with hash + length + cmd snippet — check before re-running |
+| `squeez_seen_files` | Files this session has touched (Read tool + paths extracted from bash output), sorted by recency |
+| `squeez_seen_errors` | Distinct error fingerprints observed this session (FNV-1a hashes of normalized errors) |
+| `squeez_session_summary` | Token accounting + call counts (tokens_bash / tokens_read / tokens_other / seen_files / seen_errors / seen_git_refs) |
+| `squeez_prior_summaries` | Last N finalized prior-session summaries from `~/.claude/squeez/memory/summaries.jsonl` |
+| `squeez_protocol` | Auto-teach payload — read once per session to learn squeez's markers + memory protocol |
+
+All read-only. All backed by `SessionContext::load()` and `memory::read_last_n()`. No side effects.
+
+### `squeez protocol`
+
+Prints the auto-teach payload — a 2.4 KB self-describing block covering:
+
+- The 5-rule **memory protocol** (what to do with `[squeez: ...]` markers, when to call the MCP tools)
+- The **output marker spec** (`# squeez [...]`, `[squeez: identical to ...]`, `[squeez: ~95% similar to ...]`, `squeez:summary`, `# squeez hint:`)
+
+Same content the MCP `squeez_protocol` tool returns. Pipe it into a `system` prompt or paste it into a one-shot session that doesn't have the MCP server connected.
+
 ---
 
 ## Configuration
@@ -217,11 +252,11 @@ find_max_results       = 50
 bypass                 = docker exec, psql, mysql, ssh   # never compress these
 
 # ── Context engine ─────────────────────────────────────────────
-adaptive_intensity         = true    # Ultra mode (×0.3 all limits); recommended
+adaptive_intensity         = true    # truly adaptive: Full <80% budget, Ultra ≥80%
 context_cache_enabled      = true    # track seen files/errors across calls
-redundancy_cache_enabled   = true    # collapse identical recent outputs
-summarize_threshold_lines  = 500     # outputs above this trigger summarize fallback
-compact_threshold_tokens   = 120000  # warn when session approaches context limit
+redundancy_cache_enabled   = true    # collapse identical OR fuzzy-similar recent outputs
+summarize_threshold_lines  = 500     # outputs above this trigger summarize fallback (×2 if benign)
+compact_threshold_tokens   = 120000  # session token budget — drives adaptive intensity
 
 # ── Session memory ─────────────────────────────────────────────
 memory_retention_days = 30
@@ -231,16 +266,21 @@ persona          = ultra    # off | lite | full | ultra
 auto_compress_md = true     # run compress-md on every session start
 ```
 
-### Adaptive intensity (Ultra mode)
+### Adaptive intensity — Full / Ultra split
 
-When `adaptive_intensity = true` (default), all compression limits are scaled to **30%** of their configured values on every call:
+When `adaptive_intensity = true` (default), squeez **actually adapts** to session pressure rather than always running Ultra:
 
-- `max_lines` × 0.3 (floor 20)
-- `dedup_min` × 0.5 (floor 2)
-- `git_diff_max_lines`, `docker_logs_max_lines`, `find_max_results` × 0.3
-- `summarize_threshold_lines` × 0.3 (floor 50)
+| Used / budget | Tier | Scaling |
+|---|---|---|
+| `< 80%` | **Full** | ×0.6 limits, dedup_min ×0.66 (floor 2) |
+| `≥ 80%` | **Ultra** | ×0.3 limits, dedup_min ×0.5 (floor 2) |
+| `adaptive_intensity = false` | **Lite** | passthrough — no scaling |
 
-The active level is shown in every bash header: `[adaptive: Ultra]`.
+Floors are enforced so we never reduce to zero: `max_lines ≥ 20`, `git_diff_max_lines ≥ 20`, `dedup_min ≥ 2`, `summarize_threshold_lines ≥ 50`.
+
+The active level is shown in every bash header: `[adaptive: Full]` or `[adaptive: Ultra]`.
+
+Pre-0.3 squeez was effectively always-Ultra. The new behavior preserves more verbatim text in the common case (empty / mid-session) and only graduates to aggressive compression when the context budget is genuinely under pressure.
 
 ### Caveman persona
 
@@ -290,11 +330,21 @@ Three hooks work together automatically after install:
 
 ### Cross-call redundancy
 
-When the same compressed output appears within the last 16 calls (length-equality guarded, minimum 2 lines), it is replaced with a single reference line:
+Two-path dedup across the last 16 calls:
+
+**Exact match** — FNV-1a hash of the compressed output. When a subsequent call produces the same bytes, it collapses to:
 
 ```
 [squeez: identical to 515ba5b2 at bash#35 — re-run with --no-squeez]
 ```
+
+**Fuzzy match** — bottom-k MinHash over whitespace-token trigrams (k=96, Jaccard ≥ 0.85, length-ratio guard ≥ 0.80). Survives timestamp changes, added/removed blank lines, and single-line edits. Collapses to:
+
+```
+[squeez: ~92% similar to 515ba5b2 at bash#35 — re-run with --no-squeez]
+```
+
+Minimum 6 lines to attempt fuzzy match (below that, exact-only).
 
 ### Summarize fallback
 
@@ -311,6 +361,8 @@ test_summary=FAILED: 3 of 248
 tail_preserved=20
 [last 20 lines verbatim...]
 ```
+
+**Benign-aware threshold:** before summarizing, squeez scans for error markers (`error:`, `panic`, `traceback`, `FAILED`, `EXCEPTION`, `Fatal`). If none are found, the threshold is doubled (1,000 lines default) so successful builds, clean test runs, and uneventful logs stay verbatim unless they are genuinely huge.
 
 ---
 

@@ -57,6 +57,17 @@ fn main() {
             let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
             std::process::exit(squeez::commands::track_result::run(tool));
         }
+        Some("mcp") => {
+            // JSON-RPC 2.0 server over stdin/stdout, exposing read-only access
+            // to session memory + the protocol payload. See `commands/mcp_server.rs`.
+            std::process::exit(squeez::commands::mcp_server::run());
+        }
+        Some("protocol") => {
+            // Print the auto-teach payload (markers + protocol) to stdout.
+            // Same content the MCP `squeez_protocol` tool returns.
+            print!("{}", squeez::commands::protocol::full_payload());
+            std::process::exit(0);
+        }
         _ => {
             eprintln!("Usage: squeez wrap <command>");
             eprintln!("       squeez filter <hint>");
@@ -67,6 +78,8 @@ fn main() {
             eprintln!("       squeez benchmark [--json] [--output <file>] [--scenario <name>]");
             eprintln!("       squeez setup [--force]");
             eprintln!("       squeez update [--check] [--insecure]");
+            eprintln!("       squeez mcp                       — JSON-RPC 2.0 server over stdio");
+            eprintln!("       squeez protocol                  — print the auto-teach payload");
             eprintln!("       squeez --version");
             std::process::exit(1);
         }

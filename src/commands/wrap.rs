@@ -157,10 +157,18 @@ pub fn run(cmd_str: &str) -> i32 {
     let mut redundancy_hit = false;
     if eff_cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &compressed) {
-            compressed = vec![format!(
-                "[squeez: identical to {} at bash#{} — re-run with --no-squeez]",
-                hit.short_hash, hit.call_n
-            )];
+            compressed = vec![match hit.similarity {
+                None => format!(
+                    "[squeez: identical to {} at bash#{} — re-run with --no-squeez]",
+                    hit.short_hash, hit.call_n
+                ),
+                Some(j) => format!(
+                    "[squeez: ~{}% similar to {} at bash#{} — re-run with --no-squeez]",
+                    (j * 100.0).round() as u32,
+                    hit.short_hash,
+                    hit.call_n
+                ),
+            }];
             redundancy_hit = true;
         }
     }

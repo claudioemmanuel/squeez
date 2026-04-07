@@ -22,18 +22,39 @@ pub fn budget(cfg: &Config) -> u64 {
     cfg.compact_threshold_tokens.saturating_mul(5) / 4
 }
 
+/// Fraction of budget at which Full graduates to Ultra. 80% of budget is the
+/// "context is filling up, time to be aggressive" threshold. Below this,
+/// the gentler Full tier preserves more output verbatim.
+pub const ULTRA_TRIGGER_NUM: u64 = 80;
+pub const ULTRA_TRIGGER_DEN: u64 = 100;
+
 /// Derive intensity from config + current usage.
-/// When `adaptive_intensity` is enabled (the default), squeez compresses
-/// at maximum aggression (Ultra) regardless of budget. The Lite/Full tiers
-/// remain in the type so users can opt into a softer mode by disabling
-/// adaptive_intensity (which falls back to Lite — no scaling).
 ///
-/// `used` is accepted for forward compatibility but is currently unused.
-pub fn derive(_used: u64, cfg: &Config) -> Intensity {
-    if cfg.adaptive_intensity {
+/// When `adaptive_intensity = false` the system uses Lite (no scaling at all).
+///
+/// When `adaptive_intensity = true` (default), the system actually adapts to
+/// session pressure rather than always sitting at maximum aggression:
+///
+/// * `used < 80% of budget` → Full (×0.6 — gentle compression, more verbatim)
+/// * `used ≥ 80% of budget` → Ultra (×0.3 — emergency compression)
+///
+/// This replaces the prior always-Ultra behavior: preserve more verbatim
+/// output in the common case, escalate only when the budget is genuinely full.
+pub fn derive(used: u64, cfg: &Config) -> Intensity {
+    if !cfg.adaptive_intensity {
+        return Intensity::Lite;
+    }
+    let b = budget(cfg);
+    if b == 0 {
+        // Misconfigured budget — fall back to the previous always-Ultra behavior.
+        return Intensity::Ultra;
+    }
+    // Compare `used / b` to ULTRA_TRIGGER without floats:
+    //   used / b >= num/den   <=>   used * den >= b * num
+    if used.saturating_mul(ULTRA_TRIGGER_DEN) >= b.saturating_mul(ULTRA_TRIGGER_NUM) {
         Intensity::Ultra
     } else {
-        Intensity::Lite
+        Intensity::Full
     }
 }
 
@@ -83,8 +104,25 @@ mod tests {
     }
 
     #[test]
-    fn adaptive_enabled_at_zero_is_ultra() {
-        assert_eq!(derive(0, &cfg()), Intensity::Ultra);
+    fn adaptive_enabled_at_zero_is_full() {
+        // Empty session: gentler compression.
+        assert_eq!(derive(0, &cfg()), Intensity::Full);
+    }
+
+    #[test]
+    fn adaptive_enabled_just_below_threshold_is_full() {
+        let c = cfg();
+        // 79% of budget — still Full
+        let used = budget(&c) * 79 / 100;
+        assert_eq!(derive(used, &c), Intensity::Full);
+    }
+
+    #[test]
+    fn adaptive_enabled_at_threshold_is_ultra() {
+        let c = cfg();
+        // Exactly 80% — graduates to Ultra
+        let used = budget(&c) * 80 / 100;
+        assert_eq!(derive(used, &c), Intensity::Ultra);
     }
 
     #[test]
@@ -105,6 +143,15 @@ mod tests {
         c.adaptive_intensity = false;
         assert_eq!(derive(0, &c), Intensity::Lite);
         assert_eq!(derive(budget(&c) * 5, &c), Intensity::Lite);
+    }
+
+    #[test]
+    fn zero_budget_falls_back_to_ultra() {
+        let mut c = cfg();
+        c.compact_threshold_tokens = 0;
+        // Misconfigured (budget=0) — old behavior preserved.
+        assert_eq!(derive(0, &c), Intensity::Ultra);
+        assert_eq!(derive(1000, &c), Intensity::Ultra);
     }
 
     #[test]

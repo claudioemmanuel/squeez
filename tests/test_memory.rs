@@ -25,6 +25,8 @@ fn sample_summary(date: &str, ts: u64) -> Summary {
         errors_resolved: vec!["error[E0502] in auth.ts".to_string()],
         git_events: vec!["abc1234 fix auth".to_string()],
         ts,
+        valid_from: ts,
+        valid_to: 0,
     }
 }
 
