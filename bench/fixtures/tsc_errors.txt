@@ -1,0 +1,55 @@
+info: checking src/index.ts
+info: checking src/app.tsx
+info: checking src/routes/home.tsx
+info: checking src/routes/about.tsx
+info: checking src/routes/dashboard.tsx
+info: checking src/components/Button.tsx
+info: checking src/components/Modal.tsx
+info: checking src/components/Sidebar.tsx
+info: checking src/components/Header.tsx
+info: checking src/components/Footer.tsx
+info: checking src/components/Table.tsx
+info: checking src/components/Form.tsx
+info: checking src/components/Input.tsx
+info: checking src/api/client.ts
+info: checking src/api/auth.ts
+info: checking src/api/users.ts
+info: checking src/api/products.ts
+info: checking src/utils/format.ts
+info: checking src/utils/validate.ts
+info: checking src/utils/logger.ts
+info: processed module 1/20
+info: processed module 2/20
+info: processed module 3/20
+info: processed module 4/20
+info: processed module 5/20
+info: processed module 6/20
+info: processed module 7/20
+info: processed module 8/20
+info: processed module 9/20
+info: processed module 10/20
+info: processed module 11/20
+info: processed module 12/20
+info: processed module 13/20
+info: processed module 14/20
+info: processed module 15/20
+info: processed module 16/20
+info: processed module 17/20
+info: processed module 18/20
+info: processed module 19/20
+info: processed module 20/20
+src/components/Button.tsx(12,5): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+src/components/Button.tsx(15,3): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/Modal.tsx(34,9): error TS2304: Cannot find name 'useEffect'.
+src/components/Modal.tsx(67,14): error TS7006: Parameter 'event' implicitly has an 'any' type.
+src/api/client.ts(88,3): error TS2339: Property 'data' does not exist on type 'Response'.
+src/api/client.ts(102,7): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/utils/format.ts(5,10): warning TS6133: 'unused' is declared but its value is never read.
+src/utils/validate.ts(23,1): warning TS6133: 'helper' is declared but its value is never read.
+
+Found 6 errors in 3 files.
+
+Errors  Files
+     2  src/components/Button.tsx:12
+     2  src/components/Modal.tsx:34
+     2  src/api/client.ts:88

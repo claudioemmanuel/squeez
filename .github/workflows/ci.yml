@@ -17,3 +17,5 @@ jobs:
         run: bash bench/run.sh
       - name: Run context-engine benchmarks
         run: bash bench/run_context.sh
+      - name: Run squeez benchmark suite
+        run: ./target/release/squeez benchmark --json --output bench/benchmark_report.json

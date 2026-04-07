@@ -73,12 +73,15 @@ jobs:
           path: squeez-windows-x86_64.exe
 
   # ── GitHub Release (binaries + checksums) ────────────────────────────────
+  # Only ONE release is kept at all times — the latest.
+  # All previous releases (different tag) are deleted after publishing.
   release:
     needs: [build-macos, build-linux-x86_64, build-linux-aarch64, build-windows-x86_64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
       - name: Generate checksums
         run: |
@@ -95,6 +98,18 @@ jobs:
             squeez-linux-aarch64/squeez-linux-aarch64
             squeez-windows-x86_64/squeez-windows-x86_64.exe
             checksums.sha256
+          make_latest: true
+      - name: Delete previous releases (keep only latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT_TAG="${{ github.ref_name }}"
+          gh release list --limit 100 --json tagName -q '.[].tagName' | while read TAG; do
+            if [ "$TAG" != "$CURRENT_TAG" ]; then
+              echo "Deleting old release: $TAG"
+              gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+            fi
+          done
 
   # ── npm publish ──────────────────────────────────────────────────────────
   publish-npm:

@@ -1,0 +1,253 @@
+2026-04-07T00:00:00.000Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:01.003Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:02.006Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:03.009Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:04.012Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:05.015Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:06.018Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:07.021Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:08.024Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:09.027Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:10.030Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:11.033Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:12.036Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:13.039Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:14.042Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:15.045Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:16.048Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:17.051Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:18.054Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:19.057Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:20.060Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:21.063Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:22.066Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:23.069Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:24.072Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:25.075Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:26.078Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:27.081Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:28.084Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:29.087Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:30.090Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:31.093Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:32.096Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:33.099Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:34.102Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:35.105Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:36.108Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:37.111Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:38.114Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:39.117Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:40.120Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:41.123Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:42.126Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:43.129Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:44.132Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:45.135Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:46.138Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:47.141Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:48.144Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:49.147Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:50.150Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:51.153Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:52.156Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:00:53.159Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:00:54.162Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:00:55.165Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:00:56.168Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:00:57.171Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:00:58.174Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:00:59.177Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:00.180Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:01.183Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:02.186Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:03.189Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:04.192Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:05.195Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:06.198Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:07.201Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:08.204Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:09.207Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:10.210Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:11.213Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:12.216Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:13.219Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:14.222Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:15.225Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:16.228Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:17.231Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:18.234Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:19.237Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:20.240Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:21.243Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:22.246Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:23.249Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:24.252Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:25.255Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:26.258Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:27.261Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:28.264Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:29.267Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:30.270Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:31.273Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:32.276Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:33.279Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:34.282Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:35.285Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:36.288Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:37.291Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:38.294Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:39.297Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:40.300Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:41.303Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:42.306Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:43.309Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:44.312Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:45.315Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:46.318Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:47.321Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:48.324Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:49.327Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:50.330Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:51.333Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:52.336Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:01:53.339Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:01:54.342Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:01:55.345Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:01:56.348Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:01:57.351Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:01:58.354Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:01:59.357Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:00.360Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:01.363Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:02.366Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:03.369Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:04.372Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:05.375Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:06.378Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:07.381Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:08.384Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:09.387Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:10.390Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:11.393Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:12.396Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:13.399Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:14.402Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:15.405Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:16.408Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:17.411Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:18.414Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:19.417Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:20.420Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:21.423Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:22.426Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:23.429Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:24.432Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:25.435Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:26.438Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:27.441Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:28.444Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:29.447Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:30.450Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:31.453Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:32.456Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:33.459Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:34.462Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:35.465Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:36.468Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:37.471Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:38.474Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:39.477Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:40.480Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:41.483Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:42.486Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:43.489Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:44.492Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:45.495Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:46.498Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:47.501Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:48.504Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:49.507Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:50.510Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:51.513Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:52.516Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:02:53.519Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:02:54.522Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:02:55.525Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:02:56.528Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:02:57.531Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:02:58.534Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:02:59.537Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:00.540Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:01.543Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:02.546Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:03.549Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:04.552Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:05.555Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:06.558Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:07.561Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:08.564Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:09.567Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:10.570Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:11.573Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:12.576Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:13.579Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:14.582Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:15.585Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:16.588Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:17.591Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:18.594Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:19.597Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:20.600Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:21.603Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:22.606Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:23.609Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:24.612Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:25.615Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:26.618Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:27.621Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:28.624Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:29.627Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:30.630Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:31.633Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:32.636Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:33.639Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:34.642Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:35.645Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:36.648Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:37.651Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:38.654Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:39.657Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:40.660Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:41.663Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:42.666Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:43.669Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:44.672Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:45.675Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:46.678Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:47.681Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:48.684Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:49.687Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:50.690Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:51.693Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:52.696Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:03:53.699Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:03:54.702Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:03:55.705Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:03:56.708Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:03:57.711Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:03:58.714Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:03:59.717Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:04:00.720Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:04:01.723Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:04:02.726Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T00:04:03.729Z [WARN] slow query detected duration=1250ms table=events
+2026-04-07T00:04:04.732Z [ERROR] upstream timeout after 30s url=https://api.external.com/webhook
+2026-04-07T00:04:05.735Z [DEBUG] request received method=GET path=/api/health
+2026-04-07T00:04:06.738Z [DEBUG] database pool: 4/10 connections active
+2026-04-07T00:04:07.741Z [DEBUG] cache hit key=user:12345 ttl=3540s
+2026-04-07T00:04:08.744Z [INFO] processed request latency=12ms status=200
+2026-04-07T00:04:09.747Z [INFO] scheduled job starting name=cleanup_old_sessions
+2026-04-07T01:00:00.000Z [ERROR] OOM kill signal received pod=squeez-worker-7f9b — restarting
+2026-04-07T01:00:01.000Z [ERROR] connection to Redis lost — retrying in 5s backoff=exponential
+2026-04-07T01:00:06.000Z [ERROR] Redis reconnect failed attempt=2 — circuit breaker opened

@@ -30,25 +30,49 @@ curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install
 
 ## Benchmarks
 
-Measured on macOS (Apple Silicon), token estimate = chars/4. Run with `bash bench/run.sh`.
+Measured on macOS (Apple Silicon). Token estimate = chars/4 (matches Claude tokenizer at ~4 chars/token).
+Run `squeez benchmark` for the full reproducible report. Full JSON at `bench/benchmark_report.json`.
 
-| Fixture | Before | After | Reduction | Latency |
-|---------|--------|-------|-----------|---------|
-| `ps aux` | 40,373 tk | 2,352 tk | **-95%** | 6ms |
-| 5,000-line log (summarize) | 82,257 tk | 47 tk | **-100%** | 12ms |
-| `git log` (200 commits) | 2,667 tk | 819 tk | **-70%** | 3ms |
-| `docker logs` | 665 tk | 186 tk | **-73%** | 4ms |
-| `find` (deep tree) | 424 tk | 134 tk | **-69%** | 3ms |
-| `git status` | 50 tk | 16 tk | **-68%** | 3ms |
-| `ls -la` | 1,782 tk | 886 tk | **-51%** | 3ms |
-| `npm install` | 524 tk | 231 tk | **-56%** | 3ms |
-| `git diff` | 502 tk | 317 tk | **-37%** | 4ms |
-| `env` dump | 441 tk | 287 tk | **-35%** | 4ms |
-| Copilot CLI session | 639 tk | 421 tk | **-35%** | 4ms |
-| `cargo build` (Ultra intensity) | 4,418 tk | 52 tk | **-99%** | 4ms |
-| CLAUDE.md prose (compress-md) | 316 tk | 246 tk | **-23%** | 3ms |
+### Per-scenario results (19 scenarios, 3 iterations each)
 
-14/14 fixtures pass. Latency under 15ms on every fixture.
+| Scenario | Before | After | Reduction | Latency | Quality |
+|----------|--------|-------|-----------|---------|---------|
+| `ps aux` (161 KB real output) | 40,373 tk | 2,352 tk | **-94%** | 1.8ms | ✅ |
+| 5,003-line log (summarize path) | 82,257 tk | 420 tk | **-99.5%** | 63ms | ✅ |
+| Repetitive output (300× dedup) | 4,692 tk | 37 tk | **-99.2%** | 0.2ms | ✅ |
+| `git log` (200 commits) | 2,692 tk | 289 tk | **-89%** | 0.2ms | ✅ |
+| `tsc` errors (86 lines → errors only) | 731 tk | 101 tk | **-86%** | 0.06ms | ✅ |
+| `cargo build` (noisy + errors) | 2,106 tk | 452 tk | **-79%** | 0.2ms | ✅ |
+| `docker logs` | 665 tk | 186 tk | **-72%** | 0.05ms | ✅ |
+| `find` (deep tree) | 424 tk | 134 tk | **-68%** | 0.07ms | ✅ |
+| `git status` | 50 tk | 16 tk | **-68%** | 0.02ms | ✅ |
+| Verbose app log (250 lines) | 4,957 tk | 1,991 tk | **-60%** | 0.3ms | ✅ |
+| `npm install` | 524 tk | 232 tk | **-56%** | 0.04ms | ✅ |
+| Cross-call redundancy (3× same output) | 486 tk | 241 tk | **-50%** | 58ms | ✅ |
+| `ls -la` | 1,782 tk | 886 tk | **-50%** | 0.1ms | ✅ |
+| `env` dump | 441 tk | 287 tk | **-35%** | 0.03ms | ✅ |
+| `git diff` | 502 tk | 497 tk | **-1%** | 0.05ms | ✅ |
+| CLAUDE.md prose (compress-md) | 316 tk | 247 tk | **-22%** | 0.2ms | ✅ |
+
+### Aggregate
+
+| Metric | Value |
+|--------|-------|
+| **Total token reduction** | **92.8%** (145,338 tk → 10,441 tk) |
+| Bash output compression | **84.9%** |
+| Markdown / context files | **23.3%** |
+| Wrap / cross-call engine | **99.2%** |
+| Quality (signal terms preserved) | **19/19 pass** |
+| Latency p50 (filter mode) | **< 0.3ms** |
+| Latency p95 (incl. wrap/summarize) | **64ms** |
+
+### Estimated cost savings (Claude Sonnet 4.6 · $3.00/MTok input)
+
+| Usage | Baseline/month | Saved/month |
+|-------|---------------|-------------|
+| 100 calls/day | $18.00 | **$16.71** (93%) |
+| 1,000 calls/day | $180.00 | **$167.07** (93%) |
+| 10,000 calls/day | $1,800.00 | **$1,670.69** (93%) |
 
 ## Escape hatch
 

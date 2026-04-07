@@ -1,0 +1,113 @@
+   Downloading crates.io index
+   Downloading serde v1.0.195
+   Downloading serde_derive v1.0.195
+   Downloading tokio v1.35.1
+   Downloading tokio-macros v2.2.0
+   Downloading hyper v0.14.28
+   Downloading reqwest v0.11.23
+   Downloading clap v4.4.18
+   Downloading clap_builder v4.4.18
+   Downloading clap_derive v4.4.18
+   Downloading tracing v0.1.40
+   Downloading tracing-core v0.1.32
+   Downloading tracing-subscriber v0.3.18
+   Downloading anyhow v1.0.79
+   Downloading thiserror v1.0.56
+   Downloading thiserror-impl v1.0.56
+   Downloading once_cell v1.19.0
+   Downloading futures v0.3.30
+   Downloading futures-core v0.3.30
+   Downloading futures-util v0.3.30
+   Downloading pin-project-lite v0.2.13
+   Downloading bytes v1.5.0
+   Downloading mio v0.8.10
+   Downloading socket2 v0.5.5
+   Downloading num_cpus v1.16.0
+   Downloading parking_lot v0.12.1
+   Downloading crossbeam v0.8.4
+   Downloading rayon v1.8.1
+   Downloading indexmap v2.2.2
+   Downloading hashbrown v0.14.3
+   Compiling proc-macro2 v1.0.78
+   Compiling unicode-ident v1.0.12
+   Compiling quote v1.0.35
+   Compiling syn v2.0.48
+   Compiling serde_derive v1.0.195
+   Compiling thiserror-impl v1.0.56
+   Compiling clap_derive v4.4.18
+   Compiling tokio-macros v2.2.0
+   Compiling serde v1.0.195
+   Compiling libc v0.2.152
+   Compiling cfg-if v1.0.0
+   Compiling once_cell v1.19.0
+   Compiling smallvec v1.13.1
+   Compiling lock_api v0.4.11
+   Compiling parking_lot_core v0.9.9
+   Compiling parking_lot v0.12.1
+   Compiling bytes v1.5.0
+   Compiling mio v0.8.10
+   Compiling socket2 v0.5.5
+   Compiling num_cpus v1.16.0
+   Compiling pin-project-lite v0.2.13
+   Compiling futures-core v0.3.30
+   Compiling tokio v1.35.1
+   Compiling futures-util v0.3.30
+   Compiling futures v0.3.30
+   Compiling anyhow v1.0.79
+   Compiling thiserror v1.0.56
+   Compiling clap_lex v0.6.0
+   Compiling clap_builder v4.4.18
+   Compiling clap v4.4.18
+   Compiling tracing-core v0.1.32
+   Compiling tracing v0.1.40
+   Compiling squeez v0.2.1 (/Users/dev/squeez)
+warning: unused variable `result`
+  --> src/commands/wrap.rs:45:9
+   |
+45 |         let result = handler.compress(cmd, lines, config);
+   |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_result`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable `result`
+  --> src/commands/wrap.rs:45:9
+   |
+45 |         let result = handler.compress(cmd, lines, config);
+   |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_result`
+
+warning: unused import: `crate::context::cache`
+  --> src/commands/wrap.rs:5:5
+   |
+5  | use crate::context::cache;
+   |     ^^^^^^^^^^^^^^^^^^^^^ help: remove the unused import
+
+warning: unused import: `std::collections::HashMap`
+  --> src/filter.rs:2:5
+   |
+2  | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ help: remove the unused import
+
+warning: function `format_duration` is never used
+  --> src/commands/generic.rs:88:4
+   |
+88 |     fn format_duration(ms: u64) -> String {
+   |        ^^^^^^^^^^^^^^^ 
+
+warning: 5 warnings emitted
+
+error[E0432]: unresolved import `crate::commands::nonexistent`
+  --> src/main.rs:3:5
+   |
+3  | use crate::commands::nonexistent;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `nonexistent` in `commands`
+
+error[E0308]: mismatched types
+  --> src/filter.rs:42:10
+   |
+42 |     Ok("hello".to_string())
+   |        ^^^^^^^^^^^^^^^^^^^^ expected `usize`, found `String`
+
+error: aborting due to 2 previous errors; 5 warnings emitted
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `squeez` due to 2 previous errors
