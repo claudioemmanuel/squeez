@@ -15,3 +15,5 @@ jobs:
           cp target/release/squeez "$HOME/.claude/squeez/bin/squeez"
       - name: Run benchmarks
         run: bash bench/run.sh
+      - name: Run context-engine benchmarks
+        run: bash bench/run_context.sh
