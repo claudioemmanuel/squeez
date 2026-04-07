@@ -1,3 +1,5 @@
+use crate::commands::persona::Persona;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub enabled: bool,
@@ -11,6 +13,14 @@ pub struct Config {
     pub bypass: Vec<String>,
     pub compact_threshold_tokens: u64,
     pub memory_retention_days: u32,
+    // ── Context engine flags ────────────────────────────────────────────
+    pub adaptive_intensity: bool,
+    pub context_cache_enabled: bool,
+    pub redundancy_cache_enabled: bool,
+    pub summarize_threshold_lines: usize,
+    // ── Output / memory-file flags ──────────────────────────────────────
+    pub persona: Persona,
+    pub auto_compress_md: bool,
 }
 
 impl Default for Config {
@@ -30,8 +40,14 @@ impl Default for Config {
                 "mysql".to_string(),
                 "ssh".to_string(),
             ],
-            compact_threshold_tokens: 160_000,
+            compact_threshold_tokens: 120_000,
             memory_retention_days: 30,
+            adaptive_intensity: true,
+            context_cache_enabled: true,
+            redundancy_cache_enabled: true,
+            summarize_threshold_lines: 500,
+            persona: Persona::Ultra,
+            auto_compress_md: true,
         }
     }
 }
@@ -70,6 +86,15 @@ impl Config {
                     "memory_retention_days" => {
                         c.memory_retention_days = v.parse().unwrap_or(c.memory_retention_days)
                     }
+                    "adaptive_intensity" => c.adaptive_intensity = v == "true",
+                    "context_cache_enabled" => c.context_cache_enabled = v == "true",
+                    "redundancy_cache_enabled" => c.redundancy_cache_enabled = v == "true",
+                    "summarize_threshold_lines" => {
+                        c.summarize_threshold_lines =
+                            v.parse().unwrap_or(c.summarize_threshold_lines)
+                    }
+                    "persona" => c.persona = crate::commands::persona::from_str(v),
+                    "auto_compress_md" => c.auto_compress_md = v == "true",
                     _ => {}
                 }
             }

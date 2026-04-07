@@ -1,0 +1,54 @@
+name: Promote develop to main
+on:
+  push:
+    branches: [develop]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  create_pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update PR to main (using PAT)
+        if: ${{ secrets.PR_CREATION_TOKEN != '' }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.PR_CREATION_TOKEN }}
+          script: |
+            const prTitle = 'Promote develop to main';
+            const prBody = 'Automated PR to propose changes from develop to main. Review and merge according to repo policy.';
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:develop`,
+              base: 'main',
+            });
+            if (prs.length === 0) {
+              await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: prTitle,
+                head: 'develop',
+                base: 'main',
+                body: prBody,
+              });
+            } else {
+              const pr = prs[0];
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                title: prTitle,
+                body: prBody,
+              });
+            }
+
+      - name: Skip automatic promotion (no token)
+        if: ${{ secrets.PR_CREATION_TOKEN == '' }}
+        run: |
+          echo "Automatic promotion to main skipped: PR_CREATION_TOKEN secret not set."
+          echo "To enable automatic promotion, either:"
+          echo "  1) Enable 'Allow GitHub Actions to create and approve pull requests' in the repository Settings → Actions → General (recommended), or"
+          echo "  2) Create a Personal Access Token (PAT) with 'repo' scope and add it as a repository secret named 'PR_CREATION_TOKEN'."
+          echo "Create secret via GH CLI: gh secret set PR_CREATION_TOKEN --body '<your-token>'"

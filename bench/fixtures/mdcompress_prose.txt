@@ -1,0 +1,5 @@
+The reason that this approach really works is because the underlying mechanism is basically a deduplication strategy that just removes the redundant entries. I'd be happy to walk through it.
+
+In general, you could consider that the function essentially takes a list of items and returns the unique ones. Perhaps the most important thing to note is that the order is preserved. Maybe you would like to use a different data structure, but for the simple case the basic implementation works really well.
+
+It might be worth considering the trade-off between memory and speed. Of course, you would also like to ensure correctness. Sure, the implementation could be optimized further, but for now the simple version is sufficient for the use case at hand.

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::context;
 use crate::filter;
 use crate::{json_util, session};
 use std::io::Read;
@@ -36,6 +37,19 @@ pub fn run(cmd_str: &str) -> i32 {
 
     if !config.enabled || config.is_bypassed(cmd_str) || is_streaming(cmd_str) {
         return passthrough(cmd_str);
+    }
+
+    // ── Context engine pre-pass ────────────────────────────────────────
+    let sessions_dir_pp = session::sessions_dir();
+    let used_tokens = session::CurrentSession::load(&sessions_dir_pp)
+        .map(|c| c.total_tokens)
+        .unwrap_or(0);
+    let (mut ctx, intensity, eff_cfg) =
+        context::pre_pass(&config, &sessions_dir_pp, used_tokens);
+
+    // Optional cross-call hint for raw cat/head/tail of seen files
+    if let Some(hint) = context::cache::raw_read_hint(&ctx, cmd_str) {
+        println!("{}", hint);
     }
 
     let start = Instant::now();
@@ -131,7 +145,26 @@ pub fn run(cmd_str: &str) -> i32 {
     let input_tokens = combined.len() / 4;
     let lines: Vec<String> = combined.lines().map(String::from).collect();
 
-    let compressed = filter::compress(cmd_str, lines, &config);
+    // ── Summarize fallback for huge outputs (pre-handler) ──────────────
+    // Decision based on raw line count so handlers can't hide huge inputs.
+    let mut compressed = if context::summarize::should_apply(&lines, &eff_cfg) {
+        context::summarize::apply(lines, cmd_str)
+    } else {
+        filter::compress(cmd_str, lines, &eff_cfg)
+    };
+
+    // ── Redundancy short-circuit ───────────────────────────────────────
+    let mut redundancy_hit = false;
+    if eff_cfg.redundancy_cache_enabled {
+        if let Some(hit) = context::redundancy::check(&ctx, &compressed) {
+            compressed = vec![format!(
+                "[squeez: identical to {} at bash#{} — re-run with --no-squeez]",
+                hit.short_hash, hit.call_n
+            )];
+            redundancy_hit = true;
+        }
+    }
+
     let output_str = compressed.join("\n");
     let output_tokens = output_str.len() / 4;
 
@@ -154,9 +187,14 @@ pub fn run(cmd_str: &str) -> i32 {
     let cmd_name = cmd_str.split_whitespace().next().unwrap_or("cmd");
 
     if config.show_header {
+        let intensity_tag = if config.adaptive_intensity {
+            format!(" [adaptive: {}]", intensity.as_str())
+        } else {
+            String::new()
+        };
         println!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms",
-            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms
+            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}",
+            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms, intensity_tag
         );
         if let Some(ref warning) = compact_warning {
             println!("{}", warning);
@@ -164,6 +202,21 @@ pub fn run(cmd_str: &str) -> i32 {
     }
     if !output_str.is_empty() {
         println!("{}", output_str);
+    }
+
+    // ── Context engine post-pass ───────────────────────────────────────
+    if config.context_cache_enabled && !redundancy_hit {
+        context::redundancy::record(&mut ctx, cmd_str, &compressed);
+    } else if config.context_cache_enabled {
+        // still bump the call counter so future calls reference the right index
+        ctx.next_call_n();
+    }
+    if config.context_cache_enabled {
+        ctx.note_files(&files);
+        ctx.note_errors(&errors);
+        ctx.note_git(&git_events);
+        ctx.note_tool_tokens("Bash", input_tokens as u64);
+        ctx.save(&sessions_dir_pp);
     }
 
     exit_code
@@ -304,12 +357,15 @@ fn record_bash_event(
         let budget = config.compact_threshold_tokens * 5 / 4;
         let pct = current.total_tokens * 100 / budget.max(1);
         current.compact_warned = true;
+        // Load context for per-tool breakdown
+        let ctx = crate::context::cache::SessionContext::load(&dir);
         Some(format!(
-            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Artifacts: {} files touched, {} errors seen.",
+            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Other {}K",
             current.total_tokens / 1000,
             pct,
-            files.len(),
-            errors.len(),
+            ctx.tokens_bash / 1000,
+            ctx.tokens_read / 1000,
+            ctx.tokens_other / 1000,
         ))
     } else {
         None

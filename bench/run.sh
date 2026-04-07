@@ -18,6 +18,11 @@ printf '%.0s─' {1..78} >> "$REPORT"; echo >> "$REPORT"
 
 for f in "$FIXTURES"/*.txt; do
     name=$(basename "$f")
+    # context_crosscall_* fixtures exercise wrap.rs cross-call dedup; they
+    # are run by bench/run_context.sh, not by filter-mode bench.
+    case "$name" in
+        context_crosscall_*) continue ;;
+    esac
     input=$(cat "$f")
     before=$(( ${#input} / 4 ))
     [ "$before" -eq 0 ] && continue
@@ -25,14 +30,24 @@ for f in "$FIXTURES"/*.txt; do
     # Derive handler hint from fixture name: "git_log_200.txt" → hint="git"
     hint="${name%%_*}"
 
-    t0=$(date +%s%N)
-    compressed=$(echo "$input" | "$SQUEEZ" filter "$hint" 2>/dev/null || echo "$input")
-    t1=$(date +%s%N)
+    # mdcompress_* fixtures use the markdown compressor instead of filter
+    if [ "$hint" = "mdcompress" ]; then
+        t0=$(date +%s%N)
+        compressed=$("$SQUEEZ" compress-md --dry-run --ultra --quiet "$f" 2>/dev/null || cat "$f")
+        t1=$(date +%s%N)
+    else
+        t0=$(date +%s%N)
+        compressed=$(echo "$input" | "$SQUEEZ" filter "$hint" 2>/dev/null || echo "$input")
+        t1=$(date +%s%N)
+    fi
     ms=$(( (t1 - t0) / 1000000 ))
 
     after=$(( ${#compressed} / 4 ))
     pct=$(( 100 - (after * 100 / before) ))
-    status="✅"; [ "$pct" -lt 30 ] && { status="❌"; FAIL=$((FAIL+1)); }
+    # mdcompress fixtures: prose compression is naturally lighter (~15-30%)
+    threshold=30
+    if [ "$hint" = "mdcompress" ]; then threshold=15; fi
+    status="✅"; [ "$pct" -lt "$threshold" ] && { status="❌"; FAIL=$((FAIL+1)); }
     [ "$ms" -gt 100 ] && { status="❌ slow"; FAIL=$((FAIL+1)); }
     TOTAL=$((TOTAL+1))
 
