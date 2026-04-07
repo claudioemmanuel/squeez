@@ -4,14 +4,17 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 
-Token compression + context optimization for Claude Code, OpenCode, and GitHub Copilot CLI. Runs automatically in Claude Code and Copilot CLI. Manual usage in OpenCode.
+End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Attacks tokens on three axes: **bash output** (compression), **context** (cross-call engine), and **output** (prompt persona). Runs automatically; zero new runtime dependencies.
 
 ## What it does
 
-- **Bash compression** — intercepts every command, removes noise, up to 95% token reduction
-- **Session memory** — injects a summary of prior sessions at session start
-- **Token tracking** — tracks context usage across all tool calls
-- **Compact warning** — alerts when session approaches context limit (80% of budget)
+- **Bash compression** — intercepts every command, removes noise, up to 95% token reduction. Always-Ultra mode (×0.3 limits by default).
+- **Context engine** — cross-call redundancy cache collapses identical outputs; summarize fallback converts >500-line dumps to ≤40-line dense reports.
+- **Caveman persona** — injects an ultra-terse prompt at session start so the model responds with fewer tokens. Default: Ultra.
+- **Memory-file compression** — `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place; pure Rust, zero-LLM.
+- **Session memory** — injects a summary of prior sessions at session start.
+- **Token tracking** — every PostToolUse result (Bash, Read, Grep, Glob) feeds a SessionContext so squeez knows what the agent has already seen.
+- **Self-update** — `squeez update` downloads and atomically installs the latest binary.
 
 ## Install
 
@@ -31,18 +34,23 @@ Measured on macOS (Apple Silicon), token estimate = chars/4. Run with `bash benc
 
 | Fixture | Before | After | Reduction | Latency |
 |---------|--------|-------|-----------|---------|
+| Fixture | Before | After | Reduction | Latency |
+|---------|--------|-------|-----------|---------|
 | `ps aux` | 40,373 tk | 2,352 tk | **-95%** | 6ms |
-| `git log` (200 commits) | 2,667 tk | 819 tk | **-70%** | 4ms |
-| `docker logs` | 665 tk | 186 tk | **-73%** | 5ms |
+| 5,000-line log (summarize) | 82,257 tk | 47 tk | **-100%** | 12ms |
+| `git log` (200 commits) | 2,667 tk | 819 tk | **-70%** | 3ms |
+| `docker logs` | 665 tk | 186 tk | **-73%** | 4ms |
 | `find` (deep tree) | 424 tk | 134 tk | **-69%** | 3ms |
 | `git status` | 50 tk | 16 tk | **-68%** | 3ms |
-| `ls -la` | 1,782 tk | 886 tk | **-51%** | 4ms |
+| `ls -la` | 1,782 tk | 886 tk | **-51%** | 3ms |
 | `npm install` | 524 tk | 231 tk | **-56%** | 3ms |
 | `git diff` | 502 tk | 317 tk | **-37%** | 4ms |
-| `env` dump | 441 tk | 287 tk | **-35%** | 3ms |
-| Copilot CLI session | 639 tk | 421 tk | **-35%** | 3ms |
+| `env` dump | 441 tk | 287 tk | **-35%** | 4ms |
+| Copilot CLI session | 639 tk | 421 tk | **-35%** | 4ms |
+| `cargo build` (Ultra intensity) | 4,418 tk | 52 tk | **-99%** | 4ms |
+| CLAUDE.md prose (compress-md) | 316 tk | 246 tk | **-23%** | 3ms |
 
-10/10 fixtures pass. Latency under 10ms on every fixture.
+14/14 fixtures pass. Latency under 15ms on every fixture.
 
 ## Escape hatch
 
@@ -154,7 +162,7 @@ Three hooks work together:
 
 **Session memory** (`SessionStart`): On each new session, `squeez init` finalizes the previous session into a summary (files touched, errors resolved, test results, git events) and prints a memory banner so the agent has prior-session context from the start. For Copilot CLI, this banner is also written to `~/.copilot/copilot-instructions.md` which is loaded automatically at every session.
 
-**Token tracking** (`PostToolUse`): Every tool call's output size is tracked. When cumulative session tokens cross 80% of the context budget, a compact warning is emitted in the next bash output header.
+**Token tracking** (`PostToolUse`): Every tool call's result (Bash, Read, Grep, Glob) is scanned for file paths and errors. These feed a persistent `SessionContext` so squeez knows what the agent has already seen. When cumulative session tokens cross 80% of the context budget, a compact warning is emitted in the next bash output header.
 
 ## OpenCode
 
@@ -291,11 +299,14 @@ Branch protection & admin notes
 
 Changelog (recent)
 
-- 2026-04-06: Added `--codex` and `--antigravity` init scaffolding (scaffold-only; platform-specific integration may be required).
-- 2026-04-06: Created `develop` branch and added a promotion workflow that creates/updates a PR from `develop` → `main` on push to `develop`.
-- 2026-04-06: Fixed localization: removed Portuguese string in `install.sh` (now English).
-- 2026-04-06: Removed `Co-authored-by: Copilot` trailers from commit messages (history rewritten).
-- 2026-04-06: Deleted merged branches `iss-3/add-platforms-codex-antigravity`, `iss-5/fix-pt-strings`, and removed `feat/memory-subsystem` from the remote.
+- 2026-04-07: **Context engine** — adaptive Ultra intensity (×0.3 limits), cross-call redundancy cache (8-call window), summarize fallback for >500-line outputs, SessionContext persisted to `sessions/context.json`.
+- 2026-04-07: **`squeez compress-md`** — pure-Rust markdown compressor; Ultra mode with abbreviations; damage heuristic; `auto_compress_md` runs on every session start.
+- 2026-04-07: **Caveman persona** — Ultra prompt injected into session banner and `copilot-instructions.md` by default.
+- 2026-04-07: **`squeez update`** — self-updater via `curl` + SHA-256 verification; atomic install.
+- 2026-04-07: **PostToolUse extension** — Read/Grep/Glob results feed SessionContext via `track-result` hook.
+- 2026-04-06: Added `--codex` and `--antigravity` init scaffolding.
+- 2026-04-06: Created `develop` branch; added promotion workflow (`develop` → `main`).
+- 2026-04-06: Fixed localization (Portuguese string removed from `install.sh`).
 
 Benchmarks & running them
 
