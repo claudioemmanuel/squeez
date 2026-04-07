@@ -1,3 +1,5 @@
+use crate::commands::persona::Persona;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub enabled: bool,
@@ -16,6 +18,9 @@ pub struct Config {
     pub context_cache_enabled: bool,
     pub redundancy_cache_enabled: bool,
     pub summarize_threshold_lines: usize,
+    // ── Output / memory-file flags ──────────────────────────────────────
+    pub persona: Persona,
+    pub auto_compress_md: bool,
 }
 
 impl Default for Config {
@@ -41,6 +46,8 @@ impl Default for Config {
             context_cache_enabled: true,
             redundancy_cache_enabled: true,
             summarize_threshold_lines: 500,
+            persona: Persona::Ultra,
+            auto_compress_md: true,
         }
     }
 }
@@ -86,6 +93,8 @@ impl Config {
                         c.summarize_threshold_lines =
                             v.parse().unwrap_or(c.summarize_threshold_lines)
                     }
+                    "persona" => c.persona = crate::commands::persona::from_str(v),
+                    "auto_compress_md" => c.auto_compress_md = v == "true",
                     _ => {}
                 }
             }

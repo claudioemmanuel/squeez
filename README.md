@@ -72,7 +72,51 @@ adaptive_intensity = true           # auto-tighten compression as budget fills
 context_cache_enabled = true        # persist cross-call state in sessions/context.json
 redundancy_cache_enabled = true     # collapse identical recent outputs to a reference line
 summarize_threshold_lines = 500     # raw lines above this trigger summary fallback
+
+# Output / memory-file (PR2)
+persona = ultra                     # off|lite|full|ultra — caveman prompt injected at session start
+auto_compress_md = true             # compress CLAUDE.md / copilot-instructions.md on every session start
 ```
+
+### Output compression — caveman persona
+
+squeez cannot intercept the model's response stream from the hook layer.
+Instead it ships a short caveman-style prompt text and injects it into:
+
+- The Claude Code session banner (printed by `squeez init` at session start)
+- The `<!-- squeez:start --> ... <!-- squeez:end -->` block in `~/.copilot/copilot-instructions.md`
+
+Three intensity levels (`lite`, `full`, `ultra`) plus `off`. Default is `ultra`.
+
+### Memory-file compression — `squeez compress-md`
+
+Pure-Rust, zero-LLM caveman compressor for `CLAUDE.md`, `AGENTS.md`,
+`copilot-instructions.md`, and any other markdown file. Preserves code
+blocks, inline code, URLs, headings, file paths, tables, and list markers.
+Compresses prose only. Backups always written to `<stem>.original.md`.
+
+```bash
+squeez compress-md path/to/file.md          # Full mode
+squeez compress-md --ultra path/to/file.md  # + abbreviations (with→w/, fn, etc.)
+squeez compress-md --dry-run path/to/file.md
+squeez compress-md --all                    # Walk known locations
+```
+
+When `auto_compress_md = true` (default), `squeez init` runs `--all`
+silently on every session start. The integrity heuristic aborts the
+write if any code block, URL, or heading was lost — your files are safe.
+
+### Self-update — `squeez update`
+
+```bash
+squeez update             # Download + verify SHA256 + atomic install
+squeez update --check     # Report only, do not install
+squeez update --insecure  # Skip checksum (NOT recommended)
+```
+
+Uses `curl` and `sha256sum`/`shasum -a 256` (both already required by
+`install.sh`). Atomic on Unix; on Windows the running .exe is replaced
+via a `.new` + manual `move` shim.
 
 ### Context engine
 
