@@ -40,6 +40,44 @@ esac
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory" 2>/dev/null || true
 
+# Create default config.ini only if it doesn't exist (never overwrite user customizations)
+CONFIG_FILE="$INSTALL_DIR/config.ini"
+if [ ! -f "$CONFIG_FILE" ]; then
+  cat > "$CONFIG_FILE" <<'CONFIG_EOF'
+# squeez configuration — edit to customize
+# https://github.com/claudioemmanuel/squeez
+
+enabled = true
+show_header = true
+
+# Persona: off | lite | full | ultra
+# full  = caveman mode (~75% token cut, drop articles, fragments OK)
+# ultra = max compression + abbreviation substitutions (default)
+persona = ultra
+
+# Compression limits
+max_lines = 200
+git_log_max_commits = 20
+git_diff_max_lines = 150
+docker_logs_max_lines = 100
+find_max_results = 50
+
+# Context engine
+adaptive_intensity = true
+context_cache_enabled = true
+redundancy_cache_enabled = true
+summarize_threshold_lines = 500
+
+# Memory
+memory_retention_days = 30
+auto_compress_md = true
+lang = en
+CONFIG_EOF
+  echo "Config created at $CONFIG_FILE"
+else
+  echo "Existing config preserved at $CONFIG_FILE"
+fi
+
 if [ "$SETUP_ONLY" -eq 1 ]; then
   # --setup-only: skip download, use existing squeez binary from PATH
   echo "Setup-only mode: skipping binary download..."

@@ -19,6 +19,39 @@ const HOOKS: &[&str] = &[
     "copilot-posttooluse.sh",
 ];
 
+// Default config written to ~/.claude/squeez/config.ini on first install.
+// Never overwritten on subsequent runs — preserves user customizations.
+const DEFAULT_CONFIG_INI: &str = "\
+# squeez configuration — edit to customize\n\
+# https://github.com/claudioemmanuel/squeez\n\
+\n\
+enabled = true\n\
+show_header = true\n\
+\n\
+# Persona: off | lite | full | ultra\n\
+# full  = caveman mode (~75% token cut, drop articles, fragments OK)\n\
+# ultra = max compression + abbreviation substitutions (default)\n\
+persona = ultra\n\
+\n\
+# Compression limits\n\
+max_lines = 200\n\
+git_log_max_commits = 20\n\
+git_diff_max_lines = 150\n\
+docker_logs_max_lines = 100\n\
+find_max_results = 50\n\
+\n\
+# Context engine\n\
+adaptive_intensity = true\n\
+context_cache_enabled = true\n\
+redundancy_cache_enabled = true\n\
+summarize_threshold_lines = 500\n\
+\n\
+# Memory\n\
+memory_retention_days = 30\n\
+auto_compress_md = true\n\
+lang = en\n\
+";
+
 // Python script that registers squeez hooks + statusline in ~/.claude/settings.json.
 // Mirrors the registration block in install.sh.
 const REGISTER_SETTINGS_PY: &str = r#"
@@ -85,7 +118,20 @@ pub fn run(args: &[String]) -> i32 {
         }
     }
 
-    // 2. Copy self binary to canonical hooks location
+    // 2. Write default config.ini if not present (never overwrite user customizations)
+    let config_path = format!("{}/config.ini", install_dir);
+    if !std::path::Path::new(&config_path).exists() {
+        let content = DEFAULT_CONFIG_INI;
+        if let Err(e) = std::fs::write(&config_path, content) {
+            eprintln!("squeez setup: warning: could not write config.ini: {}", e);
+        } else {
+            println!("squeez setup: config.ini created → {}", config_path);
+        }
+    } else {
+        println!("squeez setup: existing config.ini preserved → {}", config_path);
+    }
+
+    // 3. Copy self binary to canonical hooks location
     let bin_name = if cfg!(windows) { "squeez.exe" } else { "squeez" };
     let target_bin = PathBuf::from(format!("{}/bin/{}", install_dir, bin_name));
 
@@ -119,7 +165,7 @@ pub fn run(args: &[String]) -> i32 {
         println!("squeez setup: binary already at {}", target_bin.display());
     }
 
-    // 3. Download hook scripts from GitHub
+    // 4. Download hook scripts from GitHub
     println!("squeez setup: downloading hooks...");
     for hook in HOOKS {
         let url = format!("{}/hooks/{}", REPO_RAW, hook);
@@ -143,7 +189,7 @@ pub fn run(args: &[String]) -> i32 {
         }
     }
 
-    // 4. Download statusline.sh
+    // 5. Download statusline.sh
     let statusline_url = format!("{}/scripts/statusline.sh", REPO_RAW);
     let statusline_dest = format!("{}/bin/statusline.sh", install_dir);
     match crate::commands::update::curl(&statusline_url) {
@@ -161,7 +207,7 @@ pub fn run(args: &[String]) -> i32 {
         Err(e) => eprintln!("squeez setup: warning: could not download statusline.sh: {}", e),
     }
 
-    // 5. Register hooks in ~/.claude/settings.json
+    // 6. Register hooks in ~/.claude/settings.json
     println!("squeez setup: registering hooks in settings.json...");
     if let Err(e) = register_claude_settings() {
         eprintln!("squeez setup: failed to update settings.json: {}", e);
