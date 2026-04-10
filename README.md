@@ -77,11 +77,11 @@ squeez update --insecure  # skip checksum (not recommended)
 | **Context engine** | Cross-call redundancy with two paths: exact-hash match (FNV-1a, fast) **and** fuzzy trigram-shingle Jaccard ≥0.85 (whitespace, timestamps, single-line edits no longer defeat dedup). |
 | **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). **Benign outputs get 2× the threshold** so successful builds stay verbatim. |
 | **Adaptive intensity** | Truly adaptive: **Full** (×0.6 limits) below 80% of token budget, **Ultra** (×0.3) above. Used to be always-Ultra; now actually responds to session pressure. |
-| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 6 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
+| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 11 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
-| **Session memory** | On `SessionStart`, injects a summary of the previous session (files touched, errors, test results, git events). Summaries carry temporal validity (`valid_from`/`valid_to`) so invalidated entries age from `valid_to`. |
+| **Session memory** | On `SessionStart`, injects a structured summary of the previous session: files investigated, learned facts (errors + git events), completed work (builds, test passes), and next steps (unresolved errors, failing tests). Summaries carry temporal validity (`valid_from`/`valid_to`). |
 | **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
 
 ---
@@ -121,7 +121,7 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Wrap / cross-call engine | **−99.2%** |
 | Quality (signal terms preserved) | **19 / 19 pass** |
 | Latency p50 (filter mode) | **< 0.3 ms** |
-| Latency p95 (incl. wrap/summarize) | **64 ms** |
+| Latency p95 (incl. wrap/summarize) | **60 ms** |
 
 ### compress-md i18n — EN vs pt-BR (Apple Silicon, release build)
 
@@ -236,13 +236,18 @@ Six read-only tools become available to the LLM:
 | Tool | Returns |
 |------|---------|
 | `squeez_recent_calls` | Last N bash invocations with hash + length + cmd snippet — check before re-running |
-| `squeez_seen_files` | Files this session has touched (Read tool + paths extracted from bash output), sorted by recency |
+| `squeez_seen_files` | Files this session has touched, with access type (Read/Write/Created/Deleted), sorted by recency |
 | `squeez_seen_errors` | Distinct error fingerprints observed this session (FNV-1a hashes of normalized errors) |
+| `squeez_seen_error_details` | Error fingerprints with the first 128 chars of message text — find *what* the error was |
 | `squeez_session_summary` | Token accounting + call counts (tokens_bash / tokens_read / tokens_other / seen_files / seen_errors / seen_git_refs) |
-| `squeez_prior_summaries` | Last N finalized prior-session summaries from `~/.claude/squeez/memory/summaries.jsonl` |
+| `squeez_session_stats` | Dedup hit counts (exact + fuzzy), summarize triggers, Ultra-mode calls, tokens saved per category |
+| `squeez_prior_summaries` | Last N finalized prior-session summaries with structured fields: investigated / learned / completed / next_steps |
+| `squeez_search_history` | Full-text search across all session summaries — find when you last saw an error or touched a file |
+| `squeez_file_history` | Sessions where a given file path was touched, with token-savings and commit status |
+| `squeez_session_detail` | Full structured view of a past session by date: calls, files, errors, git events, test summary |
 | `squeez_protocol` | Auto-teach payload — read once per session to learn squeez's markers + memory protocol |
 
-All read-only. All backed by `SessionContext::load()` and `memory::read_last_n()`. No side effects.
+All read-only. Backed by `SessionContext::load()`, `memory::read_last_n()`, and `memory::search_history()`. No side effects.
 
 ### `squeez protocol`
 
@@ -288,6 +293,14 @@ memory_retention_days = 30
 persona          = ultra    # off | lite | full | ultra
 auto_compress_md = true     # run compress-md on every session start
 lang             = en       # compress-md locale: en | pt (pt-BR) — more languages extensible
+
+# ── Advanced tuning (rarely needed) ───────────────────────────
+max_call_log              = 32    # rolling call log depth (also caps redundancy window)
+recent_window             = 16    # how many recent calls are eligible for redundancy lookup
+similarity_threshold      = 0.85  # Jaccard threshold for fuzzy dedup (0.0–1.0)
+ultra_trigger_pct         = 0.80  # fraction of context budget at which Full → Ultra
+mcp_prior_summaries_default = 5   # default n for squeez_prior_summaries
+mcp_recent_calls_default    = 10  # default n for squeez_recent_calls
 ```
 
 ### Adaptive intensity — Full / Ultra split
