@@ -142,8 +142,13 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
         budget_k,
         persona::as_str(config.persona)
     );
-    for s in &summaries {
+    for (i, s) in summaries.iter().enumerate() {
         println!("{}", s.display_line());
+        // Show next_steps only for the most recent session (index 0 = most recent).
+        if i == 0 && !s.next_steps.is_empty() {
+            let items: Vec<&str> = s.next_steps.iter().take(3).map(|s| s.as_str()).collect();
+            println!("  Next steps: {}", items.join(" | "));
+        }
     }
     let persona_text = persona::text(config.persona);
     if !persona_text.is_empty() {
@@ -179,6 +184,9 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
     let mut test_summary = String::new();
     let mut total_in: u64 = 0;
     let mut total_out: u64 = 0;
+    // Phase 1: structured fields collected in the same pass.
+    let mut completed: Vec<String> = Vec::new();
+    let mut next_steps: Vec<String> = Vec::new();
 
     for line in content.lines() {
         if line.trim().is_empty() {
@@ -199,13 +207,83 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
                 dedup_extend(&mut git_events, json_util::extract_str_array(line, "git"));
                 if let Some(ts) = json_util::extract_str(line, "test_summary") {
                     if !ts.is_empty() {
-                        test_summary = ts;
+                        test_summary = ts.clone();
+                        let ts_lc = ts.to_lowercase();
+                        // "test result: ok" means all tests passed (even if "0 failed" appears).
+                        // "test result: failed" means the run failed.
+                        let is_ok = ts_lc.contains("test result: ok")
+                            || (ts_lc.contains("ok") && !ts_lc.contains("test result: failed") && !ts_lc.contains(": failed"));
+                        let is_fail = ts_lc.contains("test result: failed")
+                            || ts_lc.contains("error");
+                        if is_ok && !is_fail {
+                            let entry: String = ts.chars().take(80).collect();
+                            if !completed.contains(&entry) {
+                                completed.push(entry);
+                            }
+                        } else if is_fail {
+                            let entry: String = ts.chars().take(80).collect();
+                            if !next_steps.contains(&entry) {
+                                next_steps.push(entry);
+                            }
+                        }
+                    }
+                }
+                if let Some(cmd) = json_util::extract_str(line, "cmd") {
+                    let has_errors =
+                        !json_util::extract_str_array(line, "errors").is_empty();
+                    if !has_errors {
+                        if cmd.contains("cargo build") || cmd.contains("cargo check") {
+                            let entry =
+                                format!("build OK: {}", cmd.chars().take(30).collect::<String>());
+                            if !completed.contains(&entry) {
+                                completed.push(entry);
+                            }
+                        }
+                        if cmd.contains("git push") || cmd.contains("git commit") {
+                            let entry: String = cmd.chars().take(60).collect();
+                            if !completed.contains(&entry) {
+                                completed.push(entry);
+                            }
+                        }
                     }
                 }
             }
             _ => {}
         }
     }
+
+    let investigated: Vec<String> = files_touched.iter().take(20).cloned().collect();
+
+    let mut learned: Vec<String> = Vec::new();
+    for e in errors_resolved.iter().take(3) {
+        learned.push(e.chars().take(80).collect());
+    }
+    for g in &git_events {
+        if learned.len() >= 5 {
+            break;
+        }
+        let sha: String = g
+            .trim()
+            .chars()
+            .take(7)
+            .filter(|c| c.is_ascii_hexdigit())
+            .collect();
+        if sha.len() == 7 {
+            learned.push(format!("git:{}", sha));
+        }
+    }
+
+    for e in &errors_resolved {
+        if next_steps.len() >= 5 {
+            break;
+        }
+        let entry: String = e.chars().take(80).collect();
+        if !next_steps.contains(&entry) {
+            next_steps.push(entry);
+        }
+    }
+    completed.truncate(5);
+    next_steps.truncate(5);
 
     // Which files were committed (not in `git status --porcelain`)
     let dirty = git(&["status", "--porcelain"]);
@@ -242,6 +320,10 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
             // Phase 5 §3.D.
             valid_from: prev.start_ts,
             valid_to: 0,
+            investigated,
+            learned,
+            completed,
+            next_steps,
         },
     );
     memory::prune_old(memory_dir, config.memory_retention_days);

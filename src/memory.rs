@@ -14,14 +14,37 @@ pub struct Summary {
     pub git_events: Vec<String>,
     pub ts: u64,
     /// Start of the validity window. Defaults to `ts` if not explicitly set.
-    /// Start of the validity window. Summaries can be invalidated at a known
-    /// timestamp so that `prune_old` ages them from `valid_to` rather than `ts`.
+    /// Summaries can be invalidated at a known timestamp so that `prune_old`
+    /// ages them from `valid_to` rather than `ts`.
     pub valid_from: u64,
     /// End of the validity window. `0` means "still valid" (open-ended).
     /// When non-zero, this summary's facts are considered superseded as of
     /// that timestamp — `prune_old` then ages it from `valid_to` rather than
     /// from `ts`, so an invalidated summary doesn't outlive its retention.
     pub valid_to: u64,
+    // ── Phase 1: structured memory fields ──────────────────────────────────
+    /// Files read/globbed this session (up to 20, deduped).
+    pub investigated: Vec<String>,
+    /// Error snippets and git SHAs learned (up to 5, first 80 chars each).
+    pub learned: Vec<String>,
+    /// Successful test runs, builds, commits (up to 5).
+    pub completed: Vec<String>,
+    /// Failed tests and unresolved errors to revisit (up to 5).
+    pub next_steps: Vec<String>,
+}
+
+// ── Phase 3: cross-session search types ────────────────────────────────────
+
+pub struct SearchResult {
+    pub date: String,
+    pub matched_field: String,
+    pub matched_line: String,
+}
+
+pub struct FileHistoryResult {
+    pub date: String,
+    pub tokens_saved: u64,
+    pub committed: bool,
 }
 
 /// Effective timestamp used by `prune_old` to age a summary out of the log.
@@ -57,7 +80,8 @@ impl Summary {
             "{{\"date\":\"{}\",\"duration_min\":{},\"tokens_saved\":{},\
 \"files_touched\":{},\"files_committed\":{},\"test_summary\":\"{}\",\
 \"errors_resolved\":{},\"git_events\":{},\"ts\":{},\
-\"valid_from\":{},\"valid_to\":{}}}",
+\"valid_from\":{},\"valid_to\":{},\
+\"investigated\":{},\"learned\":{},\"completed\":{},\"next_steps\":{}}}",
             escape_str(&self.date),
             self.duration_min,
             self.tokens_saved,
@@ -69,13 +93,17 @@ impl Summary {
             self.ts,
             valid_from,
             self.valid_to,
+            str_array(&self.investigated),
+            str_array(&self.learned),
+            str_array(&self.completed),
+            str_array(&self.next_steps),
         )
     }
 
     pub fn from_jsonl_line(line: &str) -> Option<Self> {
         let ts = extract_u64(line, "ts").unwrap_or(0);
-        // Both new fields are optional for backwards compat with summaries
-        // written by squeez < 0.3 (no temporal validity columns).
+        // Temporal validity columns are optional for backwards compat with
+        // summaries written by squeez < 0.3.
         let valid_from = extract_u64(line, "valid_from").unwrap_or(ts);
         let valid_to = extract_u64(line, "valid_to").unwrap_or(0);
         Some(Self {
@@ -90,6 +118,11 @@ impl Summary {
             ts,
             valid_from,
             valid_to,
+            // Phase 1 fields — optional; old JSONL entries load with empty Vecs.
+            investigated: extract_str_array(line, "investigated"),
+            learned: extract_str_array(line, "learned"),
+            completed: extract_str_array(line, "completed"),
+            next_steps: extract_str_array(line, "next_steps"),
         })
     }
 
@@ -106,7 +139,12 @@ impl Summary {
         } else {
             String::new()
         };
-        format!("Prior session ({}): {}{}", self.date, files, git)
+        let pending = if !self.next_steps.is_empty() {
+            format!(", {} pending", self.next_steps.len())
+        } else {
+            String::new()
+        };
+        format!("Prior session ({}): {}{}{}", self.date, files, git, pending)
     }
 }
 
@@ -133,6 +171,176 @@ pub fn write_summary(memory_dir: &Path, summary: &Summary) {
         .open(&path)
     {
         let _ = writeln!(f, "{}", summary.to_jsonl_line());
+    }
+}
+
+/// Search summaries.jsonl for sessions where `query` appears in any text field.
+/// Most-recent first; caps at 200 sessions to keep linear scan bounded.
+pub fn search_history(memory_dir: &Path, query: &str, limit: usize) -> Vec<SearchResult> {
+    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let q = query.to_lowercase();
+    let mut results: Vec<SearchResult> = Vec::new();
+    let all_lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    let cap = all_lines.len().min(200);
+    let start = all_lines.len().saturating_sub(cap);
+    for line in all_lines[start..].iter().rev() {
+        if results.len() >= limit {
+            break;
+        }
+        let s = match Summary::from_jsonl_line(line) {
+            Some(s) => s,
+            None => continue,
+        };
+        let text_fields: &[(&str, &[String])] = &[
+            ("errors_resolved", &s.errors_resolved),
+            ("files_touched", &s.files_touched),
+            ("investigated", &s.investigated),
+            ("learned", &s.learned),
+            ("completed", &s.completed),
+            ("next_steps", &s.next_steps),
+            ("test_summary", std::slice::from_ref(&s.test_summary)),
+        ];
+        for (field, items) in text_fields {
+            if results.len() >= limit {
+                break;
+            }
+            for item in *items {
+                if item.to_lowercase().contains(&q) {
+                    results.push(SearchResult {
+                        date: s.date.clone(),
+                        matched_field: field.to_string(),
+                        matched_line: item.chars().take(120).collect(),
+                    });
+                    break; // one result per field per session
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Return sessions where `path_query` substring matches any files_touched entry.
+/// Most-recent first; caps at 200 sessions.
+pub fn file_history(memory_dir: &Path, path_query: &str, limit: usize) -> Vec<FileHistoryResult> {
+    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let q = path_query.to_lowercase();
+    let mut results: Vec<FileHistoryResult> = Vec::new();
+    let all_lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    let cap = all_lines.len().min(200);
+    let start = all_lines.len().saturating_sub(cap);
+    for line in all_lines[start..].iter().rev() {
+        if results.len() >= limit {
+            break;
+        }
+        let s = match Summary::from_jsonl_line(line) {
+            Some(s) => s,
+            None => continue,
+        };
+        if s.files_touched.iter().any(|f| f.to_lowercase().contains(&q)) {
+            let committed = s.files_committed.iter().any(|f| f.to_lowercase().contains(&q));
+            results.push(FileHistoryResult {
+                date: s.date.clone(),
+                tokens_saved: s.tokens_saved,
+                committed,
+            });
+        }
+    }
+    results
+}
+
+/// Return a structured detail view of the JSONL event log for `date`.
+/// Reads `{sessions_dir}/{date}*.jsonl`; truncates to ~2 KB if large.
+pub fn session_detail(sessions_dir: &Path, date: &str) -> String {
+    let safe: String = date
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(20)
+        .collect();
+    let dir = match std::fs::read_dir(sessions_dir) {
+        Ok(d) => d,
+        Err(_) => return "no sessions dir".to_string(),
+    };
+    let mut content = String::new();
+    for entry in dir.flatten() {
+        let fname = entry.file_name();
+        let fname_str = fname.to_string_lossy();
+        if fname_str.starts_with(&safe) && fname_str.ends_with(".jsonl") {
+            content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            break;
+        }
+    }
+    if content.is_empty() {
+        return format!("no session data for: {}", safe);
+    }
+    let mut total_calls: u32 = 0;
+    let mut files: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    let mut git_evts: Vec<String> = Vec::new();
+    let mut test_sum = String::new();
+    let mut total_in: u64 = 0;
+    let mut total_out: u64 = 0;
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if extract_str(line, "type").as_deref() != Some("bash") {
+            continue;
+        }
+        total_calls += 1;
+        total_in += extract_u64(line, "in_tk").unwrap_or(0);
+        total_out += extract_u64(line, "out_tk").unwrap_or(0);
+        for f in extract_str_array(line, "files") {
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+        for e in extract_str_array(line, "errors") {
+            if !errors.contains(&e) {
+                errors.push(e);
+            }
+        }
+        for g in extract_str_array(line, "git") {
+            if !git_evts.contains(&g) {
+                git_evts.push(g);
+            }
+        }
+        if let Some(ts) = extract_str(line, "test_summary") {
+            if !ts.is_empty() {
+                test_sum = ts;
+            }
+        }
+    }
+    let ratio = if total_in > 0 {
+        total_in.saturating_sub(total_out) * 100 / total_in
+    } else {
+        0
+    };
+    let mut out = format!("session: {}\n", safe);
+    out.push_str(&format!("total_calls: {}\n", total_calls));
+    out.push_str(&format!("files_seen: {}\n", files.len()));
+    out.push_str(&format!("errors: {}\n", errors.len()));
+    out.push_str(&format!("git_events: {}\n", git_evts.len()));
+    if !test_sum.is_empty() {
+        out.push_str(&format!("test_summary: {}\n", test_sum));
+    }
+    if total_in > 0 {
+        out.push_str(&format!(
+            "compression_ratio: -{}% ({} → {} tok)\n",
+            ratio, total_in, total_out
+        ));
+    }
+    if out.len() > 2048 {
+        let head: String = out.chars().take(1800).collect();
+        let tail_src: String = out.chars().rev().take(200).collect::<String>().chars().rev().collect();
+        format!("{}\n[squeez: truncated]\n{}", head, tail_src)
+    } else {
+        out
     }
 }
 
@@ -173,6 +381,10 @@ mod tests {
             ts,
             valid_from: ts,
             valid_to,
+            investigated: vec![],
+            learned: vec![],
+            completed: vec![],
+            next_steps: vec![],
         }
     }
 

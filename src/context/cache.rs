@@ -1,28 +1,70 @@
 use std::path::Path;
 
+use crate::config::Config;
 use crate::context::hash::{fnv1a_64, jaccard, short_hex};
 use crate::json_util;
 
 // ── Bounds ─────────────────────────────────────────────────────────────────
 
-const MAX_CALL_LOG: usize = 32;
 const MAX_SEEN_FILES: usize = 256;
 const MAX_SEEN_ERRORS: usize = 128;
 const MAX_SEEN_GIT_REFS: usize = 64;
 
-/// How many recent calls are eligible for redundancy lookup.
-pub const RECENT_WINDOW: u64 = 16;
+/// Default max entries in the rolling call log. Overridable via config.
+pub const DEFAULT_MAX_CALL_LOG: usize = 32;
+/// Default recent-window size for redundancy lookup. Overridable via config.
+pub const DEFAULT_RECENT_WINDOW: usize = 16;
+/// Default minimum Jaccard similarity threshold. Overridable via config.
+pub const DEFAULT_SIMILARITY_THRESHOLD: f32 = 0.85;
 
-/// Minimum Jaccard similarity for `lookup_similar` to consider a match.
-/// Tuned to suppress whitespace-only and tiny-token diffs while rejecting
-/// genuinely different outputs. Validated by tests/test_redundancy_shingle.rs.
-pub const SIMILARITY_THRESHOLD: f32 = 0.85;
+// Keep these pub aliases for any code that still imports them by old name.
+#[allow(dead_code)]
+pub const RECENT_WINDOW: u64 = DEFAULT_RECENT_WINDOW as u64;
+#[allow(dead_code)]
+pub const SIMILARITY_THRESHOLD: f32 = DEFAULT_SIMILARITY_THRESHOLD;
 
 /// Allowed length ratio (in either direction) for similarity matching.
-/// A 100-line output and a 1000-line output should never match even if
-/// their shingle sets overlap heavily — this guards against false positives
-/// when one output is a strict prefix or repetition of another.
 pub const LENGTH_RATIO_GUARD: f32 = 0.80;
+
+// ── FileAccess ──────────────────────────────────────────────────────────────
+
+/// How a file was accessed during a call. Used to enrich `squeez_seen_files`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileAccess {
+    Read,
+    Write,
+    Created,
+    Deleted,
+}
+
+impl FileAccess {
+    pub fn as_char(&self) -> char {
+        match self {
+            FileAccess::Read => 'R',
+            FileAccess::Write => 'W',
+            FileAccess::Created => 'C',
+            FileAccess::Deleted => 'D',
+        }
+    }
+
+    pub fn from_char(c: char) -> Self {
+        match c {
+            'W' => FileAccess::Write,
+            'C' => FileAccess::Created,
+            'D' => FileAccess::Deleted,
+            _ => FileAccess::Read,
+        }
+    }
+
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            FileAccess::Read => "read",
+            FileAccess::Write => "write",
+            FileAccess::Created => "created",
+            FileAccess::Deleted => "deleted",
+        }
+    }
+}
 
 // ── Data structures ────────────────────────────────────────────────────────
 
@@ -40,14 +82,19 @@ pub struct FileFingerprint {
     pub path: String,
     pub size_class: u32, // bytes / 4096
     pub last_seen_call: u64,
+    /// How the file was last accessed (phase 4).
+    pub access: FileAccess,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct SessionContext {
     pub session_file: String,
     pub call_counter: u64,
     pub seen_files: Vec<FileFingerprint>,
     pub seen_errors: Vec<u64>, // FNV of normalized error
+    /// First-128-char snippets parallel to `seen_errors` (phase 2).
+    /// Each entry is `(fingerprint, snippet_text)` in insertion order.
+    pub error_snippets: Vec<(u64, String)>,
     pub seen_git_refs: Vec<String>, // 7-char SHAs
     pub call_log: Vec<CallEntry>,
     /// Bottom-k MinHash sketch parallel to `call_log`. Each entry is the
@@ -62,6 +109,40 @@ pub struct SessionContext {
     pub tokens_bash: u64,
     pub tokens_read: u64,
     pub tokens_other: u64,
+    // ── Compression statistics (phase 6) ───────────────────────────────
+    pub exact_dedup_hits: u32,
+    pub fuzzy_dedup_hits: u32,
+    pub summarize_triggers: u32,
+    pub intensity_ultra_calls: u32,
+    // ── Tunables (phase 5) — set from Config at session start, not persisted ─
+    pub max_call_log: usize,
+    pub recent_window: usize,
+    pub similarity_threshold: f32,
+}
+
+impl Default for SessionContext {
+    fn default() -> Self {
+        Self {
+            session_file: String::new(),
+            call_counter: 0,
+            seen_files: Vec::new(),
+            seen_errors: Vec::new(),
+            error_snippets: Vec::new(),
+            seen_git_refs: Vec::new(),
+            call_log: Vec::new(),
+            call_log_shingles: Vec::new(),
+            tokens_bash: 0,
+            tokens_read: 0,
+            tokens_other: 0,
+            exact_dedup_hits: 0,
+            fuzzy_dedup_hits: 0,
+            summarize_triggers: 0,
+            intensity_ultra_calls: 0,
+            max_call_log: DEFAULT_MAX_CALL_LOG,
+            recent_window: DEFAULT_RECENT_WINDOW,
+            similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
+        }
+    }
 }
 
 /// Result of `SessionContext::lookup_similar` — the matched call entry plus
@@ -83,6 +164,15 @@ impl SessionContext {
             Err(_) => return Self::default(),
         };
         Self::from_json(&content)
+    }
+
+    /// Copy tunable values from Config into this context so all methods use
+    /// the user's configured values rather than the compiled-in defaults.
+    /// Called in `context::pre_pass` after loading or constructing the context.
+    pub fn init_tunables_from_config(&mut self, cfg: &Config) {
+        self.max_call_log = cfg.max_call_log.max(1);
+        self.recent_window = cfg.recent_window as usize;
+        self.similarity_threshold = cfg.similarity_threshold.clamp(0.0, 1.0);
     }
 
     pub fn save(&self, sessions_dir: &Path) {
@@ -148,8 +238,8 @@ impl SessionContext {
             self.call_log_shingles.push(Vec::new());
         }
         self.call_log_shingles.push(shingles);
-        if self.call_log.len() > MAX_CALL_LOG {
-            let drop_n = self.call_log.len() - MAX_CALL_LOG;
+        if self.call_log.len() > self.max_call_log {
+            let drop_n = self.call_log.len() - self.max_call_log;
             self.call_log.drain(0..drop_n);
             // Drop the same prefix from shingles to keep parity.
             let drop_s = self.call_log_shingles.len().min(drop_n);
@@ -158,18 +248,18 @@ impl SessionContext {
     }
 
     /// Lookup a recent call with matching hash AND output_len. Only considers
-    /// the last RECENT_WINDOW entries.
+    /// the last `self.recent_window` entries.
     pub fn lookup_recent(&self, hash: u64, len: usize) -> Option<&CallEntry> {
-        let start = self.call_log.len().saturating_sub(RECENT_WINDOW as usize);
+        let start = self.call_log.len().saturating_sub(self.recent_window);
         self.call_log[start..]
             .iter()
             .find(|e| e.output_hash == hash && e.output_len == len)
     }
 
     /// Lookup the highest-similarity recent call whose Jaccard distance to
-    /// `query_shingles` is at least `SIMILARITY_THRESHOLD` AND whose length
+    /// `query_shingles` is at least `self.similarity_threshold` AND whose length
     /// ratio with `query_len` is within `LENGTH_RATIO_GUARD`. Considers only
-    /// the last `RECENT_WINDOW` entries.
+    /// the last `self.recent_window` entries.
     ///
     /// Returns `None` when:
     /// - the query has no shingles (text too short for trigrams)
@@ -184,7 +274,7 @@ impl SessionContext {
             return None;
         }
         let log_len = self.call_log.len();
-        let start = log_len.saturating_sub(RECENT_WINDOW as usize);
+        let start = log_len.saturating_sub(self.recent_window);
         // Walk only the part of call_log that has parallel shingles.
         let s_len = self.call_log_shingles.len();
         // Calls without recorded shingles (older entries) are skipped silently.
@@ -206,7 +296,7 @@ impl SessionContext {
                 continue;
             }
             let sim = jaccard(query_shingles, candidate_shingles);
-            if sim < SIMILARITY_THRESHOLD {
+            if sim < self.similarity_threshold {
                 continue;
             }
             let take = match &best {
@@ -224,22 +314,30 @@ impl SessionContext {
         best
     }
 
-    pub fn note_files(&mut self, files: &[String]) {
+    /// Record a file access with an explicit access type (phase 4).
+    pub fn note_file(&mut self, path: &str, access: FileAccess) {
         let call_n = self.call_counter;
-        for f in files {
-            if let Some(existing) = self.seen_files.iter_mut().find(|fp| fp.path == *f) {
-                existing.last_seen_call = call_n;
-            } else {
-                self.seen_files.push(FileFingerprint {
-                    path: f.clone(),
-                    size_class: 0,
-                    last_seen_call: call_n,
-                });
-            }
+        if let Some(existing) = self.seen_files.iter_mut().find(|fp| fp.path == path) {
+            existing.last_seen_call = call_n;
+            existing.access = access;
+        } else {
+            self.seen_files.push(FileFingerprint {
+                path: path.to_string(),
+                size_class: 0,
+                last_seen_call: call_n,
+                access,
+            });
         }
         if self.seen_files.len() > MAX_SEEN_FILES {
             let drop_n = self.seen_files.len() - MAX_SEEN_FILES;
             self.seen_files.drain(0..drop_n);
+        }
+    }
+
+    /// Record multiple files as Read access (backward-compatible wrapper).
+    pub fn note_files(&mut self, files: &[String]) {
+        for f in files {
+            self.note_file(f, FileAccess::Read);
         }
     }
 
@@ -248,12 +346,48 @@ impl SessionContext {
             let fp = fnv1a_64(normalize_error(e).as_bytes());
             if !self.seen_errors.contains(&fp) {
                 self.seen_errors.push(fp);
+                // Phase 2: store first-128-chars snippet alongside fingerprint.
+                // Sanitize [ and ] so the hand-rolled str_array/extract_str_array
+                // parser (which uses ']' as array terminator) doesn't truncate.
+                let snippet: String = e
+                    .chars()
+                    .take(128)
+                    .map(|c| if c == '[' { '(' } else if c == ']' { ')' } else { c })
+                    .collect();
+                self.error_snippets.push((fp, snippet));
             }
         }
         if self.seen_errors.len() > MAX_SEEN_ERRORS {
             let drop_n = self.seen_errors.len() - MAX_SEEN_ERRORS;
             self.seen_errors.drain(0..drop_n);
+            // Keep error_snippets cap in sync.
+            if self.error_snippets.len() > MAX_SEEN_ERRORS {
+                let drop_s = self.error_snippets.len() - MAX_SEEN_ERRORS;
+                self.error_snippets.drain(0..drop_s);
+            }
         }
+    }
+
+    // ── Phase 6 stat helpers ─────────────────────────────────────────────
+
+    /// Record an exact-hash redundancy hit (called from wrap.rs after check()).
+    pub fn note_redundancy_hit_exact(&mut self) {
+        self.exact_dedup_hits = self.exact_dedup_hits.saturating_add(1);
+    }
+
+    /// Record a fuzzy-similarity redundancy hit (called from wrap.rs after check()).
+    pub fn note_redundancy_hit_fuzzy(&mut self) {
+        self.fuzzy_dedup_hits = self.fuzzy_dedup_hits.saturating_add(1);
+    }
+
+    /// Record that the summarizer was triggered for this call.
+    pub fn note_summarize_trigger(&mut self) {
+        self.summarize_triggers = self.summarize_triggers.saturating_add(1);
+    }
+
+    /// Record that Ultra intensity was active for this call.
+    pub fn note_intensity_ultra(&mut self) {
+        self.intensity_ultra_calls = self.intensity_ultra_calls.saturating_add(1);
     }
 
     pub fn note_git(&mut self, refs: &[String]) {
@@ -403,14 +537,30 @@ impl SessionContext {
         let sf_size: Vec<u64> =
             self.seen_files.iter().map(|f| f.size_class as u64).collect();
         let sf_last: Vec<u64> = self.seen_files.iter().map(|f| f.last_seen_call).collect();
+        // Phase 4: file access types as single-char strings.
+        let sf_access: Vec<String> = self
+            .seen_files
+            .iter()
+            .map(|f| f.access.as_char().to_string())
+            .collect();
+
+        // Phase 2: error snippets as parallel arrays.
+        let es_fp: Vec<u64> = self.error_snippets.iter().map(|(fp, _)| *fp).collect();
+        let es_text: Vec<String> = self
+            .error_snippets
+            .iter()
+            .map(|(_, t)| t.clone())
+            .collect();
 
         format!(
             "{{\"session_file\":\"{}\",\"call_counter\":{},\
 \"call_log_n\":{},\"call_log_cmd\":{},\"call_log_hash\":{},\"call_log_len\":{},\"call_log_short\":{},\
 \"call_log_shingles\":{},\
-\"seen_files_path\":{},\"seen_files_size\":{},\"seen_files_last\":{},\
-\"seen_errors\":{},\"seen_git_refs\":{},\
-\"tokens_bash\":{},\"tokens_read\":{},\"tokens_other\":{}}}",
+\"seen_files_path\":{},\"seen_files_size\":{},\"seen_files_last\":{},\"seen_files_access\":{},\
+\"seen_errors\":{},\"error_snippet_fp\":{},\"error_snippet_text\":{},\
+\"seen_git_refs\":{},\
+\"tokens_bash\":{},\"tokens_read\":{},\"tokens_other\":{},\
+\"exact_dedup_hits\":{},\"fuzzy_dedup_hits\":{},\"summarize_triggers\":{},\"intensity_ultra_calls\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -422,11 +572,18 @@ impl SessionContext {
             json_util::str_array(&sf_path),
             json_util::u64_array(&sf_size),
             json_util::u64_array(&sf_last),
+            json_util::str_array(&sf_access),
             json_util::u64_array(&self.seen_errors),
+            json_util::u64_array(&es_fp),
+            json_util::str_array(&es_text),
             json_util::str_array(&self.seen_git_refs),
             self.tokens_bash,
             self.tokens_read,
             self.tokens_other,
+            self.exact_dedup_hits,
+            self.fuzzy_dedup_hits,
+            self.summarize_triggers,
+            self.intensity_ultra_calls,
         )
     }
 
@@ -474,20 +631,48 @@ impl SessionContext {
         let sf_path = json_util::extract_str_array(s, "seen_files_path");
         let sf_size = json_util::extract_u64_array(s, "seen_files_size");
         let sf_last = json_util::extract_u64_array(s, "seen_files_last");
+        // Phase 4: access field — optional for backward compat; defaults to Read.
+        let sf_access = json_util::extract_str_array(s, "seen_files_access");
         let m = sf_path.len().min(sf_size.len()).min(sf_last.len());
         for i in 0..m {
+            let access = sf_access
+                .get(i)
+                .and_then(|s| s.chars().next())
+                .map(FileAccess::from_char)
+                .unwrap_or(FileAccess::Read);
             c.seen_files.push(FileFingerprint {
                 path: sf_path[i].clone(),
                 size_class: sf_size[i] as u32,
                 last_seen_call: sf_last[i],
+                access,
             });
         }
 
         c.seen_errors = json_util::extract_u64_array(s, "seen_errors");
+
+        // Phase 2: error snippets — optional for backward compat.
+        let es_fp = json_util::extract_u64_array(s, "error_snippet_fp");
+        let es_text = json_util::extract_str_array(s, "error_snippet_text");
+        let es_n = es_fp.len().min(es_text.len());
+        for i in 0..es_n {
+            c.error_snippets.push((es_fp[i], es_text[i].clone()));
+        }
+
         c.seen_git_refs = json_util::extract_str_array(s, "seen_git_refs");
         c.tokens_bash = json_util::extract_u64(s, "tokens_bash").unwrap_or(0);
         c.tokens_read = json_util::extract_u64(s, "tokens_read").unwrap_or(0);
         c.tokens_other = json_util::extract_u64(s, "tokens_other").unwrap_or(0);
+
+        // Phase 6: stat counters — optional for backward compat.
+        c.exact_dedup_hits =
+            json_util::extract_u64(s, "exact_dedup_hits").unwrap_or(0) as u32;
+        c.fuzzy_dedup_hits =
+            json_util::extract_u64(s, "fuzzy_dedup_hits").unwrap_or(0) as u32;
+        c.summarize_triggers =
+            json_util::extract_u64(s, "summarize_triggers").unwrap_or(0) as u32;
+        c.intensity_ultra_calls =
+            json_util::extract_u64(s, "intensity_ultra_calls").unwrap_or(0) as u32;
+
         c
     }
 }
@@ -511,7 +696,7 @@ mod tests {
             let n = c.next_call_n();
             c.record_call(&format!("cmd{}", i), i, i as usize, n);
         }
-        assert_eq!(c.call_log.len(), MAX_CALL_LOG);
+        assert_eq!(c.call_log.len(), DEFAULT_MAX_CALL_LOG);
         // Oldest entries dropped
         assert_eq!(c.call_log[0].call_n, 9); // calls 1..=8 dropped
     }

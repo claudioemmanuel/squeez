@@ -27,6 +27,10 @@ fn sample_summary(date: &str, ts: u64) -> Summary {
         ts,
         valid_from: ts,
         valid_to: 0,
+        investigated: vec![],
+        learned: vec![],
+        completed: vec![],
+        next_steps: vec![],
     }
 }
 

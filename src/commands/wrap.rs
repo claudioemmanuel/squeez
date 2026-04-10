@@ -220,7 +220,10 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.next_call_n();
     }
     if config.context_cache_enabled {
-        ctx.note_files(&files);
+        let access = detect_file_access(cmd_str);
+        for f in &files {
+            ctx.note_file(f, access.clone());
+        }
         ctx.note_errors(&errors);
         ctx.note_git(&git_events);
         ctx.note_tool_tokens("Bash", input_tokens as u64);
@@ -245,6 +248,27 @@ fn is_streaming(cmd: &str) -> bool {
     let follow_cmds = ["tail", "docker", "kubectl"];
     follow_cmds.iter().any(|c| name.contains(c))
         && cmd.split_whitespace().any(|a| a == "-f" || a == "--follow")
+}
+
+/// Infer the file access type from the shell command name.
+/// Defaults to `Read` when ambiguous (most bash-extracted file paths are reads).
+fn detect_file_access(cmd: &str) -> crate::context::cache::FileAccess {
+    use crate::context::cache::FileAccess;
+    let first = cmd.split_whitespace().next().unwrap_or("");
+    let name = first.rsplit('/').next().unwrap_or(first);
+    match name {
+        "rm" | "unlink" | "rmdir" => FileAccess::Deleted,
+        "tee" => FileAccess::Write,
+        "cat" | "head" | "tail" | "less" | "more" | "bat" => FileAccess::Read,
+        _ => {
+            // Redirection operators in the full command → write.
+            if cmd.contains(" > ") || cmd.contains(" >> ") {
+                FileAccess::Write
+            } else {
+                FileAccess::Read
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
