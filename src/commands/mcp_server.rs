@@ -14,7 +14,7 @@ use std::io::{self, BufRead, Write};
 use crate::commands::protocol;
 use crate::context::cache::SessionContext;
 use crate::json_util::escape_str;
-use crate::{memory, session};
+use crate::session;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 const SERVER_NAME: &str = "squeez";
@@ -147,6 +147,31 @@ const TOOLS: &[(&str, &str, &str)] = &[
         "Returns the squeez memory protocol + output marker spec. Read this once per session to understand the headers and `[squeez: ...]` markers in compressed output.",
         "{\"type\":\"object\",\"properties\":{}}",
     ),
+    (
+        "squeez_seen_error_details",
+        "List error snippets (first 128 chars) for unique errors seen this session. More informative than squeez_seen_errors which returns only fingerprints.",
+        "{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\",\"description\":\"max errors to return (default 10)\"}}}",
+    ),
+    (
+        "squeez_search_history",
+        "Search prior session summaries for a keyword (case-insensitive substring). Returns sessions where the query appears in files, errors, git events, or structured summary fields. Scans up to 200 sessions.",
+        "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"search term\"},\"limit\":{\"type\":\"integer\",\"description\":\"max results (default 10)\"}},\"required\":[\"query\"]}",
+    ),
+    (
+        "squeez_file_history",
+        "Show prior sessions where a given file path was touched or committed. Returns session dates and token savings.",
+        "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"file path substring to match\"},\"limit\":{\"type\":\"integer\",\"description\":\"max results (default 10)\"}},\"required\":[\"path\"]}",
+    ),
+    (
+        "squeez_session_detail",
+        "Return a structured view of a specific prior session by date (YYYY-MM-DD). Shows total events, files, errors, git events, and test results. Truncated to 2 KB if large.",
+        "{\"type\":\"object\",\"properties\":{\"date\":{\"type\":\"string\",\"description\":\"session date YYYY-MM-DD\"}},\"required\":[\"date\"]}",
+    ),
+    (
+        "squeez_session_stats",
+        "Compression statistics for the current session: exact/fuzzy dedup hits, summarize triggers, intensity ultra calls, and token savings by handler category.",
+        "{\"type\":\"object\",\"properties\":{}}",
+    ),
 ];
 
 fn tools_list_response(id: &str) -> String {
@@ -177,6 +202,10 @@ fn tools_call_response(id: &str, line: &str) -> String {
     // All tools take optional integer params (`n` or `limit`); extract both.
     let n = crate::json_util::extract_u64(line, "n").map(|v| v as usize);
     let limit = crate::json_util::extract_u64(line, "limit").map(|v| v as usize);
+    // String params for search/history/detail tools.
+    let query = crate::json_util::extract_str(line, "query").unwrap_or_default();
+    let path_arg = crate::json_util::extract_str(line, "path").unwrap_or_default();
+    let date_arg = crate::json_util::extract_str(line, "date").unwrap_or_default();
 
     let text = match name.as_str() {
         "squeez_recent_calls" => tool_recent_calls(n.unwrap_or(10)),
@@ -185,6 +214,11 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_session_summary" => tool_session_summary(),
         "squeez_prior_summaries" => tool_prior_summaries(n.unwrap_or(5)),
         "squeez_protocol" => protocol::full_payload(),
+        "squeez_seen_error_details" => tool_seen_error_details(limit.unwrap_or(10)),
+        "squeez_search_history" => tool_search_history(&query, limit.unwrap_or(10)),
+        "squeez_file_history" => tool_file_history(&path_arg, limit.unwrap_or(10)),
+        "squeez_session_detail" => tool_session_detail(&date_arg),
+        "squeez_session_stats" => tool_session_stats(),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -275,34 +309,346 @@ fn tool_session_summary() -> String {
 }
 
 fn tool_prior_summaries(n: usize) -> String {
-    let memory_dir = session::memory_dir();
-    let summaries = memory::read_last_n(&memory_dir, n);
+    let summaries = read_rich_summaries(n);
     if summaries.is_empty() {
         return "(no prior session summaries on disk yet)".to_string();
     }
     let mut out = format!("showing {} prior session(s)\n", summaries.len());
     for s in &summaries {
         out.push_str(&format!(
-            "─ {} ({} min)  files:{}  commits:{}  tests:{}  errors_resolved:{}\n",
+            "─ {} ({} min)  files:{}  commits:{}  tests:{}  errors_resolved:{}  tokens_saved:{}\n",
             s.date,
             s.duration_min,
             s.files_touched.len(),
             s.git_events.len(),
-            if s.test_summary.is_empty() {
-                "—"
-            } else {
-                &s.test_summary
-            },
+            if s.test_summary.is_empty() { "—" } else { &s.test_summary },
             s.errors_resolved.len(),
+            s.tokens_saved,
         ));
         if !s.files_committed.is_empty() {
-            out.push_str(&format!(
-                "    committed: {}\n",
-                s.files_committed.join(", ")
-            ));
+            out.push_str(&format!("    committed: {}\n", s.files_committed.join(", ")));
+        }
+        if !s.investigated.is_empty() {
+            let sample: Vec<&String> = s.investigated.iter().take(3).collect();
+            out.push_str(&format!("    investigated: {}", sample.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(", ")));
+            if s.investigated.len() > 3 { out.push_str(&format!(" (+{})", s.investigated.len() - 3)); }
+            out.push('\n');
+        }
+        if !s.learned.is_empty() {
+            out.push_str(&format!("    learned: {}\n", s.learned.join("; ")));
+        }
+        if !s.completed.is_empty() {
+            out.push_str(&format!("    completed: {}\n", s.completed.join("; ")));
+        }
+        if !s.next_steps.is_empty() {
+            out.push_str(&format!("    next_steps: {}\n", s.next_steps.join("; ")));
         }
     }
     out
+}
+
+// ── Rich summary reader (includes new optional structured fields) ─────────
+
+/// Reads up to `n` most-recent summaries from `summaries.jsonl`, including
+/// optional new structured fields added by the memory improvements phase
+/// (`investigated`, `learned`, `completed`, `next_steps`). Old entries without
+/// these fields produce empty Vecs — fully backwards-compatible.
+struct RichSummary {
+    date: String,
+    duration_min: u64,
+    files_touched: Vec<String>,
+    files_committed: Vec<String>,
+    test_summary: String,
+    errors_resolved: Vec<String>,
+    git_events: Vec<String>,
+    ts: u64,
+    tokens_saved: u64,
+    // Phase-1 structured fields (empty for legacy JSONL entries)
+    investigated: Vec<String>,
+    learned: Vec<String>,
+    completed: Vec<String>,
+    next_steps: Vec<String>,
+}
+
+fn read_rich_summaries(n: usize) -> Vec<RichSummary> {
+    let memory_dir = session::memory_dir();
+    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut summaries: Vec<RichSummary> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let date = crate::json_util::extract_str(l, "date")?;
+            let ts = crate::json_util::extract_u64(l, "ts").unwrap_or(0);
+            Some(RichSummary {
+                date,
+                duration_min: crate::json_util::extract_u64(l, "duration_min").unwrap_or(0),
+                files_touched: crate::json_util::extract_str_array(l, "files_touched"),
+                files_committed: crate::json_util::extract_str_array(l, "files_committed"),
+                test_summary: crate::json_util::extract_str(l, "test_summary").unwrap_or_default(),
+                errors_resolved: crate::json_util::extract_str_array(l, "errors_resolved"),
+                git_events: crate::json_util::extract_str_array(l, "git_events"),
+                ts,
+                tokens_saved: crate::json_util::extract_u64(l, "tokens_saved").unwrap_or(0),
+                investigated: crate::json_util::extract_str_array(l, "investigated"),
+                learned: crate::json_util::extract_str_array(l, "learned"),
+                completed: crate::json_util::extract_str_array(l, "completed"),
+                next_steps: crate::json_util::extract_str_array(l, "next_steps"),
+            })
+        })
+        .collect();
+    summaries.sort_by(|a, b| b.ts.cmp(&a.ts));
+    summaries.truncate(n);
+    summaries
+}
+
+// ── New tool implementations (phases 2, 3, 6) ────────────────────────────
+
+/// Phase 2: error snippets — returns stored (fingerprint, snippet) pairs.
+/// Falls back to fingerprint-only display if Worker 1 hasn't added snippet
+/// storage yet (graceful degradation via direct context.json read).
+fn tool_seen_error_details(limit: usize) -> String {
+    let path = session::sessions_dir().join("context.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return "(no context.json — no active session or snippets not yet recorded)".to_string(),
+    };
+    // Worker 1 adds parallel arrays: error_snippets_fp + error_snippets_text.
+    let fps = crate::json_util::extract_u64_array(&content, "error_snippets_fp");
+    let texts = crate::json_util::extract_str_array(&content, "error_snippets_text");
+    if fps.is_empty() && texts.is_empty() {
+        // Graceful fallback: fingerprints-only from seen_errors.
+        let seen = crate::json_util::extract_u64_array(&content, "seen_errors");
+        if seen.is_empty() {
+            return "(no errors seen yet in this session)".to_string();
+        }
+        let take = limit.min(seen.len());
+        let mut out = format!(
+            "seen_errors distinct={} showing={} (fingerprints only — snippets not yet recorded)\n",
+            seen.len(), take
+        );
+        for fp in seen.iter().take(take) {
+            out.push_str(&format!("  {:016x}\n", fp));
+        }
+        return out;
+    }
+    let count = fps.len().max(texts.len());
+    let take = limit.min(count);
+    let mut out = format!("error_snippets total={} showing={}\n", count, take);
+    for i in 0..take {
+        let fp = fps.get(i).copied().unwrap_or(0);
+        let text = texts.get(i).cloned().unwrap_or_default();
+        out.push_str(&format!("  {:016x}  {}\n", fp, escape_str(&text)));
+    }
+    out
+}
+
+/// Phase 3: cross-session keyword search across summaries.jsonl fields.
+fn tool_search_history(query: &str, limit: usize) -> String {
+    if query.is_empty() {
+        return "(query is empty — provide a search term)".to_string();
+    }
+    let path = session::memory_dir().join("summaries.jsonl");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return "(no session history on disk)".to_string(),
+    };
+    let lq = query.to_lowercase();
+    let mut results: Vec<String> = Vec::new();
+    let mut scanned: usize = 0;
+    // Scan reverse-chronologically; cap at 200 sessions.
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    'outer: for line in lines.iter().rev().take(200) {
+        scanned += 1;
+        let date = crate::json_util::extract_str(line, "date").unwrap_or_default();
+        // Check each field family for a substring match.
+        let string_fields: &[&str] = &[
+            "files_touched", "files_committed", "errors_resolved",
+            "git_events", "investigated", "learned", "completed", "next_steps",
+        ];
+        for &field in string_fields {
+            let arr = crate::json_util::extract_str_array(line, field);
+            for item in &arr {
+                if item.to_lowercase().contains(&lq) {
+                    let snippet: String = item.chars().take(80).collect();
+                    results.push(format!("{} [{}]: {}", date, field, snippet));
+                    if results.len() >= limit { break 'outer; }
+                    break; // one match per field per session
+                }
+            }
+        }
+        // Also check scalar string field test_summary.
+        let ts = crate::json_util::extract_str(line, "test_summary").unwrap_or_default();
+        if ts.to_lowercase().contains(&lq) {
+            let snippet: String = ts.chars().take(80).collect();
+            results.push(format!("{} [test_summary]: {}", date, snippet));
+            if results.len() >= limit { continue; }
+        }
+    }
+    let truncated = scanned >= 200 && results.len() >= limit;
+    if results.is_empty() {
+        return format!("(no sessions found matching {:?})", query);
+    }
+    let mut out = format!("search={:?} results={} scanned={}", query, results.len(), scanned);
+    if truncated { out.push_str(" [squeez: search truncated at 200 sessions]"); }
+    out.push('\n');
+    for r in &results {
+        out.push_str(&format!("  {}\n", r));
+    }
+    out
+}
+
+/// Phase 3: show prior sessions where a file path was touched or committed.
+fn tool_file_history(path: &str, limit: usize) -> String {
+    if path.is_empty() {
+        return "(path is empty — provide a file path substring to search)".to_string();
+    }
+    let sumpath = session::memory_dir().join("summaries.jsonl");
+    let content = match std::fs::read_to_string(&sumpath) {
+        Ok(c) => c,
+        Err(_) => return "(no session history on disk)".to_string(),
+    };
+    let lp = path.to_lowercase();
+    let mut results: Vec<String> = Vec::new();
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    for line in lines.iter().rev().take(200) {
+        let date = crate::json_util::extract_str(line, "date").unwrap_or_default();
+        let tokens_saved = crate::json_util::extract_u64(line, "tokens_saved").unwrap_or(0);
+        let touched = crate::json_util::extract_str_array(line, "files_touched");
+        let committed = crate::json_util::extract_str_array(line, "files_committed");
+        let matched_touch = touched.iter().any(|f| f.to_lowercase().contains(&lp));
+        let matched_commit = committed.iter().any(|f| f.to_lowercase().contains(&lp));
+        if matched_touch || matched_commit {
+            let committed_flag = if matched_commit { "  committed=yes" } else { "" };
+            results.push(format!("{}  tokens_saved={}{}", date, tokens_saved, committed_flag));
+            if results.len() >= limit { break; }
+        }
+    }
+    if results.is_empty() {
+        return format!("(no sessions found where {:?} was touched)", path);
+    }
+    let mut out = format!("file_history path={:?} results={}\n", path, results.len());
+    for r in &results {
+        out.push_str(&format!("  {}\n", r));
+    }
+    out
+}
+
+/// Phase 3: structured view of a specific session by date (YYYY-MM-DD).
+/// Reads all matching session JSONL files (there can be multiple per day).
+/// Truncates to 2 KB if the output is large.
+fn tool_session_detail(date: &str) -> String {
+    if date.is_empty() {
+        return "(date is empty — provide YYYY-MM-DD)".to_string();
+    }
+    let sessions_dir = session::sessions_dir();
+    let entries = match std::fs::read_dir(&sessions_dir) {
+        Ok(e) => e,
+        Err(_) => return "(sessions directory not found)".to_string(),
+    };
+    let mut matched: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with(date) && name.ends_with(".jsonl") {
+                Some(e.path())
+            } else {
+                None
+            }
+        })
+        .collect();
+    matched.sort();
+    if matched.is_empty() {
+        return format!("(no session files found for date {})", date);
+    }
+    let mut total_events: u64 = 0;
+    let mut seen_files: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    let mut git_events: Vec<String> = Vec::new();
+    let mut test_lines: Vec<String> = Vec::new();
+    for fpath in &matched {
+        let text = match std::fs::read_to_string(fpath) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            total_events += 1;
+            if let Some(p) = crate::json_util::extract_str(line, "path") {
+                if !seen_files.contains(&p) && seen_files.len() < 64 {
+                    seen_files.push(p);
+                }
+            }
+            let lower = line.to_lowercase();
+            if (lower.contains("error[") || lower.contains("error:")) && errors.len() < 5 {
+                let snip: String = line.chars().take(100).collect();
+                if !errors.iter().any(|e| e == &snip) { errors.push(snip); }
+            }
+            if lower.contains("git") && (lower.contains("commit") || lower.contains("push")) && git_events.len() < 5 {
+                git_events.push(line.chars().take(80).collect());
+            }
+            if (lower.contains("test result:") || (lower.contains("running") && lower.contains("test"))) && test_lines.len() < 3 {
+                test_lines.push(line.chars().take(80).collect());
+            }
+        }
+    }
+    let mut out = format!(
+        "session_detail date={} session_files={}\ntotal_events={}  files_seen={}\n",
+        date, matched.len(), total_events, seen_files.len()
+    );
+    if !errors.is_empty() {
+        out.push_str("errors:\n");
+        for e in &errors { out.push_str(&format!("  {}\n", e)); }
+    }
+    if !git_events.is_empty() {
+        out.push_str("git_events:\n");
+        for g in &git_events { out.push_str(&format!("  {}\n", g)); }
+    }
+    if !test_lines.is_empty() {
+        out.push_str("test_results:\n");
+        for t in &test_lines { out.push_str(&format!("  {}\n", t)); }
+    }
+    // Truncate to 2 KB (head + tail pattern).
+    if out.len() > 2048 {
+        let head: String = out.chars().take(1800).collect();
+        let tail_src: String = out.chars().rev().take(200).collect::<String>().chars().rev().collect();
+        format!("{}\n[squeez: truncated]\n{}", head, tail_src)
+    } else {
+        out
+    }
+}
+
+/// Phase 6: per-session compression statistics.
+/// Reads dedup hit counters added by Worker 1 to context.json; defaults to 0
+/// for all counters if the fields are absent (backwards-compatible).
+fn tool_session_stats() -> String {
+    let path = session::sessions_dir().join("context.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return "(no context.json — session stats unavailable)".to_string(),
+    };
+    let exact_dedup_hits    = crate::json_util::extract_u64(&content, "exact_dedup_hits").unwrap_or(0);
+    let fuzzy_dedup_hits    = crate::json_util::extract_u64(&content, "fuzzy_dedup_hits").unwrap_or(0);
+    let summarize_triggers  = crate::json_util::extract_u64(&content, "summarize_triggers").unwrap_or(0);
+    let intensity_ultra     = crate::json_util::extract_u64(&content, "intensity_ultra_calls").unwrap_or(0);
+    let tokens_bash         = crate::json_util::extract_u64(&content, "tokens_bash").unwrap_or(0);
+    let tokens_read         = crate::json_util::extract_u64(&content, "tokens_read").unwrap_or(0);
+    let tokens_other        = crate::json_util::extract_u64(&content, "tokens_other").unwrap_or(0);
+    let call_counter        = crate::json_util::extract_u64(&content, "call_counter").unwrap_or(0);
+    format!(
+        "squeez session stats\n\
+exact_dedup_hits:      {}\n\
+fuzzy_dedup_hits:      {}\n\
+summarize_triggers:    {}\n\
+intensity_ultra_calls: {}\n\
+tokens_saved_bash:     {}\n\
+tokens_saved_read:     {}\n\
+tokens_saved_other:    {}\n\
+total_calls:           {}\n",
+        exact_dedup_hits, fuzzy_dedup_hits, summarize_triggers, intensity_ultra,
+        tokens_bash, tokens_read, tokens_other, call_counter,
+    )
 }
 
 // ── JSON helpers (raw `id` extraction) ────────────────────────────────────
@@ -378,10 +724,10 @@ mod tests {
     }
 
     #[test]
-    fn handle_tools_list_returns_six_tools() {
+    fn handle_tools_list_returns_all_tools() {
         let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}";
         let resp = handle_request(req).expect("must respond");
-        // All six tool names appear in the response.
+        // All eleven tool names appear in the response.
         for name in [
             "squeez_recent_calls",
             "squeez_seen_files",
@@ -389,6 +735,11 @@ mod tests {
             "squeez_session_summary",
             "squeez_prior_summaries",
             "squeez_protocol",
+            "squeez_seen_error_details",
+            "squeez_search_history",
+            "squeez_file_history",
+            "squeez_session_detail",
+            "squeez_session_stats",
         ] {
             assert!(resp.contains(name), "missing tool {}", name);
         }

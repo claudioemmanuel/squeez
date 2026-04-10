@@ -22,9 +22,9 @@ pub fn budget(cfg: &Config) -> u64 {
     cfg.compact_threshold_tokens.saturating_mul(5) / 4
 }
 
-/// Fraction of budget at which Full graduates to Ultra. 80% of budget is the
-/// "context is filling up, time to be aggressive" threshold. Below this,
-/// the gentler Full tier preserves more output verbatim.
+/// Fraction of budget at which Full graduates to Ultra. Default 80%.
+/// Overridable via `ultra_trigger_pct` in config.ini. Kept as pub constants
+/// for any callers that imported them by name before phase 5.
 pub const ULTRA_TRIGGER_NUM: u64 = 80;
 pub const ULTRA_TRIGGER_DEN: u64 = 100;
 
@@ -35,11 +35,10 @@ pub const ULTRA_TRIGGER_DEN: u64 = 100;
 /// When `adaptive_intensity = true` (default), the system actually adapts to
 /// session pressure rather than always sitting at maximum aggression:
 ///
-/// * `used < 80% of budget` → Full (×0.6 — gentle compression, more verbatim)
-/// * `used ≥ 80% of budget` → Ultra (×0.3 — emergency compression)
+/// * `used < ultra_trigger_pct of budget` → Full (×0.6 — gentle compression)
+/// * `used ≥ ultra_trigger_pct of budget` → Ultra (×0.3 — emergency compression)
 ///
-/// This replaces the prior always-Ultra behavior: preserve more verbatim
-/// output in the common case, escalate only when the budget is genuinely full.
+/// The threshold is configurable via `ultra_trigger_pct` (default 0.80).
 pub fn derive(used: u64, cfg: &Config) -> Intensity {
     if !cfg.adaptive_intensity {
         return Intensity::Lite;
@@ -49,9 +48,12 @@ pub fn derive(used: u64, cfg: &Config) -> Intensity {
         // Misconfigured budget — fall back to the previous always-Ultra behavior.
         return Intensity::Ultra;
     }
-    // Compare `used / b` to ULTRA_TRIGGER without floats:
-    //   used / b >= num/den   <=>   used * den >= b * num
-    if used.saturating_mul(ULTRA_TRIGGER_DEN) >= b.saturating_mul(ULTRA_TRIGGER_NUM) {
+    // Scale pct to a 10000-based integer to avoid f32/f64 precision issues
+    // (e.g. 0.80f32 as f64 = 0.8000000119..., causing 80%-exactly boundary
+    // to compare as < 80% when using floating-point).  Integer comparison:
+    //   used * 10000 >= b * pct_10000
+    let pct_10000 = (cfg.ultra_trigger_pct.clamp(0.0, 1.0) * 10_000.0).round() as u64;
+    if used.saturating_mul(10_000) >= b.saturating_mul(pct_10000) {
         Intensity::Ultra
     } else {
         Intensity::Full

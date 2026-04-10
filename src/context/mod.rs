@@ -17,11 +17,13 @@ pub fn pre_pass(
     sessions_dir: &Path,
     used_tokens: u64,
 ) -> (SessionContext, Intensity, Config) {
-    let ctx = if cfg.context_cache_enabled {
+    let mut ctx = if cfg.context_cache_enabled {
         SessionContext::load(sessions_dir)
     } else {
         SessionContext::default()
     };
+    // Phase 5: apply configurable tunables so all methods use user's values.
+    ctx.init_tunables_from_config(cfg);
     let level = intensity::derive(used_tokens, cfg);
     let scaled = intensity::scale(cfg, level);
     (ctx, level, scaled)

@@ -22,6 +22,19 @@ pub struct Config {
     pub persona: Persona,
     pub auto_compress_md: bool,
     pub lang: String,
+    // ── Tunables (phase 5) ──────────────────────────────────────────────
+    /// Max entries in the rolling call log (default 32).
+    pub max_call_log: usize,
+    /// How many recent calls are eligible for redundancy lookup (default 16).
+    pub recent_window: u64,
+    /// Minimum Jaccard similarity for fuzzy redundancy match (default 0.85).
+    pub similarity_threshold: f32,
+    /// Fraction of context budget at which Full graduates to Ultra (default 0.80).
+    pub ultra_trigger_pct: f32,
+    /// Default `n` for `squeez_prior_summaries` MCP tool (default 5).
+    pub mcp_prior_summaries_default: usize,
+    /// Default `n` for `squeez_recent_calls` MCP tool (default 10).
+    pub mcp_recent_calls_default: usize,
 }
 
 impl Default for Config {
@@ -50,6 +63,12 @@ impl Default for Config {
             persona: Persona::Ultra,
             auto_compress_md: true,
             lang: "en".to_string(),
+            max_call_log: 32,
+            recent_window: 16,
+            similarity_threshold: 0.85,
+            ultra_trigger_pct: 0.80,
+            mcp_prior_summaries_default: 5,
+            mcp_recent_calls_default: 10,
         }
     }
 }
@@ -98,6 +117,26 @@ impl Config {
                     "persona" => c.persona = crate::commands::persona::from_str(v),
                     "auto_compress_md" => c.auto_compress_md = v == "true",
                     "lang" => c.lang = v.to_string(),
+                    "max_call_log" => {
+                        c.max_call_log = v.parse().unwrap_or(c.max_call_log)
+                    }
+                    "recent_window" => {
+                        c.recent_window = v.parse().unwrap_or(c.recent_window)
+                    }
+                    "similarity_threshold" => {
+                        c.similarity_threshold = v.parse().unwrap_or(c.similarity_threshold)
+                    }
+                    "ultra_trigger_pct" => {
+                        c.ultra_trigger_pct = v.parse().unwrap_or(c.ultra_trigger_pct)
+                    }
+                    "mcp_prior_summaries_default" => {
+                        c.mcp_prior_summaries_default =
+                            v.parse().unwrap_or(c.mcp_prior_summaries_default)
+                    }
+                    "mcp_recent_calls_default" => {
+                        c.mcp_recent_calls_default =
+                            v.parse().unwrap_or(c.mcp_recent_calls_default)
+                    }
                     _ => {}
                 }
             }
