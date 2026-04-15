@@ -147,3 +147,46 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish to crates.io
         run: cargo publish --no-verify --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # ── Auto-update CHANGELOG + README benchmarks ─────────────────────────────
+  update-docs:
+    needs: [release, publish-npm, publish-crates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Generate changelog
+        run: bash .github/scripts/generate-changelog.sh
+        env:
+          NEW_TAG: ${{ github.ref_name }}
+
+      - name: Update README benchmarks
+        run: bash .github/scripts/update-readme-benchmarks.sh ./target/x86_64-unknown-linux-musl/release/squeez
+
+      - name: Copy CHANGELOG to npm directory
+        run: cp CHANGELOG.md npm/CHANGELOG.md
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md npm/CHANGELOG.md README.md
+          git diff --cached --quiet || git commit -m "docs: update changelog and benchmarks for ${{ github.ref_name }} [skip release]"
+          git push origin main

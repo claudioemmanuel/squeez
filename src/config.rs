@@ -22,6 +22,17 @@ pub struct Config {
     pub persona: Persona,
     pub auto_compress_md: bool,
     pub lang: String,
+    // ── Token economy (phase 7) ───────────────────────────────────────────
+    /// Fraction of budget at which sub-agent cost triggers a warning (default 0.50).
+    pub agent_warn_threshold_pct: f32,
+    /// Predict pressure warning when calls remaining < this (default 20).
+    pub burn_rate_warn_calls: u64,
+    /// Estimated tokens per sub-agent spawn (default 200_000).
+    pub agent_spawn_cost: u64,
+    /// Max lines injected into Read tool_input (0 = disabled, default 0).
+    pub read_max_lines: usize,
+    /// Max results injected into Grep tool_input (0 = disabled, default 0).
+    pub grep_max_results: usize,
     // ── Tunables (phase 5) ──────────────────────────────────────────────
     /// Max entries in the rolling call log (default 32).
     pub max_call_log: usize,
@@ -42,8 +53,8 @@ impl Default for Config {
         Self {
             enabled: true,
             show_header: true,
-            max_lines: 200,
-            dedup_min: 3,
+            max_lines: 120,
+            dedup_min: 2,
             git_log_max_commits: 20,
             git_diff_max_lines: 150,
             docker_logs_max_lines: 100,
@@ -59,10 +70,15 @@ impl Default for Config {
             adaptive_intensity: true,
             context_cache_enabled: true,
             redundancy_cache_enabled: true,
-            summarize_threshold_lines: 500,
+            summarize_threshold_lines: 300,
             persona: Persona::Ultra,
             auto_compress_md: true,
             lang: "en".to_string(),
+            agent_warn_threshold_pct: 0.50,
+            burn_rate_warn_calls: 20,
+            agent_spawn_cost: 200_000,
+            read_max_lines: 300,
+            grep_max_results: 100,
             max_call_log: 32,
             recent_window: 16,
             similarity_threshold: 0.85,
@@ -117,6 +133,23 @@ impl Config {
                     "persona" => c.persona = crate::commands::persona::from_str(v),
                     "auto_compress_md" => c.auto_compress_md = v == "true",
                     "lang" => c.lang = v.to_string(),
+                    "agent_warn_threshold_pct" => {
+                        c.agent_warn_threshold_pct =
+                            v.parse().unwrap_or(c.agent_warn_threshold_pct)
+                    }
+                    "burn_rate_warn_calls" => {
+                        c.burn_rate_warn_calls =
+                            v.parse().unwrap_or(c.burn_rate_warn_calls)
+                    }
+                    "agent_spawn_cost" => {
+                        c.agent_spawn_cost = v.parse().unwrap_or(c.agent_spawn_cost)
+                    }
+                    "read_max_lines" => {
+                        c.read_max_lines = v.parse().unwrap_or(c.read_max_lines)
+                    }
+                    "grep_max_results" => {
+                        c.grep_max_results = v.parse().unwrap_or(c.grep_max_results)
+                    }
                     "max_call_log" => {
                         c.max_call_log = v.parse().unwrap_or(c.max_call_log)
                     }

@@ -31,6 +31,11 @@ fn sample_summary(date: &str, ts: u64) -> Summary {
         learned: vec![],
         completed: vec![],
         next_steps: vec![],
+        compression_ratio_bp: 0,
+        tool_choice_efficiency_bp: 0,
+        context_reuse_rate_bp: 0,
+        budget_utilization_bp: 0,
+        efficiency_overall_bp: 0,
     }
 }
 

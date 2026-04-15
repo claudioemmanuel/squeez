@@ -79,7 +79,7 @@ fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Su
     if summaries.is_empty() {
         block.push_str("- No prior sessions recorded yet.\n");
     }
-    let persona_text = persona::text(cfg.persona);
+    let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
     if !persona_text.is_empty() {
         block.push('\n');
         block.push_str(persona_text);
@@ -302,6 +302,21 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
         0
     };
 
+    // ── Token economy: compute efficiency score ────────────────────────
+    let ctx = crate::context::cache::SessionContext::load(sessions_dir);
+    let budget = config.compact_threshold_tokens * 5 / 4;
+    let total_tokens = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
+    let dedup_hits = ctx.exact_dedup_hits + ctx.fuzzy_dedup_hits;
+    let eff = crate::economy::efficiency::compute(
+        total_in,
+        total_out,
+        ctx.agent_estimated_tokens,
+        total_tokens,
+        dedup_hits,
+        ctx.call_counter,
+        budget,
+    );
+
     memory::write_summary(
         memory_dir,
         &memory::Summary {
@@ -314,16 +329,17 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
             errors_resolved,
             git_events,
             ts: prev.start_ts,
-            // Validity window: facts are valid from session start, indefinitely
-            // (valid_to = 0). A future feature may invalidate the entry when
-            // files get committed in a later session — see comparison report
-            // Phase 5 §3.D.
             valid_from: prev.start_ts,
             valid_to: 0,
             investigated,
             learned,
             completed,
             next_steps,
+            compression_ratio_bp: eff.compression_ratio_bp,
+            tool_choice_efficiency_bp: eff.tool_choice_efficiency_bp,
+            context_reuse_rate_bp: eff.context_reuse_rate_bp,
+            budget_utilization_bp: eff.budget_utilization_bp,
+            efficiency_overall_bp: eff.overall_bp,
         },
     );
     memory::prune_old(memory_dir, config.memory_retention_days);
@@ -356,7 +372,7 @@ fn inject_claude_md(cfg: &Config) {
     // Ensure ~/.claude/ exists (it should, but be safe)
     let _ = std::fs::create_dir_all(&claude_dir);
 
-    let persona_text = persona::text(cfg.persona);
+    let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
     if persona_text.is_empty() {
         return;
     }

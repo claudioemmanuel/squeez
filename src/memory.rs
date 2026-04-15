@@ -31,6 +31,17 @@ pub struct Summary {
     pub completed: Vec<String>,
     /// Failed tests and unresolved errors to revisit (up to 5).
     pub next_steps: Vec<String>,
+    // ── Phase 7: token economy efficiency scores ──────────────────────────
+    /// Compression ratio in basis points (0-10000 = 0-100%).
+    pub compression_ratio_bp: u64,
+    /// Tool choice efficiency in basis points.
+    pub tool_choice_efficiency_bp: u64,
+    /// Context reuse rate in basis points.
+    pub context_reuse_rate_bp: u64,
+    /// Budget conservation in basis points.
+    pub budget_utilization_bp: u64,
+    /// Weighted overall efficiency in basis points.
+    pub efficiency_overall_bp: u64,
 }
 
 // ── Phase 3: cross-session search types ────────────────────────────────────
@@ -81,7 +92,9 @@ impl Summary {
 \"files_touched\":{},\"files_committed\":{},\"test_summary\":\"{}\",\
 \"errors_resolved\":{},\"git_events\":{},\"ts\":{},\
 \"valid_from\":{},\"valid_to\":{},\
-\"investigated\":{},\"learned\":{},\"completed\":{},\"next_steps\":{}}}",
+\"investigated\":{},\"learned\":{},\"completed\":{},\"next_steps\":{},\
+\"compression_ratio_bp\":{},\"tool_choice_efficiency_bp\":{},\
+\"context_reuse_rate_bp\":{},\"budget_utilization_bp\":{},\"efficiency_overall_bp\":{}}}",
             escape_str(&self.date),
             self.duration_min,
             self.tokens_saved,
@@ -97,6 +110,11 @@ impl Summary {
             str_array(&self.learned),
             str_array(&self.completed),
             str_array(&self.next_steps),
+            self.compression_ratio_bp,
+            self.tool_choice_efficiency_bp,
+            self.context_reuse_rate_bp,
+            self.budget_utilization_bp,
+            self.efficiency_overall_bp,
         )
     }
 
@@ -123,6 +141,12 @@ impl Summary {
             learned: extract_str_array(line, "learned"),
             completed: extract_str_array(line, "completed"),
             next_steps: extract_str_array(line, "next_steps"),
+            // Phase 7 fields — optional; old JSONL entries load with 0.
+            compression_ratio_bp: extract_u64(line, "compression_ratio_bp").unwrap_or(0),
+            tool_choice_efficiency_bp: extract_u64(line, "tool_choice_efficiency_bp").unwrap_or(0),
+            context_reuse_rate_bp: extract_u64(line, "context_reuse_rate_bp").unwrap_or(0),
+            budget_utilization_bp: extract_u64(line, "budget_utilization_bp").unwrap_or(0),
+            efficiency_overall_bp: extract_u64(line, "efficiency_overall_bp").unwrap_or(0),
         })
     }
 
@@ -385,6 +409,11 @@ mod tests {
             learned: vec![],
             completed: vec![],
             next_steps: vec![],
+            compression_ratio_bp: 0,
+            tool_choice_efficiency_bp: 0,
+            context_reuse_rate_bp: 0,
+            budget_utilization_bp: 0,
+            efficiency_overall_bp: 0,
         }
     }
 

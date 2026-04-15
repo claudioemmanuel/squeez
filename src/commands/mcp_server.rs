@@ -172,6 +172,16 @@ const TOOLS: &[(&str, &str, &str)] = &[
         "Compression statistics for the current session: exact/fuzzy dedup hits, summarize triggers, intensity ultra calls, and token savings by handler category.",
         "{\"type\":\"object\",\"properties\":{}}",
     ),
+    (
+        "squeez_agent_costs",
+        "Sub-agent usage tracking: number of Agent/Task tool spawns this session, estimated hidden context cost (~200K tokens per spawn), and per-call breakdown.",
+        "{\"type\":\"object\",\"properties\":{}}",
+    ),
+    (
+        "squeez_session_efficiency",
+        "Session efficiency scoring: compression ratio, tool choice efficiency (direct vs agent), context reuse rate, budget conservation. Scores in basis points (0-10000 = 0-100%).",
+        "{\"type\":\"object\",\"properties\":{}}",
+    ),
 ];
 
 fn tools_list_response(id: &str) -> String {
@@ -219,6 +229,8 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_file_history" => tool_file_history(&path_arg, limit.unwrap_or(10)),
         "squeez_session_detail" => tool_session_detail(&date_arg),
         "squeez_session_stats" => tool_session_stats(),
+        "squeez_agent_costs" => tool_agent_costs(),
+        "squeez_session_efficiency" => tool_session_efficiency(),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -651,6 +663,29 @@ total_calls:           {}\n",
     )
 }
 
+fn tool_agent_costs() -> String {
+    let ctx = load_ctx();
+    crate::economy::agent_tracker::format_agent_costs(&ctx)
+}
+
+fn tool_session_efficiency() -> String {
+    let ctx = load_ctx();
+    let cfg = crate::config::Config::load();
+    let budget = cfg.compact_threshold_tokens * 5 / 4;
+    let total_tokens = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
+    let dedup_hits = ctx.exact_dedup_hits + ctx.fuzzy_dedup_hits;
+    let score = crate::economy::efficiency::compute(
+        total_tokens,     // total_in (approximation: raw tokens seen)
+        total_tokens / 2, // total_out (approximation: ~50% compressed on average)
+        ctx.agent_estimated_tokens,
+        total_tokens,
+        dedup_hits,
+        ctx.call_counter,
+        budget,
+    );
+    crate::economy::efficiency::format_efficiency(&score)
+}
+
 // ── JSON helpers (raw `id` extraction) ────────────────────────────────────
 
 /// Extract the raw `"id"` value from a JSON-RPC request — number, string,
@@ -727,7 +762,7 @@ mod tests {
     fn handle_tools_list_returns_all_tools() {
         let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}";
         let resp = handle_request(req).expect("must respond");
-        // All eleven tool names appear in the response.
+        // All thirteen tool names appear in the response.
         for name in [
             "squeez_recent_calls",
             "squeez_seen_files",
@@ -740,6 +775,8 @@ mod tests {
             "squeez_file_history",
             "squeez_session_detail",
             "squeez_session_stats",
+            "squeez_agent_costs",
+            "squeez_session_efficiency",
         ] {
             assert!(resp.contains(name), "missing tool {}", name);
         }

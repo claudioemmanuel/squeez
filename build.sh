@@ -16,14 +16,16 @@ INSTALL_DIR="$HOME/.claude/squeez"
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/hooks" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
 cp "$BINARY" "$INSTALL_DIR/bin/squeez" && chmod +x "$INSTALL_DIR/bin/squeez"
 cp "$REPO/hooks/"*.sh "$INSTALL_DIR/hooks/" && chmod +x "$INSTALL_DIR/hooks/"*.sh
+cp "$REPO/hooks/statusline.sh" "$INSTALL_DIR/bin/statusline.sh" && chmod +x "$INSTALL_DIR/bin/statusline.sh"
 
 # Commit binary to repo
 mkdir -p "$REPO/bin"
 cp "$BINARY" "$REPO/bin/squeez"
 
-# Register PreToolUse hook
+# Register hooks + statusline
 python3 - <<'EOF'
 import json, os, sys
+
 path = os.path.expanduser("~/.claude/settings.json")
 settings = {}
 try:
@@ -31,19 +33,48 @@ try:
         with open(path) as f:
             settings = json.load(f)
 except (json.JSONDecodeError, IOError) as e:
-    print(f"⚠️  Warning: could not read settings.json: {e}", file=sys.stderr)
-if not isinstance(settings.get("PreToolUse"), list):
-    settings["PreToolUse"] = []
-hook = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/pretooluse.sh"}]}
-pre = settings["PreToolUse"]
-if not any("squeez" in str(h) for h in pre):
-    pre.append(hook)
+    print("Warning: could not read settings.json: " + str(e), file=sys.stderr)
+
+def ensure_list(key):
+    if not isinstance(settings.get(key), list):
+        settings[key] = []
+
+ensure_list("PreToolUse")
+pre = {"matcher": "Bash", "hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/pretooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PreToolUse"]):
+    settings["PreToolUse"].append(pre)
+
+ensure_list("SessionStart")
+start = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/session-start.sh"}]}
+if not any("squeez" in str(h) for h in settings["SessionStart"]):
+    settings["SessionStart"].append(start)
+
+ensure_list("PostToolUse")
+post = {"hooks": [{"type": "command", "command": "bash ~/.claude/squeez/hooks/posttooluse.sh"}]}
+if not any("squeez" in str(h) for h in settings["PostToolUse"]):
+    settings["PostToolUse"].append(post)
+
+existing_status = settings.get("statusLine", {})
+existing_cmd = existing_status.get("command", "") if isinstance(existing_status, dict) else ""
+squeez_cmd = "bash ~/.claude/squeez/bin/statusline.sh"
+if "squeez" not in existing_cmd:
+    if existing_cmd:
+        new_cmd = "bash -c 'input=$(cat); echo \"$input\" | { " + existing_cmd.rstrip() + "; } 2>/dev/null; echo \"$input\" | " + squeez_cmd + "'"
+        settings["statusLine"] = {"type": "command", "command": new_cmd}
+    else:
+        settings["statusLine"] = {"type": "command", "command": squeez_cmd}
+
+os.makedirs(os.path.dirname(path), exist_ok=True)
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(settings, f, indent=2)
 os.replace(tmp, path)
-print("✅ hook registered in ~/.claude/settings.json")
+print("hooks registered in ~/.claude/settings.json")
 EOF
+
+# Auto-calibrate: run benchmark analysis to generate optimized config
+echo "  Running calibration..."
+"$INSTALL_DIR/bin/squeez" calibrate --force-aggressive 2>/dev/null || true
 
 echo "✅ squeez $($INSTALL_DIR/bin/squeez --version) installed ($(du -sh $INSTALL_DIR/bin/squeez | cut -f1))"
 echo "   Restart Claude Code to activate."

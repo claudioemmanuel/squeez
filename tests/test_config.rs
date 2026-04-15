@@ -3,8 +3,8 @@ use squeez::config::Config;
 #[test]
 fn defaults_populated() {
     let c = Config::default();
-    assert_eq!(c.max_lines, 200);
-    assert_eq!(c.dedup_min, 3);
+    assert_eq!(c.max_lines, 120);
+    assert_eq!(c.dedup_min, 2);
     assert!(c.enabled);
     assert!(c.show_header);
     assert_eq!(c.git_log_max_commits, 20);

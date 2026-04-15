@@ -142,6 +142,11 @@ fn test_structured_fields_roundtrip_jsonl() {
         learned: vec!["git:abc1234".into()],
         completed: vec!["test result: ok. 10 passed".into()],
         next_steps: vec!["fix E0308 in filter.rs".into()],
+        compression_ratio_bp: 0,
+        tool_choice_efficiency_bp: 0,
+        context_reuse_rate_bp: 0,
+        budget_utilization_bp: 0,
+        efficiency_overall_bp: 0,
     };
     write_summary(&memory, &s);
 
@@ -192,6 +197,11 @@ fn test_display_line_shows_pending() {
         learned: vec![],
         completed: vec![],
         next_steps: vec!["fix E0308".into(), "fix E0001".into()],
+        compression_ratio_bp: 0,
+        tool_choice_efficiency_bp: 0,
+        context_reuse_rate_bp: 0,
+        budget_utilization_bp: 0,
+        efficiency_overall_bp: 0,
     };
     let line = s.display_line();
     assert!(line.contains("2 pending"), "expected '2 pending' in: {}", line);
@@ -222,6 +232,11 @@ fn test_search_history_finds_match() {
             learned: vec!["error[E0308]: mismatched types".into()],
             completed: vec![],
             next_steps: vec!["error[E0308]: mismatched types".into()],
+            compression_ratio_bp: 0,
+            tool_choice_efficiency_bp: 0,
+            context_reuse_rate_bp: 0,
+            budget_utilization_bp: 0,
+            efficiency_overall_bp: 0,
         },
     );
 
@@ -253,6 +268,11 @@ fn test_search_history_no_match() {
             learned: vec![],
             completed: vec![],
             next_steps: vec![],
+            compression_ratio_bp: 0,
+            tool_choice_efficiency_bp: 0,
+            context_reuse_rate_bp: 0,
+            budget_utilization_bp: 0,
+            efficiency_overall_bp: 0,
         },
     );
 
@@ -283,6 +303,11 @@ fn test_file_history_finds_touched_file() {
             learned: vec![],
             completed: vec![],
             next_steps: vec![],
+            compression_ratio_bp: 0,
+            tool_choice_efficiency_bp: 0,
+            context_reuse_rate_bp: 0,
+            budget_utilization_bp: 0,
+            efficiency_overall_bp: 0,
         },
     );
 

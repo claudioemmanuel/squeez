@@ -200,9 +200,26 @@ pub fn run(cmd_str: &str) -> i32 {
         } else {
             String::new()
         };
+        // Token economy: burn rate prediction
+        let budget_tag = crate::economy::burn_rate::pressure_warning(&ctx, &config)
+            .or_else(|| {
+                crate::economy::burn_rate::calls_remaining(&ctx, &config)
+                    .map(|r| crate::economy::burn_rate::format_pressure_header(r))
+            })
+            .unwrap_or_default();
+        let budget_tag = if budget_tag.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", budget_tag)
+        };
+        // Token economy: agent cost warning
+        let agent_tag = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
+            .map(|w| format!(" {}", w))
+            .unwrap_or_default();
         println!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}",
-            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms, intensity_tag
+            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}",
+            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
+            intensity_tag, budget_tag, agent_tag
         );
         if let Some(ref warning) = compact_warning {
             println!("{}", warning);
@@ -227,6 +244,8 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.note_errors(&errors);
         ctx.note_git(&git_events);
         ctx.note_tool_tokens("Bash", input_tokens as u64);
+        // Token economy: record burn rate
+        ctx.note_burn(output_tokens as u64);
         ctx.save(&sessions_dir_pp);
     }
 

@@ -34,7 +34,7 @@ show_header = true\n\
 persona = ultra\n\
 \n\
 # Compression limits\n\
-max_lines = 200\n\
+max_lines = 120\n\
 git_log_max_commits = 20\n\
 git_diff_max_lines = 150\n\
 docker_logs_max_lines = 100\n\
@@ -44,7 +44,10 @@ find_max_results = 50\n\
 adaptive_intensity = true\n\
 context_cache_enabled = true\n\
 redundancy_cache_enabled = true\n\
-summarize_threshold_lines = 500\n\
+summarize_threshold_lines = 300\n\
+dedup_min = 2\n\
+read_max_lines = 300\n\
+grep_max_results = 100\n\
 \n\
 # Memory\n\
 memory_retention_days = 30\n\

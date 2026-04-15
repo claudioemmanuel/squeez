@@ -68,6 +68,26 @@ impl FileAccess {
 
 // ── Data structures ────────────────────────────────────────────────────────
 
+/// Cap on tracked agent spawn entries (rolling window).
+pub const MAX_AGENT_SPAWN_LOG: usize = 16;
+/// Cap on burn rate sliding window entries.
+pub const MAX_BURN_WINDOW: usize = 16;
+
+#[derive(Debug, Clone)]
+pub struct AgentSpawnEntry {
+    pub call_n: u64,
+    pub tool_name: String,
+    pub estimated_tokens: u64,
+    pub ts: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct BurnEntry {
+    pub call_n: u64,
+    pub tokens: u64,
+    pub ts: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct CallEntry {
     pub call_n: u64,
@@ -114,6 +134,11 @@ pub struct SessionContext {
     pub fuzzy_dedup_hits: u32,
     pub summarize_triggers: u32,
     pub intensity_ultra_calls: u32,
+    // ── Token economy (phase 7) ──────────────────────────────────────
+    pub agent_spawns: u32,
+    pub agent_estimated_tokens: u64,
+    pub agent_spawn_log: Vec<AgentSpawnEntry>,
+    pub burn_window: Vec<BurnEntry>,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -138,6 +163,10 @@ impl Default for SessionContext {
             fuzzy_dedup_hits: 0,
             summarize_triggers: 0,
             intensity_ultra_calls: 0,
+            agent_spawns: 0,
+            agent_estimated_tokens: 0,
+            agent_spawn_log: Vec::new(),
+            burn_window: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -409,6 +438,37 @@ impl SessionContext {
         }
     }
 
+    // ── Token economy helpers (phase 7) ────────────────────────────────
+
+    /// Record a sub-agent spawn (Agent or Task tool call).
+    pub fn note_agent_spawn(&mut self, tool_name: &str, estimated_tokens: u64) {
+        self.agent_spawns = self.agent_spawns.saturating_add(1);
+        self.agent_estimated_tokens = self.agent_estimated_tokens.saturating_add(estimated_tokens);
+        self.agent_spawn_log.push(AgentSpawnEntry {
+            call_n: self.call_counter,
+            tool_name: tool_name.to_string(),
+            estimated_tokens,
+            ts: crate::session::unix_now(),
+        });
+        if self.agent_spawn_log.len() > MAX_AGENT_SPAWN_LOG {
+            let drop_n = self.agent_spawn_log.len() - MAX_AGENT_SPAWN_LOG;
+            self.agent_spawn_log.drain(0..drop_n);
+        }
+    }
+
+    /// Record token consumption for burn rate prediction.
+    pub fn note_burn(&mut self, tokens: u64) {
+        self.burn_window.push(BurnEntry {
+            call_n: self.call_counter,
+            tokens,
+            ts: crate::session::unix_now(),
+        });
+        if self.burn_window.len() > MAX_BURN_WINDOW {
+            let drop_n = self.burn_window.len() - MAX_BURN_WINDOW;
+            self.burn_window.drain(0..drop_n);
+        }
+    }
+
     /// Record token usage by tool category.
     pub fn note_tool_tokens(&mut self, tool: &str, tokens: u64) {
         match tool.to_lowercase().as_str() {
@@ -552,6 +612,17 @@ impl SessionContext {
             .map(|(_, t)| t.clone())
             .collect();
 
+        // Phase 7: agent spawn log as parallel arrays.
+        let as_call_n: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.call_n).collect();
+        let as_tool: Vec<String> = self.agent_spawn_log.iter().map(|e| e.tool_name.clone()).collect();
+        let as_tokens: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.estimated_tokens).collect();
+        let as_ts: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.ts).collect();
+
+        // Phase 7: burn window as parallel arrays.
+        let bw_call_n: Vec<u64> = self.burn_window.iter().map(|e| e.call_n).collect();
+        let bw_tokens: Vec<u64> = self.burn_window.iter().map(|e| e.tokens).collect();
+        let bw_ts: Vec<u64> = self.burn_window.iter().map(|e| e.ts).collect();
+
         format!(
             "{{\"session_file\":\"{}\",\"call_counter\":{},\
 \"call_log_n\":{},\"call_log_cmd\":{},\"call_log_hash\":{},\"call_log_len\":{},\"call_log_short\":{},\
@@ -560,7 +631,10 @@ impl SessionContext {
 \"seen_errors\":{},\"error_snippet_fp\":{},\"error_snippet_text\":{},\
 \"seen_git_refs\":{},\
 \"tokens_bash\":{},\"tokens_read\":{},\"tokens_other\":{},\
-\"exact_dedup_hits\":{},\"fuzzy_dedup_hits\":{},\"summarize_triggers\":{},\"intensity_ultra_calls\":{}}}",
+\"exact_dedup_hits\":{},\"fuzzy_dedup_hits\":{},\"summarize_triggers\":{},\"intensity_ultra_calls\":{},\
+\"agent_spawns\":{},\"agent_estimated_tokens\":{},\
+\"agent_spawn_log_call_n\":{},\"agent_spawn_log_tool\":{},\"agent_spawn_log_tokens\":{},\"agent_spawn_log_ts\":{},\
+\"burn_window_call_n\":{},\"burn_window_tokens\":{},\"burn_window_ts\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -584,6 +658,15 @@ impl SessionContext {
             self.fuzzy_dedup_hits,
             self.summarize_triggers,
             self.intensity_ultra_calls,
+            self.agent_spawns,
+            self.agent_estimated_tokens,
+            json_util::u64_array(&as_call_n),
+            json_util::str_array(&as_tool),
+            json_util::u64_array(&as_tokens),
+            json_util::u64_array(&as_ts),
+            json_util::u64_array(&bw_call_n),
+            json_util::u64_array(&bw_tokens),
+            json_util::u64_array(&bw_ts),
         )
     }
 
@@ -672,6 +755,38 @@ impl SessionContext {
             json_util::extract_u64(s, "summarize_triggers").unwrap_or(0) as u32;
         c.intensity_ultra_calls =
             json_util::extract_u64(s, "intensity_ultra_calls").unwrap_or(0) as u32;
+
+        // Phase 7: token economy — optional for backward compat.
+        c.agent_spawns =
+            json_util::extract_u64(s, "agent_spawns").unwrap_or(0) as u32;
+        c.agent_estimated_tokens =
+            json_util::extract_u64(s, "agent_estimated_tokens").unwrap_or(0);
+
+        let as_call_n = json_util::extract_u64_array(s, "agent_spawn_log_call_n");
+        let as_tool = json_util::extract_str_array(s, "agent_spawn_log_tool");
+        let as_tokens = json_util::extract_u64_array(s, "agent_spawn_log_tokens");
+        let as_ts = json_util::extract_u64_array(s, "agent_spawn_log_ts");
+        let as_n = as_call_n.len().min(as_tool.len()).min(as_tokens.len()).min(as_ts.len());
+        for i in 0..as_n {
+            c.agent_spawn_log.push(AgentSpawnEntry {
+                call_n: as_call_n[i],
+                tool_name: as_tool[i].clone(),
+                estimated_tokens: as_tokens[i],
+                ts: as_ts[i],
+            });
+        }
+
+        let bw_call_n = json_util::extract_u64_array(s, "burn_window_call_n");
+        let bw_tokens = json_util::extract_u64_array(s, "burn_window_tokens");
+        let bw_ts = json_util::extract_u64_array(s, "burn_window_ts");
+        let bw_n = bw_call_n.len().min(bw_tokens.len()).min(bw_ts.len());
+        for i in 0..bw_n {
+            c.burn_window.push(BurnEntry {
+                call_n: bw_call_n[i],
+                tokens: bw_tokens[i],
+                ts: bw_ts[i],
+            });
+        }
 
         c
     }

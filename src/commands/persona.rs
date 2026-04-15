@@ -41,6 +41,8 @@ pub fn as_str(p: Persona) -> &'static str {
 const LITE: &str = include_str!("../../assets/persona_lite.md");
 const FULL: &str = include_str!("../../assets/persona_full.md");
 const ULTRA: &str = include_str!("../../assets/persona_ultra.md");
+const FULL_PT_BR: &str = include_str!("../../assets/persona_full_pt_br.md");
+const ULTRA_PT_BR: &str = include_str!("../../assets/persona_ultra_pt_br.md");
 
 pub fn text(p: Persona) -> &'static str {
     match p {
@@ -48,6 +50,17 @@ pub fn text(p: Persona) -> &'static str {
         Persona::Lite => LITE,
         Persona::Full => FULL,
         Persona::Ultra => ULTRA,
+    }
+}
+
+pub fn text_with_lang(p: Persona, lang: &str) -> &'static str {
+    match (p, lang) {
+        (Persona::Off, _) => "",
+        (Persona::Lite, _) => LITE,
+        (Persona::Full, "pt-BR") => FULL_PT_BR,
+        (Persona::Full, _) => FULL,
+        (Persona::Ultra, "pt-BR") => ULTRA_PT_BR,
+        (Persona::Ultra, _) => ULTRA,
     }
 }
 

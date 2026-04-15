@@ -4,6 +4,7 @@
 [![npm](https://img.shields.io/npm/v/squeez.svg)](https://www.npmjs.com/package/squeez)
 [![Crates.io](https://img.shields.io/crates/v/squeez.svg)](https://crates.io/crates/squeez)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[Changelog](CHANGELOG.md)
 
 End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
 
@@ -77,81 +78,66 @@ squeez update --insecure  # skip checksum (not recommended)
 | **Context engine** | Cross-call redundancy with two paths: exact-hash match (FNV-1a, fast) **and** fuzzy trigram-shingle Jaccard ≥0.85 (whitespace, timestamps, single-line edits no longer defeat dedup). |
 | **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). **Benign outputs get 2× the threshold** so successful builds stay verbatim. |
 | **Adaptive intensity** | Truly adaptive: **Full** (×0.6 limits) below 80% of token budget, **Ultra** (×0.3) above. Used to be always-Ultra; now actually responds to session pressure. |
-| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 11 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
+| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 13 read-only tools so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
 | **Session memory** | On `SessionStart`, injects a structured summary of the previous session: files investigated, learned facts (errors + git events), completed work (builds, test passes), and next steps (unresolved errors, failing tests). Summaries carry temporal validity (`valid_from`/`valid_to`). |
 | **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
+| **Token economy** | Sub-agent cost tracking (~200K tokens/spawn), burn rate prediction (`[budget: ~N calls left]`), session efficiency scoring, tool result size budgets. |
+| **Auto-calibration** | `squeez calibrate` runs benchmarks on install and generates an optimized `config.ini` (aggressive / balanced / conservative profiles). |
 
 ---
 
 ## Benchmarks
 
+<!-- BENCHMARK:START -->
 Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce.
 
 ### Per-scenario results — 19 scenarios × 3 iterations
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `ps aux` (161 KB real output) | 40,373 tk | 2,352 tk | **−94%** | 1.8 ms |
-| 5,003-line log (summarize path) | 82,257 tk | 420 tk | **−99.5%** | 63 ms |
-| Repetitive output (300× dedup) | 4,692 tk | 37 tk | **−99.2%** | 0.2 ms |
-| `git log` (200 commits) | 2,692 tk | 289 tk | **−89%** | 0.2 ms |
-| `tsc` errors | 731 tk | 101 tk | **−86%** | 0.06 ms |
-| `cargo build` (noisy + errors) | 2,106 tk | 452 tk | **−79%** | 0.2 ms |
-| `docker logs` | 665 tk | 186 tk | **−72%** | 0.05 ms |
-| `find` (deep tree) | 424 tk | 134 tk | **−68%** | 0.07 ms |
-| `git status` | 50 tk | 16 tk | **−68%** | 0.02 ms |
-| Verbose app log (250 lines) | 4,957 tk | 1,991 tk | **−60%** | 0.3 ms |
-| `npm install` | 524 tk | 232 tk | **−56%** | 0.04 ms |
-| Cross-call redundancy (3× same) | 486 tk | 241 tk | **−50%** | 58 ms |
-| `ls -la` | 1,782 tk | 886 tk | **−50%** | 0.1 ms |
-| `env` dump | 441 tk | 287 tk | **−35%** | 0.03 ms |
-| `git diff` | 502 tk | 497 tk | **−1%** | 0.05 ms |
-| CLAUDE.md (compress-md) | 316 tk | 247 tk | **−22%** | 0.2 ms |
+| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 62.9 ms |
+| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 102 µs |
+| `ps_aux` | 40,373 tk | 2,352 tk | **-94%** | 702 µs |
+| `git_log_200` | 2,692 tk | 289 tk | **-89%** | 75 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 20 µs |
+| `cargo_build_noisy` | 2,106 tk | 452 tk | **-79%** | 75 µs |
+| `docker_logs` | 665 tk | 186 tk | **-72%** | 16 µs |
+| `find_deep` | 424 tk | 134 tk | **-68%** | 29 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 5 µs |
+| `verbose_app_log` | 4,957 tk | 1,991 tk | **-60%** | 93 µs |
+| `npm_install` | 524 tk | 232 tk | **-56%** | 16 µs |
+| `crosscall_redundancy_3x` | 486 tk | 241 tk | **-50%** | 57.7 ms |
+| `ls_la` | 1,782 tk | 886 tk | **-50%** | 52 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 9 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 28 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 251 µs |
+| `md_claude_md` | 316 tk | 247 tk | **-22%** | 299 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 17 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 20 µs |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **92.8%** — 145,338 tk → 10,441 tk |
-| Bash output | **−84.9%** |
-| Markdown / context files | **−23.3%** |
-| Wrap / cross-call engine | **−99.2%** |
+| **Total token reduction** | **92.8%** — 145,338 tk → 10,440 tk |
+| Bash output | **-84.9%** |
+| Markdown / context files | **-23.5%** |
+| Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **19 / 19 pass** |
-| Latency p50 (filter mode) | **< 0.3 ms** |
-| Latency p95 (incl. wrap/summarize) | **60 ms** |
-
-### compress-md i18n — EN vs pt-BR (Apple Silicon, release build)
-
-| Locale | Mode | Before | After | Reduction | Latency |
-|--------|------|--------|-------|-----------|---------|
-| EN | Full | 514 tk | 445 tk | **−14%** | 170 µs |
-| EN | Ultra | 514 tk | 434 tk | **−16%** | — |
-| pt-BR | Full | 558 tk | 488 tk | **−13%** | 256 µs |
-| pt-BR | Ultra | 558 tk | 468 tk | **−17%** | — |
-
-PT-BR is **~1.5× slower** than EN due to Unicode case folding — still sub-millisecond per call. Both locales produce `result.safe = true`. Run `cargo run --release --bin bench_i18n` to reproduce.
-
-**Before / after — pt-BR Full mode:**
-```
-IN:    O sistema é basicamente apenas uma ferramenta para configurar o repositório.
-       De modo geral, você pode considerar que a função principal inicializa a documentação do projeto.
-
-Full:  sistema é ferramenta para configurar repositório. função principal inicializa documentação projeto.
-Ultra: sistema é ferramenta p/ configurar repo. fn principal inicializa docs projeto.
-```
-
-Drops: articles (`o`, `a`, `do`), fillers (`basicamente`, `apenas`), phrases (`De modo geral`, `você pode considerar que`). Ultra adds abbreviations (`repositório→repo`, `função→fn`, `documentação→docs`, `para→p/`).
+| Latency p50 (filter mode) | **6.4 ms** |
+| Latency p95 (incl. wrap/summarize) | **63 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
 | Usage | Baseline / month | Saved / month |
 |-------|-----------------|---------------|
 | 100 calls / day | $18.00 | **$16.71 (93%)** |
-| 1,000 calls / day | $180.00 | **$167.07 (93%)** |
-| 10,000 calls / day | $1,800.00 | **$1,670.69 (93%)** |
+| 1,000 calls / day | $180.00 | **$167.08 (93%)** |
+| 10,000 calls / day | $1800.00 | **$1670.76 (93%)** |
+<!-- BENCHMARK:END -->
 
 ---
 
@@ -166,6 +152,8 @@ squeez mcp                               # JSON-RPC 2.0 MCP server over stdin/st
 squeez protocol                          # print the auto-teach payload (markers + protocol)
 squeez update [--check] [--insecure]     # self-update
 squeez init [--copilot]                  # session-start hook (called by hook, not manually)
+squeez calibrate                         # auto-tune config from benchmarks
+squeez budget-params <tool>              # output JSON budget patch for tool
 squeez --version
 ```
 
@@ -231,7 +219,7 @@ Runs a Model Context Protocol JSON-RPC 2.0 server over stdin/stdout. Hand-rolled
 claude mcp add squeez -- /path/to/squeez mcp
 ```
 
-Six read-only tools become available to the LLM:
+Thirteen read-only tools become available to the LLM:
 
 | Tool | Returns |
 |------|---------|
@@ -241,6 +229,8 @@ Six read-only tools become available to the LLM:
 | `squeez_seen_error_details` | Error fingerprints with the first 128 chars of message text — find *what* the error was |
 | `squeez_session_summary` | Token accounting + call counts (tokens_bash / tokens_read / tokens_other / seen_files / seen_errors / seen_git_refs) |
 | `squeez_session_stats` | Dedup hit counts (exact + fuzzy), summarize triggers, Ultra-mode calls, tokens saved per category |
+| `squeez_agent_costs` | Sub-agent usage: spawn count, cumulative estimated tokens, per-call breakdown |
+| `squeez_session_efficiency` | Session efficiency scores: compression ratio, tool choice, context reuse, budget conservation (basis points) |
 | `squeez_prior_summaries` | Last N finalized prior-session summaries with structured fields: investigated / learned / completed / next_steps |
 | `squeez_search_history` | Full-text search across all session summaries — find when you last saw an error or touched a file |
 | `squeez_file_history` | Sessions where a given file path was touched, with token-savings and commit status |
@@ -301,6 +291,13 @@ similarity_threshold      = 0.85  # Jaccard threshold for fuzzy dedup (0.0–1.0
 ultra_trigger_pct         = 0.80  # fraction of context budget at which Full → Ultra
 mcp_prior_summaries_default = 5   # default n for squeez_prior_summaries
 mcp_recent_calls_default    = 10  # default n for squeez_recent_calls
+
+# ── Token economy ─────────────────────────────────────────────
+agent_warn_threshold_pct  = 0.50  # warn when agent cost > 50% of budget
+burn_rate_warn_calls      = 20    # warn when < 20 calls remaining
+agent_spawn_cost          = 200000 # estimated tokens per Agent/Task spawn
+read_max_lines            = 0     # max lines injected into Read tool_input (0 = off)
+grep_max_results          = 0     # max results injected into Grep tool_input (0 = off)
 ```
 
 ### Adaptive intensity — Full / Ultra split
@@ -429,7 +426,7 @@ Requires Rust stable. Windows requires Git Bash.
 git clone https://github.com/claudioemmanuel/squeez.git
 cd squeez
 
-cargo test                  # run all tests (315 tests, 38 suites)
+cargo test                  # run all tests (356 tests, 37 suites)
 cargo build --release       # build release binary
 
 bash bench/run.sh           # filter-mode benchmark (14 fixtures)

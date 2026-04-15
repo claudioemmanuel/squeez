@@ -8,3 +8,6 @@ docs/
 # Bench reports (regenerated on every run)
 bench/report.md
 bench/report_context.md
+
+# Generated docs    
+docs/
