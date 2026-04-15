@@ -14,7 +14,7 @@ DATE=$(git log -1 --format=%ai "$NEW_TAG" 2>/dev/null | cut -d' ' -f1)
 [ -z "$DATE" ] && DATE=$(date +%Y-%m-%d)
 
 # Find previous tag
-PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${NEW_TAG}$" | head -1)
+PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${NEW_TAG}$" | head -1 || true)
 if [ -z "$PREV_TAG" ]; then
   echo "No previous tag found — using full history"
   COMMITS=$(git log "$NEW_TAG" --oneline --no-merges)
