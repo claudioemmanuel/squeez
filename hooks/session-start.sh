@@ -19,6 +19,6 @@ if [ "$_diff" -gt 86400 ]; then
     echo "$_now" > "$_uc_ts" 2>/dev/null || true
     _uc_out=$("$SQUEEZ" update --check 2>/dev/null || true)
     if echo "$_uc_out" | grep -q "→"; then
-        printf "\n[squeez] Update available: %s\nRun: squeez update\n" "$_uc_out"
+        printf "\n[squeez] Update available: %s\nRun: squeez update\n" "$_uc_out" >&2
     fi
 fi
