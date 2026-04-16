@@ -197,10 +197,15 @@ jobs:
       - name: Copy CHANGELOG to npm directory
         run: cp CHANGELOG.md npm/CHANGELOG.md
 
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md npm/CHANGELOG.md README.md
-          git diff --cached --quiet || git commit -m "docs: update changelog and benchmarks for ${{ github.ref_name }} [skip release]"
-          git push origin main
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: update-docs-${{ github.ref_name }}
+          title: "docs: update changelog and benchmarks for ${{ github.ref_name }}"
+          commit-message: "docs: update changelog and benchmarks for ${{ github.ref_name }} [skip release]"
+          body: "Auto-generated: CHANGELOG.md + README benchmark table updated for ${{ github.ref_name }}."
+          add-paths: |
+            CHANGELOG.md
+            npm/CHANGELOG.md
+            README.md
