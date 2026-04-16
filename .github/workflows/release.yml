@@ -165,6 +165,7 @@ jobs:
   # ── Auto-update CHANGELOG + README benchmarks ─────────────────────────────
   update-docs:
     needs: [release, publish-npm, publish-crates]
+    if: always() && needs.release.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
