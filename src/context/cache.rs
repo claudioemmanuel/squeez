@@ -125,10 +125,13 @@ pub struct SessionContext {
     /// May be shorter than `call_log` after loading older context.json files
     /// that pre-date this field; callers must check length parity defensively.
     pub call_log_shingles: Vec<Vec<u64>>,
-    /// Cumulative token counts by tool category (Bash, Read, Other)
+    /// Cumulative token counts by tool category (Bash, Read, Grep, Other)
     pub tokens_bash: u64,
     pub tokens_read: u64,
+    pub tokens_grep: u64,
     pub tokens_other: u64,
+    /// How many times a file was accessed that was already in seen_files (re-read metric).
+    pub reread_count: u32,
     // ── Compression statistics (phase 6) ───────────────────────────────
     pub exact_dedup_hits: u32,
     pub fuzzy_dedup_hits: u32,
@@ -158,7 +161,9 @@ impl Default for SessionContext {
             call_log_shingles: Vec::new(),
             tokens_bash: 0,
             tokens_read: 0,
+            tokens_grep: 0,
             tokens_other: 0,
+            reread_count: 0,
             exact_dedup_hits: 0,
             fuzzy_dedup_hits: 0,
             summarize_triggers: 0,
@@ -349,6 +354,7 @@ impl SessionContext {
         if let Some(existing) = self.seen_files.iter_mut().find(|fp| fp.path == path) {
             existing.last_seen_call = call_n;
             existing.access = access;
+            self.reread_count = self.reread_count.saturating_add(1);
         } else {
             self.seen_files.push(FileFingerprint {
                 path: path.to_string(),
@@ -474,6 +480,7 @@ impl SessionContext {
         match tool.to_lowercase().as_str() {
             "bash" => self.tokens_bash = self.tokens_bash.saturating_add(tokens),
             "read" => self.tokens_read = self.tokens_read.saturating_add(tokens),
+            "grep" => self.tokens_grep = self.tokens_grep.saturating_add(tokens),
             _ => self.tokens_other = self.tokens_other.saturating_add(tokens),
         }
     }
@@ -630,7 +637,7 @@ impl SessionContext {
 \"seen_files_path\":{},\"seen_files_size\":{},\"seen_files_last\":{},\"seen_files_access\":{},\
 \"seen_errors\":{},\"error_snippet_fp\":{},\"error_snippet_text\":{},\
 \"seen_git_refs\":{},\
-\"tokens_bash\":{},\"tokens_read\":{},\"tokens_other\":{},\
+\"tokens_bash\":{},\"tokens_read\":{},\"tokens_grep\":{},\"tokens_other\":{},\"reread_count\":{},\
 \"exact_dedup_hits\":{},\"fuzzy_dedup_hits\":{},\"summarize_triggers\":{},\"intensity_ultra_calls\":{},\
 \"agent_spawns\":{},\"agent_estimated_tokens\":{},\
 \"agent_spawn_log_call_n\":{},\"agent_spawn_log_tool\":{},\"agent_spawn_log_tokens\":{},\"agent_spawn_log_ts\":{},\
@@ -653,7 +660,9 @@ impl SessionContext {
             json_util::str_array(&self.seen_git_refs),
             self.tokens_bash,
             self.tokens_read,
+            self.tokens_grep,
             self.tokens_other,
+            self.reread_count,
             self.exact_dedup_hits,
             self.fuzzy_dedup_hits,
             self.summarize_triggers,
@@ -744,7 +753,9 @@ impl SessionContext {
         c.seen_git_refs = json_util::extract_str_array(s, "seen_git_refs");
         c.tokens_bash = json_util::extract_u64(s, "tokens_bash").unwrap_or(0);
         c.tokens_read = json_util::extract_u64(s, "tokens_read").unwrap_or(0);
+        c.tokens_grep = json_util::extract_u64(s, "tokens_grep").unwrap_or(0);
         c.tokens_other = json_util::extract_u64(s, "tokens_other").unwrap_or(0);
+        c.reread_count = json_util::extract_u64(s, "reread_count").unwrap_or(0) as u32;
 
         // Phase 6: stat counters — optional for backward compat.
         c.exact_dedup_hits =

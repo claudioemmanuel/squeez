@@ -49,11 +49,11 @@ Cross-call awareness across 16 recent invocations:
 | `src/commands/wrap.rs` | Main orchestrator: spawn subprocess, capture, compress, inject header |
 | `src/commands/compress_md/` | Markdown compressor module: `mod.rs` (core logic), `locale.rs` (Locale struct + `from_code`), `locales/en.rs` + `locales/pt_br.rs` (word lists). Exposes `compress_text` (EN default) and `compress_text_with_locale`. Select locale via `lang=` in config or `--lang` CLI flag. |
 | `src/commands/init.rs` | Session start: finalize previous session memory, inject persona prompt |
-| `src/commands/benchmark.rs` | 19-scenario reproducible benchmark suite |
-| `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults |
+| `src/commands/benchmark.rs` | 22-scenario reproducible benchmark suite (incl. 3 economy scenarios); `--baseline` flag prints C0 vs C4 A/B table |
+| `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults. Key tunable: `state_warn_calls` (default 5) — calls-remaining threshold that triggers State-First Pattern warning |
 | `src/session.rs` | Session state: token accounting, JSONL event log at `~/.claude/squeez/sessions/` |
 | `src/context/cache.rs` | Cross-call dedup + file access cache (16-call window); stores shingles for fuzzy match |
-| `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 6 read-only tools (`squeez_recent_calls`, `squeez_seen_files`, `squeez_seen_errors`, `squeez_session_summary`, `squeez_prior_summaries`, `squeez_protocol`) |
+| `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 14 read-only tools (`squeez_recent_calls`, `squeez_seen_files`, `squeez_seen_errors`, `squeez_seen_error_details`, `squeez_session_summary`, `squeez_session_detail`, `squeez_session_stats`, `squeez_session_efficiency`, `squeez_prior_summaries`, `squeez_search_history`, `squeez_file_history`, `squeez_agent_costs`, `squeez_protocol`, `squeez_context_pressure`) |
 | `src/commands/protocol.rs` | Auto-teach payload — `SQUEEZ_PROTOCOL` + `SQUEEZ_MARKERS_SPEC` constants; `full_payload()` returns combined 2.4 KB string |
 
 ### Zero-dependency constraint

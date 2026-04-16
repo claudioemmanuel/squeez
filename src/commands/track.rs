@@ -18,6 +18,7 @@ pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
         None => return 0, // no session initialised — silent no-op
     };
     current.total_tokens += tokens;
+    current.total_calls += 1;
     current.save(sessions_dir);
 
     let event = format!(

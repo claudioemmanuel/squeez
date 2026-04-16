@@ -26,11 +26,23 @@ squeez memory protocol (read this once per session):
 4. Lines starting with `squeez:summary` are dense summaries replacing huge
    outputs. The original is in `~/.claude/squeez/sessions/{date}.jsonl`.
    Errors and the last 20 lines are always preserved verbatim.
-5. The MCP tools `squeez_recent_calls`, `squeez_seen_files`,
-   `squeez_seen_errors`, `squeez_session_summary`, `squeez_prior_summaries`
-   let you query what this session and previous sessions have already touched.
-   Use them BEFORE re-running expensive commands or asking the user to
-   recall what changed.
+5. MCP tools — use BEFORE re-running expensive commands or asking the user
+   to recall what changed:
+   Context:  `squeez_recent_calls` `squeez_seen_files` `squeez_seen_errors`
+             `squeez_seen_error_details` `squeez_context_pressure`
+   Session:  `squeez_session_summary` `squeez_session_detail`
+             `squeez_session_stats` `squeez_session_efficiency`
+             `squeez_agent_costs`
+   History:  `squeez_prior_summaries` `squeez_search_history`
+             `squeez_file_history` `squeez_protocol`
+
+6. Opus 4.7: new tokenizer +35% tokens; xhigh thinking — budget exhausts ~2× faster.
+7. When context is critical (≥75% budget or ≤10 calls remaining), write
+   `.claude/session_state.md` before clearing:
+     ## Current Objective / ## Files Read / ## Decisions Taken / ## Next Steps
+   Then `/clear` to reset, or `/compact [describe focus area]` for a
+   smaller focused summary. Reading the state file costs ~2K tokens vs
+   10K–20K for a compaction summary.
 ";
 
 /// Specification of the structured markers squeez may inject into output.
@@ -40,7 +52,7 @@ squeez output markers:
 
 * `# squeez [cmd] IN→OUT tokens (-N%) Tms [adaptive: Lite|Full|Ultra]`
     Header. IN/OUT are token estimates. `[adaptive: ...]` shows the chosen
-    intensity (Full at <80% budget, Ultra at ≥80%, Lite when adaptive off).
+    intensity (Full at <65% budget, Ultra at ≥65%, Lite when adaptive off).
 
 * `[squeez: identical to <hash> at bash#N — re-run with --no-squeez]`
     Exact-hash redundancy hit. The output of this call exactly matches an
@@ -97,14 +109,23 @@ mod tests {
     }
 
     #[test]
-    fn payload_documents_all_six_mcp_tools() {
+    fn payload_documents_all_mcp_tools() {
         let p = full_payload();
         for tool in [
             "squeez_recent_calls",
             "squeez_seen_files",
             "squeez_seen_errors",
+            "squeez_seen_error_details",
+            "squeez_context_pressure",
             "squeez_session_summary",
+            "squeez_session_detail",
+            "squeez_session_stats",
+            "squeez_session_efficiency",
+            "squeez_agent_costs",
             "squeez_prior_summaries",
+            "squeez_search_history",
+            "squeez_file_history",
+            "squeez_protocol",
         ] {
             assert!(p.contains(tool), "payload missing mention of {}", tool);
         }

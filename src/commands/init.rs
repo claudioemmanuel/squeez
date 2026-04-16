@@ -18,6 +18,8 @@ pub fn run() -> i32 {
     // Inject persona into ~/.claude/CLAUDE.md so Claude Code loads it
     // natively at every session start (more reliable than hook stdout).
     inject_claude_md(&cfg);
+    // Warn if CLAUDE.md is larger than ~1K tokens (research recommendation).
+    check_claude_md_size();
     code
 }
 
@@ -115,7 +117,10 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     let new = CurrentSession {
         session_file: session::new_session_filename(),
         total_tokens: 0,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: false,
+        state_warned: false,
         start_ts: now,
     };
     new.save(sessions_dir);
@@ -343,6 +348,22 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
         },
     );
     memory::prune_old(memory_dir, config.memory_retention_days);
+}
+
+/// Check ~/.claude/CLAUDE.md size and warn if > 4096 bytes (~1K tokens).
+/// Research recommendation: keep CLAUDE.md < 1K tokens — it is re-read every turn.
+fn check_claude_md_size() {
+    let home = crate::session::home_dir();
+    let path = format!("{}/.claude/CLAUDE.md", home);
+    if let Ok(meta) = std::fs::metadata(&path) {
+        let bytes = meta.len();
+        if bytes > 4096 {
+            println!(
+                "[squeez: CLAUDE.md is {}k bytes — consider trimming to <1K tokens to reduce per-turn cost]",
+                bytes / 1024
+            );
+        }
+    }
 }
 
 fn git(args: &[&str]) -> String {

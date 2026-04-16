@@ -17,7 +17,10 @@ fn seed_session(dir: &PathBuf, filename: &str) {
     let s = squeez::session::CurrentSession {
         session_file: filename.to_string(),
         total_tokens: 0,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: false,
+        state_warned: false,
         start_ts: 1_000,
     };
     s.save(dir);

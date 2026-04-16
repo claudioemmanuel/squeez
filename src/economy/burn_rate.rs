@@ -69,9 +69,9 @@ mod tests {
         for i in 1..=3 {
             ctx.burn_window.push(BurnEntry { call_n: i, tokens: 1000, ts: 0 });
         }
-        // Budget = 150_000, used = 0 → remaining = 150_000 / 1000 = 150
+        // Budget = 112_500 (90_000 * 5/4), used = 0 → remaining = 112_500 / 1000 = 112
         let remaining = calls_remaining(&ctx, &cfg).unwrap();
-        assert_eq!(remaining, 150);
+        assert_eq!(remaining, 112);
     }
 
     #[test]
@@ -82,9 +82,9 @@ mod tests {
         for i in 1..=3 {
             ctx.burn_window.push(BurnEntry { call_n: i, tokens: 1000, ts: 0 });
         }
-        // Budget = 150_000, used = 100_000 → remaining = 50_000 / 1000 = 50
+        // Budget = 112_500, used = 100_000 → remaining = 12_500 / 1000 = 12
         let remaining = calls_remaining(&ctx, &cfg).unwrap();
-        assert_eq!(remaining, 50);
+        assert_eq!(remaining, 12);
     }
 
     #[test]
@@ -102,11 +102,11 @@ mod tests {
     fn pressure_warning_when_low() {
         let mut ctx = SessionContext::default();
         let cfg = Config::default(); // burn_rate_warn_calls = 20
-        ctx.tokens_bash = 140_000; // near budget
+        ctx.tokens_bash = 102_500; // near budget
         for i in 1..=3 {
             ctx.burn_window.push(BurnEntry { call_n: i, tokens: 1000, ts: 0 });
         }
-        // remaining = (150_000 - 140_000) / 1000 = 10 < 20
+        // remaining = (112_500 - 102_500) / 1000 = 10 < 20
         let warn = pressure_warning(&ctx, &cfg);
         assert!(warn.is_some());
         assert!(warn.unwrap().contains("~10 calls left"));

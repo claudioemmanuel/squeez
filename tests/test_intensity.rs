@@ -20,7 +20,8 @@ fn adaptive_on_half_budget_is_full() {
 #[test]
 fn adaptive_on_seventy_nine_percent_is_full() {
     let c = cfg();
-    assert_eq!(derive(budget(&c) * 79 / 100, &c), Intensity::Full);
+    // 60% is below the 65% threshold — still Full
+    assert_eq!(derive(budget(&c) * 60 / 100, &c), Intensity::Full);
 }
 
 #[test]

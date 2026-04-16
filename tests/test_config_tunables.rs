@@ -7,7 +7,7 @@ fn defaults_match_prior_hardcoded_values() {
     assert_eq!(c.max_call_log, 32);
     assert_eq!(c.recent_window, 16);
     assert!((c.similarity_threshold - 0.85).abs() < 1e-6);
-    assert!((c.ultra_trigger_pct - 0.80).abs() < 1e-6);
+    assert!((c.ultra_trigger_pct - 0.65).abs() < 1e-6);
     assert_eq!(c.mcp_prior_summaries_default, 5);
     assert_eq!(c.mcp_recent_calls_default, 10);
 }

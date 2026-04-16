@@ -40,7 +40,10 @@ fn test_current_session_roundtrip() {
     let s = squeez::session::CurrentSession {
         session_file: "2026-03-23-14.jsonl".to_string(),
         total_tokens: 42_000,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: true,
+        state_warned: false,
         start_ts: 1_774_656_000,
     };
     s.save(&dir);

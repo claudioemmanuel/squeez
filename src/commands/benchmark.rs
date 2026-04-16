@@ -6,6 +6,7 @@
 //!
 //! Token model  : chars / 4  (matches existing bench/run.sh convention)
 //! Cost model   : Claude Sonnet 4.6 input $3.00 / 1M tokens
+//!                Claude Opus 4.7   input $5.00 / 1M tokens
 //! Quality model: fraction of "key terms" from baseline that survive compression
 
 use std::path::PathBuf;
@@ -20,6 +21,8 @@ use crate::json_util;
 
 /// Claude Sonnet 4.6 input USD per 1 000 000 tokens.
 const INPUT_COST_PER_MTOK: f64 = 3.0;
+/// Claude Opus 4.7 input USD per 1 000 000 tokens.
+const INPUT_COST_PER_MTOK_OPUS47: f64 = 5.0;
 /// Quality threshold: fraction of key terms that must survive.
 const QUALITY_PASS_THRESHOLD: f64 = 0.50;
 
@@ -212,6 +215,55 @@ fn make_kubectl_pods() -> String {
     out
 }
 
+fn make_agent_heavy() -> String {
+    let mut out = String::new();
+    // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
+    // verbose status output. Represents the token drain the research documents call "critical".
+    for i in 0..8 {
+        out.push_str(&format!("--- Agent spawn #{} ---\n", i + 1));
+        out.push_str("Starting sub-agent worker...\n");
+        out.push_str(&format!("Agent(Explore) initializing context window (up to 200K tokens)\n"));
+        out.push_str(&format!("  Reading src/module_{}/mod.rs ... done\n", i));
+        out.push_str(&format!("  Reading src/module_{}/lib.rs ... done\n", i));
+        out.push_str(&format!("  Searching for pattern: fn handle_request ...\n"));
+        out.push_str(&format!("  Found {} matches in {} files\n", 12 + i, 4 + i));
+        for j in 0..15 {
+            out.push_str(&format!(
+                "  [{:>3}] src/module_{}/handler_{}.rs:{}:{} - match found\n",
+                j + 1, i, j, 10 + j * 3, 4
+            ));
+        }
+        out.push_str("Agent(Explore) synthesis complete\n");
+        out.push_str("Sub-agent returned 1 result\n\n");
+    }
+    out.push_str("error: compilation failed after agent exploration — unresolved import `crate::missing_mod`\n");
+    out.push_str("  --> src/main.rs:5:5\n");
+    out.push_str("fix: add `mod missing_mod;` to src/main.rs\n");
+    out
+}
+
+fn make_session_state_md() -> String {
+    // Simulates a compact session_state.md written before /clear.
+    // Demonstrates the State-First Pattern economics: ~300 tokens vs 50K compaction summary.
+    let mut out = String::new();
+    out.push_str("# Session State (2026-04-15)\n\n");
+    out.push_str("## Objective\nImplementing full efficiency layer for squeez (gaps 1-6 from research).\n\n");
+    out.push_str("## Files Modified\n");
+    out.push_str("- src/session.rs: added state_warned, tokens_saved, total_calls fields\n");
+    out.push_str("- src/config.rs: added state_warn_calls tunable\n");
+    out.push_str("- src/commands/mcp_server.rs: 14 tools, squeez_context_pressure added\n");
+    out.push_str("- src/commands/wrap.rs: tier-2 critical pressure advisor\n\n");
+    out.push_str("## Decisions\n");
+    out.push_str("- Header injection (not new hook) for advisor — fits existing architecture\n");
+    out.push_str("- tokens_saved = in_tk - out_tk tracked in wrap.rs record_bash_event()\n");
+    out.push_str("- state_warn_calls default = 10 (configurable via config.ini)\n\n");
+    out.push_str("## Next Steps\n");
+    out.push_str("1. Add 3 economy benchmark scenarios\n");
+    out.push_str("2. Add --baseline flag to benchmark\n");
+    out.push_str("3. cargo test && cargo build --release\n");
+    out
+}
+
 // ─── Fixtures directory discovery ────────────────────────────────────────────
 
 fn fixtures_dir() -> PathBuf {
@@ -253,6 +305,77 @@ fn find_binary() -> Option<PathBuf> {
         return Some(installed);
     }
     None
+}
+
+fn make_large_claude_md() -> String {
+    // Simulates a CLAUDE.md that exceeds the research-recommended 1K-token limit.
+    // This content would be re-read on every API turn, making it a fixed per-turn cost.
+    // At ~150 lines / ~600 words ≈ 2K tokens: 2× the recommended ceiling.
+    let mut out = String::new();
+    out.push_str("# Project Guidelines\n\n");
+    out.push_str("## Architecture Overview\n");
+    out.push_str("This project uses a microservices architecture with the following components:\n");
+    for i in 1..=8 {
+        out.push_str(&format!("- Service {}: Handles {} operations with {} pattern\n",
+            i, ["auth", "billing", "search", "notify", "storage", "cache", "queue", "analytics"][i-1],
+            ["REST", "gRPC", "GraphQL", "WebSocket", "batch", "stream", "pub-sub", "event-driven"][i-1]));
+    }
+    out.push_str("\n## Coding Standards\n");
+    out.push_str("All code must follow these standards:\n");
+    for rule in &[
+        "Use TypeScript strict mode for all new files",
+        "Every function must have JSDoc comments with @param and @returns",
+        "Test coverage must be at least 80% for all new modules",
+        "Use async/await instead of callbacks or raw Promises",
+        "All API endpoints must validate input with Zod schemas",
+        "Database queries must use parameterized statements only",
+        "Log all errors with structured JSON including timestamp and trace_id",
+        "Use feature flags for all new functionality behind experiments",
+        "Never commit secrets — use environment variables via .env files",
+        "All PRs require two approvals and passing CI before merge",
+        "Dependency updates must be reviewed for security advisories",
+        "Use semantic versioning for all package releases",
+    ] {
+        out.push_str(&format!("- {}\n", rule));
+    }
+    out.push_str("\n## Tool Usage Rules\n");
+    out.push_str("When working in this codebase:\n");
+    for rule in &[
+        "Always run `npm test` before committing",
+        "Use `grep` to find files before using `read_file`",
+        "Never use `Agent(Explore)` for simple file searches",
+        "Run `npm run build` to check TypeScript compilation",
+        "Check `git status` before making any changes",
+        "Use `git log --oneline -10` to review recent history",
+        "Always read CHANGELOG.md before starting a new feature",
+        "Use the project's ESLint config — don't disable rules",
+        "Check package.json for existing scripts before adding new ones",
+    ] {
+        out.push_str(&format!("- {}\n", rule));
+    }
+    out.push_str("\n## Deployment Checklist\n");
+    for item in &[
+        "Update version in package.json",
+        "Run full test suite and ensure 0 failures",
+        "Build production bundle and check bundle size",
+        "Update CHANGELOG.md with release notes",
+        "Create git tag matching the version",
+        "Push tag to trigger CI/CD pipeline",
+        "Monitor error rates in Grafana for 30 minutes post-deploy",
+        "Send release announcement to #engineering channel",
+    ] {
+        out.push_str(&format!("- [ ] {}\n", item));
+    }
+    out.push_str("\n## Environment Variables\n");
+    for var in &[
+        "DATABASE_URL", "REDIS_URL", "JWT_SECRET", "AWS_REGION",
+        "S3_BUCKET", "SENDGRID_KEY", "STRIPE_KEY", "DATADOG_KEY",
+        "FEATURE_FLAGS_URL", "LOG_LEVEL", "PORT", "NODE_ENV",
+    ] {
+        out.push_str(&format!("- `{}`: Required for {} service\n", var,
+            var.split('_').next().unwrap_or("core").to_lowercase()));
+    }
+    out
 }
 
 // ─── Scenario construction ────────────────────────────────────────────────────
@@ -367,6 +490,59 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
             quality_mode: QualityMode::Signal,
         });
     }
+
+    // ── Economy scenarios (session efficiency research) ───────────────────────
+    // agent_heavy: token drain from agent-heavy sessions; tests compression of
+    // verbose sub-agent spawn/status output (the "critical" drain from the research).
+    // Quality mode: Keywords (no required terms) — the metric of interest is reduction_pct.
+    s.push(Scenario {
+        name: "agent_heavy".to_string(),
+        category: "economy".to_string(),
+        kind: ScenarioKind::Filter { hint: "bash".to_string() },
+        content: make_agent_heavy(),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
+
+    // high_context_adaptive: loads intensity_budget80 fixture or synthesises it;
+    // verifies that Ultra intensity fires and achieves high reduction on large output.
+    // Quality mode: Keywords — reduction_pct (≥90% expected) is the key metric.
+    {
+        let hca_content = load("intensity_budget80.txt")
+            .unwrap_or_else(|| make_repetitive_output().repeat(10));
+        s.push(Scenario {
+            name: "high_context_adaptive".to_string(),
+            category: "economy".to_string(),
+            kind: ScenarioKind::Filter { hint: "bash".to_string() },
+            content: hca_content,
+            required_keywords: vec![],
+            quality_mode: QualityMode::Keywords,
+        });
+    }
+
+    // state_first_simulation: a compact session_state.md costs ~300 tokens —
+    // demonstrates the economics of the State-First Pattern vs a 50K compaction summary.
+    // Quality mode: Keywords — the low baseline_tokens value itself proves the point.
+    s.push(Scenario {
+        name: "state_first_simulation".to_string(),
+        category: "economy".to_string(),
+        kind: ScenarioKind::Filter { hint: "cat".to_string() },
+        content: make_session_state_md(),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
+
+    // claude_md_overhead: simulates a large CLAUDE.md being re-read every turn (C5 from research).
+    // Research: CLAUDE.md should be <1K tokens; anything beyond is paid on every API call.
+    // Quality mode: Keywords — the per-turn token floor is the metric, not signal preservation.
+    s.push(Scenario {
+        name: "claude_md_overhead".to_string(),
+        category: "economy".to_string(),
+        kind: ScenarioKind::Filter { hint: "cat".to_string() },
+        content: make_large_claude_md(),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
 
     // ── Wrap (binary spawn) scenarios ─────────────────────────────────────────
     // Keywords-only: the wrap output format changes intentionally
@@ -844,17 +1020,22 @@ pub fn print_human(report: &BenchmarkReport) {
     println!();
 
     // ── Cost savings ─────────────────────────────────────────────────────────
-    println!("ESTIMATED COST SAVINGS  (Claude Sonnet 4.6 · $3.00/MTok input)");
-    let baseline_cost_per_mtok = INPUT_COST_PER_MTOK;
     let savings_frac = report.estimated_cost_savings_pct / 100.0;
-    for calls_per_day in [100u64, 1_000, 10_000] {
-        // Assume each call sends ~2k tokens of context on average
-        let avg_context_tokens_per_call = 2_000.0f64;
-        let monthly_tokens = calls_per_day as f64 * avg_context_tokens_per_call * 30.0;
-        let baseline_cost = monthly_tokens / 1_000_000.0 * baseline_cost_per_mtok;
-        let saved = baseline_cost * savings_frac;
-        println!("  {:>6} calls/day  → ${:.2}/month baseline  → ${:.2} saved/month  ({:.1}%)",
-            format_num(calls_per_day), baseline_cost, saved, report.estimated_cost_savings_pct);
+    for (label, price) in [
+        ("Claude Sonnet 4.6 · $3.00/MTok", INPUT_COST_PER_MTOK),
+        ("Claude Opus 4.7   · $5.00/MTok", INPUT_COST_PER_MTOK_OPUS47),
+    ] {
+        println!("ESTIMATED COST SAVINGS  ({} input)", label);
+        for calls_per_day in [100u64, 1_000, 10_000] {
+            // Assume each call sends ~2k tokens of context on average
+            let avg_context_tokens_per_call = 2_000.0f64;
+            let monthly_tokens = calls_per_day as f64 * avg_context_tokens_per_call * 30.0;
+            let baseline_cost = monthly_tokens / 1_000_000.0 * price;
+            let saved = baseline_cost * savings_frac;
+            println!("  {:>6} calls/day  → ${:.2}/month baseline  → ${:.2} saved/month  ({:.1}%)",
+                format_num(calls_per_day), baseline_cost, saved, report.estimated_cost_savings_pct);
+        }
+        println!();
     }
 
     println!();
@@ -963,14 +1144,16 @@ pub fn run(args: &[String]) -> i32 {
     let mut json_mode = false;
     let mut output_file: Option<String> = None;
     let mut scenario_filter: Option<String> = None;
-    let mut iterations: usize = 3;
+    let mut iterations: usize = 5;
     let mut list_only = false;
+    let mut baseline_mode = false;
     let mut i = 0;
 
     while i < args.len() {
         match args[i].as_str() {
             "--json" => json_mode = true,
             "--list" => list_only = true,
+            "--baseline" => baseline_mode = true,
             "--output" | "-o" => {
                 i += 1;
                 output_file = args.get(i).cloned();
@@ -1058,11 +1241,72 @@ pub fn run(args: &[String]) -> i32 {
     }
     if json_mode {
         println!("{}", json);
+    } else if baseline_mode {
+        print_baseline_comparison(&report);
     } else {
         print_human(&report);
     }
 
     if report.quality_fail_count > 0 { 1 } else { 0 }
+}
+
+/// Print an A/B comparison table: SCENARIO | BASELINE | SQUEEZ | SAVINGS.
+/// The "baseline" column shows what Claude would receive without any compression
+/// (raw input tokens); "squeez" shows compressed tokens; "savings" is the delta.
+/// This directly maps to the C0 (baseline) vs C4 (hook filtering) hypothesis from
+/// the research framework.
+fn print_baseline_comparison(report: &BenchmarkReport) {
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════════════════╗");
+    println!("║         squeez A/B comparison — baseline vs hook-filtered (C4)        ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("{:<32} {:>10} {:>10} {:>10} {:>9}", "SCENARIO", "BASELINE", "SQUEEZ", "SAVINGS", "REDUCTION");
+    println!("{}", "─".repeat(76));
+
+    let mut total_baseline = 0usize;
+    let mut total_squeez = 0usize;
+
+    let mut last_cat = String::new();
+    for r in &report.results {
+        if r.iterations == 0 { continue; }
+        if r.category != last_cat {
+            println!();
+            println!("  ▸ {}", r.category.replace('_', " ").to_uppercase());
+            last_cat = r.category.clone();
+        }
+        let savings = r.baseline_tokens.saturating_sub(r.compressed_tokens);
+        println!(
+            "  {:<30} {:>8}tk {:>8}tk {:>8}tk {:>7.1}%",
+            r.name,
+            r.baseline_tokens,
+            r.compressed_tokens,
+            savings,
+            r.reduction_pct,
+        );
+        total_baseline += r.baseline_tokens;
+        total_squeez += r.compressed_tokens;
+    }
+
+    let total_savings = total_baseline.saturating_sub(total_squeez);
+    let total_reduction = reduction_pct(total_baseline, total_squeez);
+
+    println!();
+    println!("{}", "═".repeat(76));
+    println!(
+        "  {:<30} {:>8}tk {:>8}tk {:>8}tk {:>7.1}%",
+        "TOTAL",
+        total_baseline,
+        total_squeez,
+        total_savings,
+        total_reduction,
+    );
+    println!();
+    println!("C0 (baseline, no filtering) vs C4 (squeez hook filtering):");
+    println!("  Without squeez: {:>8}tk sent to Claude per benchmark run", total_baseline);
+    println!("  With squeez:    {:>8}tk sent to Claude per benchmark run", total_squeez);
+    println!("  Net savings:    {:>8}tk ({:.1}% reduction)", total_savings, total_reduction);
+    println!();
 }
 
 fn print_help() {
@@ -1074,7 +1318,8 @@ fn print_help() {
     eprintln!("OPTIONS");
     eprintln!("  --list                  List all available scenarios");
     eprintln!("  --scenario, -s <name>   Run only scenarios whose name/category contains <name>");
-    eprintln!("  --iterations, -n <n>    Iterations per scenario (default: 3)");
+    eprintln!("  --iterations, -n <n>    Iterations per scenario (default: 5)");
+    eprintln!("  --baseline              Show A/B comparison (C0 baseline vs C4 squeez)");
     eprintln!("  --json                  Print JSON report to stdout");
     eprintln!("  --output, -o <file>     Write JSON report to <file>");
     eprintln!("  --help, -h              Show this help");
