@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/squeez.svg)](https://www.npmjs.com/package/squeez)
 [![Crates.io](https://img.shields.io/crates/v/squeez.svg)](https://crates.io/crates/squeez)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[Changelog](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-📋-blue.svg)](CHANGELOG.md)
 
 End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
 
