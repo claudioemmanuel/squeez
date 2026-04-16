@@ -4,7 +4,7 @@ use crate::context::cache::SessionContext;
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Default estimated tokens consumed per sub-agent spawn (full context window).
-pub const DEFAULT_AGENT_SPAWN_COST: u64 = 200_000;
+pub const DEFAULT_AGENT_SPAWN_COST: u64 = 270_000;
 
 /// Cap on tracked agent spawn entries (rolling window).
 pub const MAX_AGENT_SPAWN_LOG: usize = 16;

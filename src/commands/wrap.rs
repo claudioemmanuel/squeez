@@ -388,6 +388,9 @@ fn record_bash_event(
     let mut current = session::CurrentSession::load(&dir)?;
 
     current.total_tokens += out_tk as u64;
+    if in_tk > out_tk {
+        current.tokens_saved += (in_tk - out_tk) as u64;
+    }
 
     let event = format!(
         "{{\"type\":\"bash\",\"cmd\":\"{}\",\"in_tk\":{},\"out_tk\":{},\
@@ -402,22 +405,55 @@ fn record_bash_event(
     );
     session::append_event(&dir, &current.session_file, &event);
 
+    let budget = config.compact_threshold_tokens * 5 / 4;
+    let pct = current.total_tokens * 100 / budget.max(1);
+
     let warning = if !current.compact_warned
         && current.total_tokens >= config.compact_threshold_tokens
     {
-        let budget = config.compact_threshold_tokens * 5 / 4;
-        let pct = current.total_tokens * 100 / budget.max(1);
         current.compact_warned = true;
         // Load context for per-tool breakdown
         let ctx = crate::context::cache::SessionContext::load(&dir);
         Some(format!(
-            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Other {}K",
+            "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Grep {}K | Other {}K",
             current.total_tokens / 1000,
             pct,
             ctx.tokens_bash / 1000,
             ctx.tokens_read / 1000,
+            ctx.tokens_grep / 1000,
             ctx.tokens_other / 1000,
         ))
+    } else if !current.state_warned {
+        // Tier-2: State-First Pattern suggestion at critical pressure.
+        let critical = if pct >= 90 {
+            true
+        } else {
+            let ctx = crate::context::cache::SessionContext::load(&dir);
+            crate::economy::burn_rate::calls_remaining(&ctx, config)
+                .map(|r| r <= config.state_warn_calls)
+                .unwrap_or(false)
+        };
+        if critical {
+            current.state_warned = true;
+            Some(format!(
+                "🚨 squeez: context critical ({}%) — save state before clearing:\n\
+                 \n\
+                 Write `.claude/session_state.md` with:\n\
+                 ## Current Objective\n\
+                 <what you're solving now>\n\
+                 ## Files Read\n\
+                 <paths + what was learned>\n\
+                 ## Decisions Taken\n\
+                 <why approach X not Y>\n\
+                 ## Next Steps\n\
+                 <immediate plan>\n\
+                 \n\
+                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).",
+                pct.min(100),
+            ))
+        } else {
+            None
+        }
     } else {
         None
     };

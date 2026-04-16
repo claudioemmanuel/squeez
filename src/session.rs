@@ -98,7 +98,10 @@ fn is_leap(y: i32) -> bool {
 pub struct CurrentSession {
     pub session_file: String,
     pub total_tokens: u64,
+    pub tokens_saved: u64,
+    pub total_calls: u64,
     pub compact_warned: bool,
+    pub state_warned: bool,
     pub start_ts: u64,
 }
 
@@ -108,17 +111,23 @@ impl CurrentSession {
         Some(Self {
             session_file: crate::json_util::extract_str(&s, "session_file").unwrap_or_default(),
             total_tokens: crate::json_util::extract_u64(&s, "total_tokens").unwrap_or(0),
+            tokens_saved: crate::json_util::extract_u64(&s, "tokens_saved").unwrap_or(0),
+            total_calls: crate::json_util::extract_u64(&s, "total_calls").unwrap_or(0),
             compact_warned: crate::json_util::extract_bool(&s, "compact_warned").unwrap_or(false),
+            state_warned: crate::json_util::extract_bool(&s, "state_warned").unwrap_or(false),
             start_ts: crate::json_util::extract_u64(&s, "start_ts").unwrap_or(0),
         })
     }
 
     pub fn save(&self, sessions_dir: &Path) {
         let json = format!(
-            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"compact_warned\":{},\"start_ts\":{}}}",
+            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"tokens_saved\":{},\"total_calls\":{},\"compact_warned\":{},\"state_warned\":{},\"start_ts\":{}}}",
             crate::json_util::escape_str(&self.session_file),
             self.total_tokens,
+            self.tokens_saved,
+            self.total_calls,
             self.compact_warned,
+            self.state_warned,
             self.start_ts,
         );
         let path = sessions_dir.join("current.json");

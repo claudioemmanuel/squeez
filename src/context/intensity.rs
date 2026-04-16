@@ -38,7 +38,7 @@ pub const ULTRA_TRIGGER_DEN: u64 = 100;
 /// * `used < ultra_trigger_pct of budget` → Full (×0.6 — gentle compression)
 /// * `used ≥ ultra_trigger_pct of budget` → Ultra (×0.3 — emergency compression)
 ///
-/// The threshold is configurable via `ultra_trigger_pct` (default 0.80).
+/// The threshold is configurable via `ultra_trigger_pct` (default 0.65).
 pub fn derive(used: u64, cfg: &Config) -> Intensity {
     if !cfg.adaptive_intensity {
         return Intensity::Lite;
@@ -114,8 +114,8 @@ mod tests {
     #[test]
     fn adaptive_enabled_just_below_threshold_is_full() {
         let c = cfg();
-        // 79% of budget — still Full
-        let used = budget(&c) * 79 / 100;
+        // 60% of budget — still Full (threshold is now 65%)
+        let used = budget(&c) * 60 / 100;
         assert_eq!(derive(used, &c), Intensity::Full);
     }
 

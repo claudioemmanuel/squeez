@@ -46,7 +46,10 @@ fn test_init_finalizes_prior_session_to_memory() {
     let prior = squeez::session::CurrentSession {
         session_file: prior_file.to_string(),
         total_tokens: 5_000,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: false,
+        state_warned: false,
         start_ts: 1_774_137_600,
     };
     prior.save(&sessions);
@@ -103,7 +106,10 @@ fn test_init_empty_session_log_no_panic() {
     let prior = squeez::session::CurrentSession {
         session_file: prior_file.to_string(),
         total_tokens: 0,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: false,
+        state_warned: false,
         start_ts: 1_774_224_000,
     };
     prior.save(&sessions);

@@ -46,6 +46,8 @@ pub struct Config {
     pub mcp_prior_summaries_default: usize,
     /// Default `n` for `squeez_recent_calls` MCP tool (default 10).
     pub mcp_recent_calls_default: usize,
+    /// Calls remaining threshold for State-First Pattern warning (default 5).
+    pub state_warn_calls: u64,
 }
 
 impl Default for Config {
@@ -65,7 +67,7 @@ impl Default for Config {
                 "mysql".to_string(),
                 "ssh".to_string(),
             ],
-            compact_threshold_tokens: 120_000,
+            compact_threshold_tokens: 90_000,
             memory_retention_days: 30,
             adaptive_intensity: true,
             context_cache_enabled: true,
@@ -75,16 +77,17 @@ impl Default for Config {
             auto_compress_md: true,
             lang: "en".to_string(),
             agent_warn_threshold_pct: 0.50,
-            burn_rate_warn_calls: 20,
-            agent_spawn_cost: 200_000,
+            burn_rate_warn_calls: 30,
+            agent_spawn_cost: 350_000,
             read_max_lines: 300,
             grep_max_results: 100,
             max_call_log: 32,
             recent_window: 16,
             similarity_threshold: 0.85,
-            ultra_trigger_pct: 0.80,
+            ultra_trigger_pct: 0.65,
             mcp_prior_summaries_default: 5,
             mcp_recent_calls_default: 10,
+            state_warn_calls: 10,
         }
     }
 }
@@ -169,6 +172,9 @@ impl Config {
                     "mcp_recent_calls_default" => {
                         c.mcp_recent_calls_default =
                             v.parse().unwrap_or(c.mcp_recent_calls_default)
+                    }
+                    "state_warn_calls" => {
+                        c.state_warn_calls = v.parse().unwrap_or(c.state_warn_calls)
                     }
                     _ => {}
                 }

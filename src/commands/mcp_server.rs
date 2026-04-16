@@ -182,6 +182,11 @@ const TOOLS: &[(&str, &str, &str)] = &[
         "Session efficiency scoring: compression ratio, tool choice efficiency (direct vs agent), context reuse rate, budget conservation. Scores in basis points (0-10000 = 0-100%).",
         "{\"type\":\"object\",\"properties\":{}}",
     ),
+    (
+        "squeez_context_pressure",
+        "Current context pressure: budget used %, calls remaining, tokens_saved this session, and an actionable recommendation (ok / compact_soon / use_state_first). Call this to decide whether to /compact or save state and /clear.",
+        "{\"type\":\"object\",\"properties\":{}}",
+    ),
 ];
 
 fn tools_list_response(id: &str) -> String {
@@ -217,12 +222,13 @@ fn tools_call_response(id: &str, line: &str) -> String {
     let path_arg = crate::json_util::extract_str(line, "path").unwrap_or_default();
     let date_arg = crate::json_util::extract_str(line, "date").unwrap_or_default();
 
+    let cfg = crate::config::Config::load();
     let text = match name.as_str() {
-        "squeez_recent_calls" => tool_recent_calls(n.unwrap_or(10)),
+        "squeez_recent_calls" => tool_recent_calls(n.unwrap_or(cfg.mcp_recent_calls_default)),
         "squeez_seen_files" => tool_seen_files(limit.unwrap_or(20)),
         "squeez_seen_errors" => tool_seen_errors(limit.unwrap_or(10)),
         "squeez_session_summary" => tool_session_summary(),
-        "squeez_prior_summaries" => tool_prior_summaries(n.unwrap_or(5)),
+        "squeez_prior_summaries" => tool_prior_summaries(n.unwrap_or(cfg.mcp_prior_summaries_default)),
         "squeez_protocol" => protocol::full_payload(),
         "squeez_seen_error_details" => tool_seen_error_details(limit.unwrap_or(10)),
         "squeez_search_history" => tool_search_history(&query, limit.unwrap_or(10)),
@@ -231,6 +237,7 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_session_stats" => tool_session_stats(),
         "squeez_agent_costs" => tool_agent_costs(),
         "squeez_session_efficiency" => tool_session_efficiency(),
+        "squeez_context_pressure" => tool_context_pressure(),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -312,9 +319,19 @@ fn tool_session_summary() -> String {
     out.push_str(&format!("seen_git_refs:   {}\n", ctx.seen_git_refs.len()));
     out.push_str(&format!("tokens_bash:     {}\n", ctx.tokens_bash));
     out.push_str(&format!("tokens_read:     {}\n", ctx.tokens_read));
+    out.push_str(&format!("tokens_grep:     {}\n", ctx.tokens_grep));
     out.push_str(&format!("tokens_other:    {}\n", ctx.tokens_other));
+    if ctx.reread_count > 0 {
+        out.push_str(&format!("re-reads:        {} (same file accessed again after earlier read)\n", ctx.reread_count));
+    }
     if let Some(c) = curr {
         out.push_str(&format!("session_total:   {} tokens\n", c.total_tokens));
+        out.push_str(&format!("tokens_saved:    {} tokens\n", c.tokens_saved));
+        let raw = c.total_tokens + c.tokens_saved;
+        if raw > 0 {
+            let ratio = c.tokens_saved * 100 / raw;
+            out.push_str(&format!("compression:     {}%\n", ratio));
+        }
         out.push_str(&format!("started_unix:    {}\n", c.start_ts));
     }
     out
@@ -672,18 +689,59 @@ fn tool_session_efficiency() -> String {
     let ctx = load_ctx();
     let cfg = crate::config::Config::load();
     let budget = cfg.compact_threshold_tokens * 5 / 4;
-    let total_tokens = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
+    let total_in = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
     let dedup_hits = ctx.exact_dedup_hits + ctx.fuzzy_dedup_hits;
+    // Use real tokens_saved from CurrentSession for accurate compression ratio.
+    let tokens_saved = session::CurrentSession::load(&session::sessions_dir())
+        .map(|c| c.tokens_saved)
+        .unwrap_or(0);
+    let total_out = total_in.saturating_sub(tokens_saved);
     let score = crate::economy::efficiency::compute(
-        total_tokens,     // total_in (approximation: raw tokens seen)
-        total_tokens / 2, // total_out (approximation: ~50% compressed on average)
+        total_in,
+        total_out,
         ctx.agent_estimated_tokens,
-        total_tokens,
+        total_in,
         dedup_hits,
         ctx.call_counter,
         budget,
     );
     crate::economy::efficiency::format_efficiency(&score)
+}
+
+/// Context pressure advisor: pressure %, calls remaining, tokens_saved, recommendation.
+fn tool_context_pressure() -> String {
+    let ctx = load_ctx();
+    let cfg = crate::config::Config::load();
+    let budget = cfg.compact_threshold_tokens * 5 / 4;
+    let total_in = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
+    let pressure_pct = if budget > 0 { (total_in * 100 / budget).min(100) } else { 0 };
+
+    let calls_remaining_str = crate::economy::burn_rate::calls_remaining(&ctx, &cfg)
+        .map(|r| format!("~{}", r))
+        .unwrap_or_else(|| "unknown (need ≥3 calls)".to_string());
+
+    let calls_left = crate::economy::burn_rate::calls_remaining(&ctx, &cfg)
+        .unwrap_or(u64::MAX);
+
+    let tokens_saved = session::CurrentSession::load(&session::sessions_dir())
+        .map(|c| c.tokens_saved)
+        .unwrap_or(0);
+
+    let recommendation = if pressure_pct >= 75 || calls_left <= cfg.state_warn_calls {
+        "use_state_first — save state to .claude/session_state.md, then /clear"
+    } else if pressure_pct >= 55 {
+        "compact_soon — run /compact to reduce context"
+    } else {
+        "ok"
+    };
+
+    format!(
+        "context_pressure: {}%\ncalls_remaining: {}\ntokens_saved: {}\nrecommendation: {}\n",
+        pressure_pct,
+        calls_remaining_str,
+        tokens_saved,
+        recommendation,
+    )
 }
 
 // ── JSON helpers (raw `id` extraction) ────────────────────────────────────
@@ -762,7 +820,7 @@ mod tests {
     fn handle_tools_list_returns_all_tools() {
         let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}";
         let resp = handle_request(req).expect("must respond");
-        // All thirteen tool names appear in the response.
+        // All fourteen tool names appear in the response.
         for name in [
             "squeez_recent_calls",
             "squeez_seen_files",
@@ -777,6 +835,7 @@ mod tests {
             "squeez_session_stats",
             "squeez_agent_costs",
             "squeez_session_efficiency",
+            "squeez_context_pressure",
         ] {
             assert!(resp.contains(name), "missing tool {}", name);
         }

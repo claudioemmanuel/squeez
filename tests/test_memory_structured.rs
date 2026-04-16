@@ -25,7 +25,10 @@ fn finalize_session(sessions: &std::path::Path, memory: &std::path::Path, events
     let prior = squeez::session::CurrentSession {
         session_file: session_file.to_string(),
         total_tokens: 1000,
+        tokens_saved: 0,
+        total_calls: 0,
         compact_warned: false,
+        state_warned: false,
         start_ts: 1_774_137_600,
     };
     prior.save(sessions);
