@@ -7,6 +7,15 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `squeez update` on Windows now detects cargo-managed installs and delegates to `cargo install squeez` automatically, avoiding exe-lock issues
+- `install_target_path()` uses `current_exe()` instead of hardcoded `~/.claude/squeez/bin`, so the correct binary is always updated regardless of install method
+- Windows self-update fallback spawns a detached `cmd.exe` to move the staged binary after process exit, instead of requiring manual `move /Y`
+- `install_atomic` now returns `Ok(bool)` distinguishing immediate vs deferred installs; success message no longer appears when install was only staged
+
+### Added
+- `session-start.sh`: rate-limited update check (once per day) — injects `[squeez] Update available` notification into Claude session context when a new version is detected
+
 ## [0.3.0] - 2026-04-14
 
 ### Added
