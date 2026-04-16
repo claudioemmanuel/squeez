@@ -7,6 +7,21 @@ This project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-16
+
+### Added
+- feat(opus47): dual-model cost table in benchmark — Sonnet 4.6 ($3/MTok) + Opus 4.7 ($5/MTok)
+- feat(opus47): protocol now educates LLM on xhigh thinking-block overhead (~2× budget burn)
+
+### Changed
+- feat(opus47): compact_threshold_tokens 120k → 90k (earlier compaction trigger for new tokenizer)
+- feat(opus47): agent_spawn_cost 270k → 350k (xhigh subagents burn more tokens)
+- feat(opus47): burn_rate_warn_calls 20 → 30 (wider pre-exhaustion warning window)
+- feat(opus47): state_warn_calls 5 → 10 (more runway to save session state)
+- feat(opus47): ultra_trigger_pct 0.72 → 0.65 (go Ultra compression earlier)
+- feat(opus47): MCP context_pressure thresholds — use_state_first ≥90%→≥75%, compact_soon ≥70%→≥55%
+- fix: DEFAULT_AGENT_SPAWN_COST constant synced to config default (200k → 270k)
+
 ## [0.3.2] - 2026-04-16
 
 ### Added
