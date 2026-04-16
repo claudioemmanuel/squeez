@@ -106,6 +106,36 @@ os.replace(tmp, path)
 print("settings.json updated.")
 "#;
 
+/// Detect the user's preferred language by inspecting ~/.claude/CLAUDE.md
+/// and system locale env vars. Returns a squeez lang code (e.g. "pt-BR", "en").
+fn detect_lang(home: &str) -> &'static str {
+    // 1. ~/.claude/CLAUDE.md — most reliable signal for Claude Code users
+    let claude_md = format!("{}/.claude/CLAUDE.md", home);
+    if let Ok(content) = std::fs::read_to_string(&claude_md) {
+        let lower = content.to_lowercase();
+        if lower.contains("pt-br") || lower.contains("pt_br")
+            || lower.contains("português") || lower.contains("portugues")
+        {
+            return "pt-BR";
+        }
+    }
+
+    // 2. System locale env vars
+    for var in &["LANG", "LC_ALL", "LANGUAGE"] {
+        if let Ok(val) = std::env::var(var) {
+            let lower = val.to_lowercase();
+            if lower.starts_with("pt_br") || lower.starts_with("pt-br") {
+                return "pt-BR";
+            }
+            if lower.starts_with("pt") {
+                return "pt-BR"; // treat any pt locale as pt-BR (only variant with assets)
+            }
+        }
+    }
+
+    "en"
+}
+
 pub fn run(args: &[String]) -> i32 {
     let force = args.iter().any(|a| a == "--force" || a == "-f");
 
@@ -124,7 +154,11 @@ pub fn run(args: &[String]) -> i32 {
     // 2. Write default config.ini if not present (never overwrite user customizations)
     let config_path = format!("{}/config.ini", install_dir);
     if !std::path::Path::new(&config_path).exists() {
-        let content = DEFAULT_CONFIG_INI;
+        let lang = detect_lang(&home);
+        let content = DEFAULT_CONFIG_INI.replace("lang = en", &format!("lang = {}", lang));
+        if lang != "en" {
+            println!("squeez setup: detected language → {}", lang);
+        }
         if let Err(e) = std::fs::write(&config_path, content) {
             eprintln!("squeez setup: warning: could not write config.ini: {}", e);
         } else {

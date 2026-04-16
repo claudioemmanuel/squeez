@@ -14,7 +14,8 @@ This project uses [Semantic Versioning](https://semver.org/).
 - `install_atomic` now returns `Ok(bool)` distinguishing immediate vs deferred installs; success message no longer appears when install was only staged
 
 ### Added
-- `session-start.sh`: rate-limited update check (once per day) — injects `[squeez] Update available` notification into Claude session context when a new version is detected
+- `session-start.sh`: rate-limited daily update check — prints `[squeez] Update available` to stderr (visible in terminal) when a new version is detected
+- `squeez setup`: auto-detects user language from `~/.claude/CLAUDE.md` and system locale (`LANG`/`LC_ALL`) and writes correct `lang =` into `config.ini` on first install
 
 ## [0.3.0] - 2026-04-14
 
