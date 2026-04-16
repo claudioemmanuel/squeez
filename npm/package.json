@@ -19,6 +19,7 @@
     "url": "https://github.com/claudioemmanuel/squeez.git"
   },
   "license": "MIT",
+  "readme": "README.md",
   "author": "claudioemmanuel",
   "bin": {
     "squeez": "bin.js"

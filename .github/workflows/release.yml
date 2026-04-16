@@ -141,6 +141,8 @@ jobs:
             fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
           "
           echo "Publishing squeez@$VERSION to npm"
+      - name: Copy README into npm package
+        run: cp README.md npm/README.md
       - name: Publish
         run: cd npm && npm publish --access public
         env:
