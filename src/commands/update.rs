@@ -48,6 +48,12 @@ pub fn run(args: &[String]) -> i32 {
         return 0;
     }
 
+    // Cargo-managed install: delegate to `cargo install` which handles
+    // binary replacement atomically (no Windows exe-lock issues).
+    if is_cargo_managed() {
+        return update_via_cargo(latest_clean);
+    }
+
     let target = detect_target();
     let asset_name = asset_name_for(target);
     let base = base_url();
@@ -88,16 +94,22 @@ pub fn run(args: &[String]) -> i32 {
     }
 
     let target_path = install_target_path();
-    if let Err(e) = install_atomic(&bytes, &target_path) {
-        eprintln!("squeez update: install failed: {}", e);
-        return 1;
-    }
+    let immediate = match install_atomic(&bytes, &target_path) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("squeez update: install failed: {}", e);
+            return 1;
+        }
+    };
 
-    println!("squeez update: installed {} → {}", current, latest_clean);
-
-    // Re-register hooks in settings.json (path may have changed, or first-time setup)
-    if let Err(e) = crate::commands::setup::register_claude_settings() {
-        eprintln!("squeez update: warning: could not update settings.json: {}", e);
+    if immediate {
+        println!("squeez update: installed {} → {}", current, latest_clean);
+        // Re-register hooks in settings.json (path may have changed, or first-time setup)
+        if let Err(e) = crate::commands::setup::register_claude_settings() {
+            eprintln!("squeez update: warning: could not update settings.json: {}", e);
+        }
+    } else {
+        println!("squeez update: {} → {} queued — restart to apply", current, latest_clean);
     }
 
     0
@@ -152,7 +164,46 @@ fn asset_name_for(target: &str) -> String {
     }
 }
 
+fn is_cargo_managed() -> bool {
+    std::env::current_exe()
+        .ok()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            s.contains(".cargo/bin") || s.contains(".cargo\\bin")
+        })
+        .unwrap_or(false)
+}
+
+fn update_via_cargo(version: &str) -> i32 {
+    println!("squeez update: cargo install detected — running cargo install squeez@{}...", version);
+    let status = std::process::Command::new("cargo")
+        .args(["install", "squeez", "--version", version])
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            println!("squeez update: installed {} via cargo", version);
+            if let Err(e) = crate::commands::setup::register_claude_settings() {
+                eprintln!("squeez update: warning: could not update settings.json: {}", e);
+            }
+            0
+        }
+        Ok(s) => {
+            eprintln!("squeez update: cargo install failed (exit {})", s.code().unwrap_or(-1));
+            1
+        }
+        Err(e) => {
+            eprintln!("squeez update: could not run cargo: {}", e);
+            1
+        }
+    }
+}
+
 fn install_target_path() -> PathBuf {
+    // Always update the binary we're actually running from.
+    if let Ok(exe) = std::env::current_exe() {
+        return exe;
+    }
+    // Fallback: canonical hooks location
     let dir = format!("{}/.claude/squeez/bin", home_dir());
     PathBuf::from(dir).join(if cfg!(windows) { "squeez.exe" } else { "squeez" })
 }
@@ -251,7 +302,9 @@ fn run_hasher(cmd: &str, args: &[&str], input: &[u8]) -> Option<String> {
 
 // ── Install ────────────────────────────────────────────────────────────────
 
-pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<(), String> {
+/// Returns `Ok(true)` when the binary was replaced immediately,
+/// `Ok(false)` when the replacement was deferred (Windows self-update).
+pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<bool, String> {
     let parent = target.parent().ok_or("target has no parent")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let staging = parent.join(format!(
@@ -259,21 +312,18 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<(), String> {
         target.file_name().and_then(|s| s.to_str()).unwrap_or("squeez")
     ));
     std::fs::write(&staging, bytes).map_err(|e| format!("write staging: {}", e))?;
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| e.to_string())?;
-    }
-    #[cfg(unix)]
-    {
         std::fs::rename(&staging, target).map_err(|e| format!("rename: {}", e))?;
+        return Ok(true);
     }
+
     #[cfg(windows)]
     {
-        // If target is not the currently-running binary (e.g. running from
-        // ~/.cargo/bin/squeez.exe while updating ~/.claude/squeez/bin/squeez.exe),
-        // the target file is not locked — a direct rename works fine.
         let is_self = std::env::current_exe()
             .ok()
             .and_then(|p| p.canonicalize().ok())
@@ -282,38 +332,52 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<(), String> {
             .unwrap_or(false);
 
         if !is_self {
+            // Target is not the running binary — direct rename is safe.
             std::fs::rename(&staging, target).map_err(|e| format!("rename: {}", e))?;
-            return Ok(());
+            return Ok(true);
         }
 
-        // Self-update: try rename dance — Windows allows renaming a running exe.
+        // Self-update: try the rename dance (Windows allows renaming a running exe).
         let bak = target.with_extension("exe.bak");
-        let _ = std::fs::remove_file(&bak); // remove stale backup if present
+        let _ = std::fs::remove_file(&bak);
         if std::fs::rename(target, &bak).is_ok() {
             match std::fs::rename(&staging, target) {
                 Ok(()) => {
                     let _ = std::fs::remove_file(&bak);
-                    return Ok(());
+                    return Ok(true);
                 }
                 Err(e) => {
-                    let _ = std::fs::rename(&bak, target); // roll back
+                    let _ = std::fs::rename(&bak, target);
                     return Err(format!("rename new->target failed: {}", e));
                 }
             }
         }
 
-        // Rename of running exe failed — leave .new, print instructions.
-        eprintln!(
-            "squeez update: wrote {} — to complete, run:",
-            staging.display()
-        );
-        eprintln!(
-            "  move /Y \"{}\" \"{}\"",
+        // Rename dance failed (target locked) — spawn a detached cmd.exe that
+        // moves the staged file into place after this process exits.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let cmd_str = format!(
+            "ping -n 2 127.0.0.1 > nul && move /Y \"{}\" \"{}\"",
             staging.display(),
             target.display()
         );
+        let spawned = std::process::Command::new("cmd")
+            .args(["/c", &cmd_str])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .is_ok();
+        if spawned {
+            eprintln!("squeez update: update scheduled — binary replaces itself on exit");
+        } else {
+            eprintln!("squeez update: wrote {} — run to complete:", staging.display());
+            eprintln!("  move /Y \"{}\" \"{}\"", staging.display(), target.display());
+        }
+        return Ok(false);
     }
-    Ok(())
+
+    #[allow(unreachable_code)]
+    Ok(true)
 }
 
 #[cfg(test)]
