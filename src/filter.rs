@@ -1,10 +1,11 @@
 use crate::commands::Handler;
 use crate::commands::{
-    build::BuildHandler, cloud::CloudHandler, data_tool::DataToolHandler,
-    database::DatabaseHandler, docker::DockerHandler, fs::FsHandler, generic::GenericHandler,
-    git::GitHandler, network::NetworkHandler, package_mgr::PackageMgrHandler,
-    runtime::RuntimeHandler, test_runner::TestRunnerHandler, text_proc::TextProcHandler,
-    typescript::TypescriptHandler,
+    build::BuildHandler, cloud::CloudHandler, cloudflare::CloudflareHandler,
+    data_tool::DataToolHandler, database::DatabaseHandler, docker::DockerHandler,
+    drizzle::DrizzleHandler, fs::FsHandler, generic::GenericHandler, git::GitHandler,
+    network::NetworkHandler, nextjs::NextjsHandler, package_mgr::PackageMgrHandler,
+    playwright::PlaywrightHandler, runtime::RuntimeHandler, test_runner::TestRunnerHandler,
+    text_proc::TextProcHandler, typescript::TypescriptHandler,
 };
 use crate::config::Config;
 
@@ -18,7 +19,14 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
     match name.as_str() {
         "git" => Box::new(GitHandler),
         "docker" | "docker-compose" | "podman" => Box::new(DockerHandler),
-        "npm" | "pnpm" | "bun" | "yarn" => Box::new(PackageMgrHandler),
+        "npm" | "pnpm" | "yarn" => Box::new(PackageMgrHandler),
+        "bun" => {
+            if cmd.split_whitespace().any(|a| a == "test") {
+                Box::new(TestRunnerHandler)
+            } else {
+                Box::new(PackageMgrHandler)
+            }
+        }
         "cargo" => {
             if cmd.split_whitespace().any(|a| a == "test") {
                 Box::new(TestRunnerHandler)
@@ -27,15 +35,25 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
             }
         }
         "jest" | "vitest" | "pytest" | "py.test" | "nextest" => Box::new(TestRunnerHandler),
+        "playwright" => Box::new(PlaywrightHandler),
         "tsc" | "eslint" | "biome" => Box::new(TypescriptHandler),
         "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => Box::new(BuildHandler),
-        "vite" | "next" | "turbo" => {
+        "vite" | "turbo" => {
             if cmd.contains("build") {
                 Box::new(BuildHandler)
             } else {
                 Box::new(GenericHandler)
             }
         }
+        "next" => {
+            if cmd.contains("build") {
+                Box::new(BuildHandler)
+            } else {
+                Box::new(NextjsHandler)
+            }
+        }
+        "wrangler" => Box::new(CloudflareHandler),
+        "drizzle-kit" => Box::new(DrizzleHandler),
         "kubectl" | "gh" | "aws" | "gcloud" | "az" => Box::new(CloudHandler),
         "psql" | "prisma" | "mysql" => Box::new(DatabaseHandler),
         "curl" | "wget" | "http" => Box::new(NetworkHandler),
