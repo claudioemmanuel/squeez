@@ -9,43 +9,99 @@ permissions:
 
 jobs:
   tag-and-release:
+    # Recursion guards: skip the bot's own bump commits and anything
+    # explicitly opted out with [skip release].
+    if: |
+      !contains(github.event.head_commit.message, '[skip release]') &&
+      github.event.head_commit.author.email != 'github-actions[bot]@users.noreply.github.com'
     runs-on: ubuntu-latest
-    # Skip if commit message contains [skip release]
-    if: "!contains(github.event.head_commit.message, '[skip release]')"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # PAT (repo-admin fine-grained or classic w/ `repo` scope) so the
+          # bump commit can bypass branch protection AND so the pushed tag
+          # triggers release.yml (GITHUB_TOKEN-pushed tags do not).
+          token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Read current version
-        id: current
-        run: |
-          VERSION=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Check if tag already exists
-        id: tag_check
+      - name: Determine bump type from conventional commits
+        id: bump
         run: |
-          if git rev-parse "v${{ steps.current.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+          COMMITS=$(git log "$RANGE" --format='%B' --no-merges)
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits since $LAST_TAG."
+            echo "type=none" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Create and push tag
-        if: steps.tag_check.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if echo "$COMMITS" | grep -qE '(^|[[:space:]])BREAKING CHANGE' \
+             || echo "$COMMITS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:'; then
+            TYPE=major
+          elif echo "$COMMITS" | grep -qE '^feat(\([^)]*\))?:'; then
+            TYPE=minor
+          elif echo "$COMMITS" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
+            TYPE=patch
+          else
+            echo "Only chore/docs/ci/test/refactor commits — no release."
+            TYPE=none
+          fi
+
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "Detected bump: $TYPE (since ${LAST_TAG:-<initial>})"
+
+      - name: Compute next version
+        if: steps.bump.outputs.type != 'none'
+        id: version
+        run: |
+          set -e
+          CUR=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          IFS='.' read -r MA MI PA <<< "$CUR"
+          case "${{ steps.bump.outputs.type }}" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            patch) PA=$((PA+1)) ;;
+          esac
+          NEW="${MA}.${MI}.${PA}"
+          echo "current=$CUR" >> "$GITHUB_OUTPUT"
+          echo "next=$NEW"   >> "$GITHUB_OUTPUT"
+          echo "Bumping $CUR -> $NEW"
+
+      - name: Fail fast if tag already exists
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.next }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.version.outputs.next }} already exists — manual intervention needed."
+            exit 1
+          fi
+
+      - name: Bump Cargo.toml
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          sed -i.bak -E "s/^version = \".*\"/version = \"${{ steps.version.outputs.next }}\"/" Cargo.toml
+          rm Cargo.toml.bak
+          grep -E '^version\s*=' Cargo.toml | head -1
+
+      - name: Refresh Cargo.lock
+        if: steps.bump.outputs.type != 'none'
+        run: cargo check --quiet
+
+      - name: Commit, tag, push
+        if: steps.bump.outputs.type != 'none'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ steps.current.outputs.version }}"
-          git push origin "v${{ steps.current.outputs.version }}"
-          echo "Tagged v${{ steps.current.outputs.version }}"
-          # GITHUB_TOKEN-pushed tags don't trigger other workflows.
-          # Dispatch release.yml manually on the tag ref instead.
-          gh workflow run release.yml --ref "v${{ steps.current.outputs.version }}"
-
-      - name: Skip (tag already exists)
-        if: steps.tag_check.outputs.exists == 'true'
-        run: echo "Tag v${{ steps.current.outputs.version }} already exists — bump version in Cargo.toml via PR to trigger a new release."
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): bump version to ${{ steps.version.outputs.next }} [skip release]"
+          git tag "v${{ steps.version.outputs.next }}"
+          git push origin main --follow-tags
+          echo "Released v${{ steps.version.outputs.next }} — release.yml will take it from here."
