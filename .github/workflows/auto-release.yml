@@ -10,14 +10,13 @@ permissions:
 jobs:
   tag-and-release:
     # Recursion guards:
-    # 1. `[squeez-release-bot]` is a distinctive marker the bot puts on its own
-    #    bump commits. We use a namespaced token instead of the generic
-    #    `[skip release]` because the latter shows up in prose inside commit
-    #    bodies (e.g. when documenting release automation) and would falsely
-    #    skip real releases.
+    # 1. Subject-prefix match: the bot's own bump commits always begin with
+    #    "chore(release): bump version to". Using startsWith here (not
+    #    contains) means prose in PR bodies that mentions the phrase cannot
+    #    trip the guard — only the actual commit subject can.
     # 2. Fallback: match by the bot's author email.
     if: |
-      !contains(github.event.head_commit.message, '[squeez-release-bot]') &&
+      !startsWith(github.event.head_commit.message, 'chore(release): bump version to') &&
       github.event.head_commit.author.email != 'github-actions[bot]@users.noreply.github.com'
     runs-on: ubuntu-latest
     steps:
