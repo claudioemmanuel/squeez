@@ -47,6 +47,10 @@ fn main() {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::setup::run_with_help(&rest));
         }
+        Some("uninstall") => {
+            let rest: Vec<String> = args.iter().skip(2).cloned().collect();
+            std::process::exit(squeez::commands::uninstall::run(&rest));
+        }
         Some("update") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::update::run(&rest));
@@ -86,7 +90,8 @@ fn main() {
             eprintln!("       squeez track-result <tool> (reads stdin)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
             eprintln!("       squeez benchmark [--json] [--output <file>] [--scenario <name>]");
-            eprintln!("       squeez setup [--force]");
+            eprintln!("       squeez setup [--host=<slug>]");
+            eprintln!("       squeez uninstall [--host=<slug>]");
             eprintln!("       squeez update [--check] [--insecure]");
             eprintln!("       squeez mcp                       — JSON-RPC 2.0 server over stdio");
             eprintln!("       squeez protocol                  — print the auto-teach payload");
