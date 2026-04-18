@@ -66,6 +66,39 @@ fn load_config_from(base: &str) -> Config {
         .unwrap_or_default()
 }
 
+/// Generic entry point for any `HostAdapter`. Resolves the adapter by slug,
+/// prepares its data directory (sessions/memory), runs the shared session
+/// finalize + banner flow, then delegates host-specific memory injection to
+/// the adapter.
+///
+/// Backs `squeez init --host=<name>` in `main.rs`.
+pub fn run_for_host(host_name: &str) -> i32 {
+    let adapter = match crate::hosts::find(host_name) {
+        Some(a) => a,
+        None => {
+            eprintln!("squeez init: unknown host '{}'", host_name);
+            return 1;
+        }
+    };
+    let data_dir = adapter.data_dir();
+    let sessions = data_dir.join("sessions");
+    let mem = data_dir.join("memory");
+    let _ = std::fs::create_dir_all(&sessions);
+    let _ = std::fs::create_dir_all(&mem);
+    let cfg = load_config_from(&data_dir.to_string_lossy());
+
+    let code = run_with_dirs(&sessions, &mem, &cfg);
+
+    let summaries = memory::read_last_n(&mem, 3);
+    let _ = adapter.inject_memory(&cfg, &summaries);
+
+    if cfg.auto_compress_md {
+        let _ = compress_md::run_all_quietly();
+    }
+
+    code
+}
+
 /// Testable version with explicit directories.
 pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) -> i32 {
     // 1. Finalise previous session → memory (best-effort)

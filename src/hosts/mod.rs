@@ -12,8 +12,10 @@
 
 pub mod claude_code;
 pub mod copilot;
+pub mod opencode;
 pub use claude_code::ClaudeCodeAdapter;
 pub use copilot::CopilotCliAdapter;
+pub use opencode::OpenCodeAdapter;
 
 use std::path::{Path, PathBuf};
 
@@ -97,36 +99,7 @@ pub fn find(slug: &str) -> Option<Box<dyn HostAdapter>> {
     all_hosts().into_iter().find(|h| h.name() == slug)
 }
 
-// ── Stub implementations (US-004 .. US-006 fill these in) ──────────────────
-
-pub struct OpenCodeAdapter;
-impl HostAdapter for OpenCodeAdapter {
-    fn name(&self) -> &'static str {
-        "opencode"
-    }
-    fn is_installed(&self) -> bool {
-        let xdg = std::env::var("XDG_CONFIG_HOME")
-            .unwrap_or_else(|_| format!("{}/.config", home_dir()));
-        Path::new(&format!("{}/opencode", xdg)).exists()
-    }
-    fn data_dir(&self) -> PathBuf {
-        let xdg = std::env::var("XDG_CONFIG_HOME")
-            .unwrap_or_else(|_| format!("{}/.config", home_dir()));
-        PathBuf::from(format!("{}/opencode/squeez", xdg))
-    }
-    fn capabilities(&self) -> HostCaps {
-        HostCaps::BASH_WRAP | HostCaps::SESSION_MEM | HostCaps::BUDGET_HARD
-    }
-    fn install(&self, _bin_path: &Path) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn uninstall(&self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn inject_memory(&self, _cfg: &Config, _summaries: &[Summary]) -> std::io::Result<()> {
-        Ok(())
-    }
-}
+// ── Stub implementations (US-005 .. US-006 fill these in) ──────────────────
 
 pub struct GeminiCliAdapter;
 impl HostAdapter for GeminiCliAdapter {
