@@ -15,9 +15,10 @@ pub fn run() -> i32 {
     let _ = std::fs::create_dir_all(&sessions);
     let _ = std::fs::create_dir_all(&mem);
     let code = run_with_dirs(&sessions, &mem, &cfg);
-    // Inject persona into ~/.claude/CLAUDE.md so Claude Code loads it
-    // natively at every session start (more reliable than hook stdout).
-    inject_claude_md(&cfg);
+    // Delegate host-specific memory injection (CLAUDE.md) to the adapter.
+    if let Some(adapter) = crate::hosts::find("claude-code") {
+        let _ = adapter.inject_memory(&cfg, &[]);
+    }
     // Warn if CLAUDE.md is larger than ~1K tokens (research recommendation).
     check_claude_md_size();
     code
@@ -42,9 +43,13 @@ pub fn run_copilot() -> i32 {
 
     let code = run_with_dirs(&sessions, &mem, &cfg);
 
-    // Inject memory banner into Copilot CLI instructions file
+    // Delegate memory injection to the Copilot CLI adapter.
     let summaries = memory::read_last_n(&mem, 3);
-    inject_copilot_instructions(&home, &cfg, &summaries);
+    if let Some(adapter) = crate::hosts::find("copilot") {
+        let _ = adapter.inject_memory(&cfg, &summaries);
+    }
+    // Suppress unused-variable warning when copilot adapter is absent at compile time.
+    let _ = home;
 
     // Auto-compress copilot-instructions.md after we just rewrote it.
     if cfg.auto_compress_md {
@@ -59,50 +64,6 @@ fn load_config_from(base: &str) -> Config {
     std::fs::read_to_string(&path)
         .map(|s| Config::from_str(&s))
         .unwrap_or_default()
-}
-
-/// Replaces the squeez block (<!-- squeez:start --> … <!-- squeez:end -->)
-/// in ~/.copilot/copilot-instructions.md, creating the file if absent.
-fn inject_copilot_instructions(home: &str, cfg: &Config, summaries: &[memory::Summary]) {
-    let path = format!("{}/.copilot/copilot-instructions.md", home);
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-
-    let mut block = String::from("<!-- squeez:start -->\n");
-    block.push_str("## squeez — session context\n");
-    let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
-    block.push_str(&format!(
-        "Context budget: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}\n",
-        budget_k,
-        persona::as_str(cfg.persona)
-    ));
-    for s in summaries {
-        block.push_str(&format!("- {}\n", s.display_line()));
-    }
-    if summaries.is_empty() {
-        block.push_str("- No prior sessions recorded yet.\n");
-    }
-    let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
-    if !persona_text.is_empty() {
-        block.push('\n');
-        block.push_str(persona_text);
-    }
-    block.push_str("<!-- squeez:end -->\n");
-
-    // Strip previous squeez block if present
-    let cleaned = if existing.contains("<!-- squeez:start -->") {
-        let start = existing.find("<!-- squeez:start -->").unwrap_or(0);
-        let end = existing
-            .find("<!-- squeez:end -->")
-            .map(|i| i + "<!-- squeez:end -->".len() + 1) // include newline
-            .unwrap_or(start);
-        format!("{}{}", &existing[..start], &existing[end.min(existing.len())..])
-    } else {
-        existing
-    };
-
-    // Prepend the fresh block
-    let contents = format!("{}\n{}", block, cleaned.trim_start());
-    let _ = std::fs::write(&path, contents);
 }
 
 /// Testable version with explicit directories.
@@ -382,52 +343,3 @@ fn dedup_extend(dest: &mut Vec<String>, src: Vec<String>) {
     }
 }
 
-/// Writes the squeez persona block into ~/.claude/CLAUDE.md so Claude Code
-/// picks it up natively at every session start. Idempotent: replaces the
-/// existing squeez block on subsequent runs.
-fn inject_claude_md(cfg: &Config) {
-    let home = session::home_dir();
-    let claude_dir = format!("{}/.claude", home);
-    let path = format!("{}/CLAUDE.md", claude_dir);
-
-    // Ensure ~/.claude/ exists (it should, but be safe)
-    let _ = std::fs::create_dir_all(&claude_dir);
-
-    let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
-    if persona_text.is_empty() {
-        return;
-    }
-
-    let mut block = String::from("<!-- squeez:start -->\n");
-    block.push_str("## squeez — always-on compression\n\n");
-    block.push_str(&format!(
-        "Persona: {} | Bash compression: ON | Memory: ON\n\n",
-        persona::as_str(cfg.persona)
-    ));
-    block.push_str(persona_text);
-    if !persona_text.ends_with('\n') {
-        block.push('\n');
-    }
-    block.push_str("<!-- squeez:end -->\n");
-
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-
-    let cleaned = if existing.contains("<!-- squeez:start -->") {
-        let start = existing.find("<!-- squeez:start -->").unwrap_or(0);
-        let end = existing
-            .find("<!-- squeez:end -->")
-            .map(|i| i + "<!-- squeez:end -->".len() + 1)
-            .unwrap_or(start);
-        format!(
-            "{}{}",
-            &existing[..start],
-            &existing[end.min(existing.len())..]
-        )
-    } else {
-        existing
-    };
-
-    // Prepend squeez block so it's the first thing Claude Code reads
-    let contents = format!("{}\n{}", block, cleaned.trim_start());
-    let _ = std::fs::write(&path, contents);
-}
