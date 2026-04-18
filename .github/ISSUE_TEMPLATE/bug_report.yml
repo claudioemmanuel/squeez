@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a defect — squeez producing wrong output, panicking, or misrouting a command.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in every field — incomplete reports get the `needs-repro` label and stall.
+
+  - type: input
+    id: version
+    attributes:
+      label: squeez version
+      description: Output of `squeez --version`.
+      placeholder: "0.4.1"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / arch
+      description: e.g. `macOS 15.4 arm64`, `Ubuntu 24.04 x86_64`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - curl (build.sh)
+        - npm
+        - cargo install
+        - built from source
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command that triggered the bug
+      description: The exact bash command squeez was wrapping when the issue occurred.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include the relevant squeez output + stderr if any.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Steps a maintainer can paste into a clean shell to reproduce.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmations
+      options:
+        - label: I've searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I'm on the latest release (or can confirm this also reproduces on it).
+          required: true

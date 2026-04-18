@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose a new handler, strategy, MCP tool, or capability.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for **new** functionality. For tweaks to existing behaviour, file an _Improvement_ instead.
+
+        If this is a new command handler, prefer the template shape used in #35 — it makes the work estimable.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What's currently suboptimal? Ideally a concrete example (command, output, missed compression opportunity, etc.).
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should squeez do? Be specific about scope and boundaries.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tradeoff
+    attributes:
+      label: Tradeoff
+      description: Maintenance cost, risk of over-fitting, incompatibility with existing handlers, etc.
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What you're explicitly _not_ asking for in this issue (deferred to follow-ups).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - handler (new command)
+        - compression (dedup / grouping / truncation / smart_filter)
+        - context-engine (cache / redundancy / summarize / intensity)
+        - MCP server
+        - CI / release
+        - docs
+        - other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmations
+      options:
+        - label: I've searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This respects the zero-runtime-dependency rule (only `libc` allowed in `Cargo.toml`).
+          required: true

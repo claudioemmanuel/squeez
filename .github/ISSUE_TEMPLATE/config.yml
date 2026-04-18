@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/claudioemmanuel/squeez#readme
+    about: Install, configure, and architecture reference — check here before filing an issue.
+  - name: Benchmarks
+    url: https://github.com/claudioemmanuel/squeez/tree/main/bench
+    about: Compression fixtures and thresholds. File an _Improvement_ if you want to move a number.
+  - name: Security
+    url: https://github.com/claudioemmanuel/squeez/security/advisories/new
+    about: Report vulnerabilities privately — do not file public issues for security reports.

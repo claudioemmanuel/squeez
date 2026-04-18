@@ -1,0 +1,49 @@
+name: Improvement
+description: Tweak to existing behaviour — better compression ratio, less noise, tuning thresholds, fixing edge cases (not bugs).
+title: "improve: "
+labels: ["improvement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for changes to something squeez already does. For **new** handlers/features, file a _Feature request_. For defects, file a _Bug report_.
+
+  - type: input
+    id: target
+    attributes:
+      label: Target
+      description: Which handler / strategy / module?
+      placeholder: "src/commands/cloud.rs — CloudHandler"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behaviour
+      description: What does it do today, and why is that suboptimal? Numbers help (line counts, reduction %, latency ms).
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: textarea
+    id: bench
+    attributes:
+      label: Expected impact on benchmarks
+      description: What `bash bench/run.sh` fixtures / thresholds will move? Any regressions expected?
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmations
+      options:
+        - label: I've searched existing issues and this isn't a duplicate.
+          required: true
+        - label: This is additive or equivalent — not a behaviour-breaking change to existing handlers.
+          required: true
