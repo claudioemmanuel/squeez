@@ -25,11 +25,13 @@ fn main() {
             std::process::exit(exit_code);
         }
         Some("init") => {
-            let copilot = args.get(2).map(String::as_str) == Some("--copilot");
-            let exit_code = if copilot {
-                squeez::commands::init::run_copilot()
-            } else {
-                squeez::commands::init::run()
+            let flag = args.get(2).map(String::as_str);
+            let exit_code = match flag {
+                Some("--copilot") => squeez::commands::init::run_copilot(),
+                Some(s) if s.starts_with("--host=") => {
+                    squeez::commands::init::run_for_host(&s["--host=".len()..])
+                }
+                _ => squeez::commands::init::run(),
             };
             std::process::exit(exit_code);
         }
