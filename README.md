@@ -94,49 +94,53 @@ squeez update --insecure  # skip checksum (not recommended)
 <!-- BENCHMARK:START -->
 Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce.
 
-### Per-scenario results — 19 scenarios × 3 iterations
+### Per-scenario results — 23 scenarios × 5 iterations
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 55.9 ms |
-| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 205 µs |
-| `ps_aux` | 40,373 tk | 2,352 tk | **-94%** | 2.3 ms |
-| `git_log_200` | 2,692 tk | 289 tk | **-89%** | 153 µs |
-| `tsc_errors` | 731 tk | 101 tk | **-86%** | 25 µs |
-| `cargo_build_noisy` | 2,106 tk | 452 tk | **-79%** | 218 µs |
-| `docker_logs` | 665 tk | 186 tk | **-72%** | 34 µs |
-| `find_deep` | 424 tk | 134 tk | **-68%** | 71 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 13 µs |
-| `verbose_app_log` | 4,957 tk | 1,991 tk | **-60%** | 232 µs |
-| `npm_install` | 524 tk | 232 tk | **-56%** | 41 µs |
+| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 55.7 ms |
+| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 191 µs |
+| `high_context_adaptive` | 4,418 tk | 52 tk | **-99%** | 768 µs |
+| `ps_aux` | 40,373 tk | 2,352 tk | **-94%** | 2.2 ms |
+| `git_log_200` | 2,692 tk | 289 tk | **-89%** | 159 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 26 µs |
+| `cargo_build_noisy` | 2,106 tk | 452 tk | **-79%** | 194 µs |
+| `docker_logs` | 665 tk | 186 tk | **-72%** | 39 µs |
+| `find_deep` | 424 tk | 134 tk | **-68%** | 70 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 10 µs |
+| `state_first_simulation` | 182 tk | 69 tk | **-62%** | 18 µs |
+| `verbose_app_log` | 4,957 tk | 1,991 tk | **-60%** | 226 µs |
+| `npm_install` | 524 tk | 232 tk | **-56%** | 37 µs |
+| `claude_md_overhead` | 717 tk | 318 tk | **-56%** | 80 µs |
 | `crosscall_redundancy_3x` | 486 tk | 241 tk | **-50%** | 51.5 ms |
-| `ls_la` | 1,782 tk | 886 tk | **-50%** | 155 µs |
+| `ls_la` | 1,782 tk | 886 tk | **-50%** | 159 µs |
 | `env_dump` | 441 tk | 287 tk | **-35%** | 19 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 99 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 679 µs |
-| `md_claude_md` | 316 tk | 247 tk | **-22%** | 932 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 36 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 28 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 85 µs |
+| `agent_heavy` | 2,306 tk | 1,564 tk | **-32%** | 303 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 555 µs |
+| `md_claude_md` | 316 tk | 247 tk | **-22%** | 881 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 35 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 26 µs |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **92.8%** — 145,338 tk → 10,440 tk |
+| **Total token reduction** | **91.9%** — 152,961 tk → 12,443 tk |
 | Bash output | **-84.9%** |
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
-| Quality (signal terms preserved) | **19 / 19 pass** |
-| Latency p50 (filter mode) | **5.9 ms** |
-| Latency p95 (incl. wrap/summarize) | **56 ms** |
+| Quality (signal terms preserved) | **23 / 23 pass** |
+| Latency p50 (filter mode) | **4.9 ms** |
+| Latency p95 (incl. wrap/summarize) | **51 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
 | Usage | Baseline / month | Saved / month |
 |-------|-----------------|---------------|
-| 100 calls / day | $18.00 | **$16.71 (93%)** |
-| 1,000 calls / day | $180.00 | **$167.08 (93%)** |
-| 10,000 calls / day | $1800.00 | **$1670.76 (93%)** |
+| 100 calls / day | $18.00 | **$16.54 (92%)** |
+| 1,000 calls / day | $180.00 | **$165.37 (92%)** |
+| 10,000 calls / day | $1800.00 | **$1653.66 (92%)** |
 <!-- BENCHMARK:END -->
 
 ---
@@ -342,11 +346,11 @@ Each bash command passes through four strategies in order:
 | Git | `git` |
 | Docker / containers | `docker`, `docker-compose`, `podman` |
 | Package managers | `npm`, `pnpm`, `bun`, `yarn` |
-| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build) |
-| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest` |
+| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build), `next build/dev/start` |
+| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest`, `playwright`, `bun test` |
 | TypeScript / linters | `tsc`, `eslint`, `biome` |
-| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az` |
-| Databases | `psql`, `prisma`, `mysql` |
+| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az`, `wrangler` |
+| Databases | `psql`, `prisma`, `mysql`, `drizzle-kit` |
 | Filesystem | `find`, `ls`, `du`, `ps`, `env`, `lsof`, `netstat` |
 | JSON / YAML / IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
 | Text processing | `grep`, `rg`, `awk`, `sed` |
