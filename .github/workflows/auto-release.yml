@@ -9,19 +9,24 @@ permissions:
 
 jobs:
   tag-and-release:
-    # Recursion guards: skip the bot's own bump commits and anything
-    # explicitly opted out with [skip release].
+    # Recursion guards:
+    # 1. `[squeez-release-bot]` is a distinctive marker the bot puts on its own
+    #    bump commits. We use a namespaced token instead of the generic
+    #    `[skip release]` because the latter shows up in prose inside commit
+    #    bodies (e.g. when documenting release automation) and would falsely
+    #    skip real releases.
+    # 2. Fallback: match by the bot's author email.
     if: |
-      !contains(github.event.head_commit.message, '[skip release]') &&
+      !contains(github.event.head_commit.message, '[squeez-release-bot]') &&
       github.event.head_commit.author.email != 'github-actions[bot]@users.noreply.github.com'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # PAT (repo-admin fine-grained or classic w/ `repo` scope) so the
-          # bump commit can bypass branch protection AND so the pushed tag
-          # triggers release.yml (GITHUB_TOKEN-pushed tags do not).
+          # PAT (fine-grained w/ Contents: read+write or classic w/ `repo` scope)
+          # lets the bump commit bypass branch protection AND ensures the pushed
+          # tag triggers release.yml (GITHUB_TOKEN-pushed tags do not).
           token: ${{ secrets.RELEASE_PAT }}
 
       - uses: dtolnay/rust-toolchain@stable
@@ -36,20 +41,30 @@ jobs:
           else
             RANGE="${LAST_TAG}..HEAD"
           fi
-          COMMITS=$(git log "$RANGE" --format='%B' --no-merges)
 
-          if [ -z "$COMMITS" ]; then
+          # SUBJECTS = one subject line per non-merge commit (first line only).
+          # BODIES   = full bodies, used strictly for the `BREAKING CHANGE:`
+          #            trailer match (must be line-start + colon).
+          SUBJECTS=$(git log "$RANGE" --format='%s' --no-merges)
+          BODIES=$(git log "$RANGE" --format='%b' --no-merges)
+
+          if [ -z "$SUBJECTS" ]; then
             echo "No commits since $LAST_TAG."
             echo "type=none" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if echo "$COMMITS" | grep -qE '(^|[[:space:]])BREAKING CHANGE' \
-             || echo "$COMMITS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:'; then
+          # Type detection. `BREAKING CHANGE:` trailer is checked at line
+          # start with a required colon — avoids matching prose like
+          # "- BREAKING CHANGE or !: -> major" inside a body.
+          # Header prefixes are matched against SUBJECTS only, so a body
+          # containing "feat: xyz" as documentation does not trigger a bump.
+          if echo "$SUBJECTS" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:' \
+             || echo "$BODIES"   | grep -qE '^BREAKING CHANGE:'; then
             TYPE=major
-          elif echo "$COMMITS" | grep -qE '^feat(\([^)]*\))?:'; then
+          elif echo "$SUBJECTS" | grep -qE '^feat(\([^)]*\))?:'; then
             TYPE=minor
-          elif echo "$COMMITS" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
+          elif echo "$SUBJECTS" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
             TYPE=patch
           else
             echo "Only chore/docs/ci/test/refactor commits — no release."
@@ -79,7 +94,11 @@ jobs:
       - name: Fail fast if tag already exists
         if: steps.bump.outputs.type != 'none'
         run: |
-          if git rev-parse "v${{ steps.version.outputs.next }}" >/dev/null 2>&1; then
+          # Check both the local and remote tag namespaces. A tag may exist
+          # locally but not remotely (e.g. a failed push from a prior run),
+          # so we also consult origin explicitly.
+          if git rev-parse "v${{ steps.version.outputs.next }}" >/dev/null 2>&1 \
+             || git ls-remote --tags origin "v${{ steps.version.outputs.next }}" | grep -q "v${{ steps.version.outputs.next }}"; then
             echo "Tag v${{ steps.version.outputs.next }} already exists — manual intervention needed."
             exit 1
           fi
@@ -101,7 +120,13 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Cargo.toml Cargo.lock
-          git commit -m "chore(release): bump version to ${{ steps.version.outputs.next }} [skip release]"
-          git tag "v${{ steps.version.outputs.next }}"
-          git push origin main --follow-tags
+          # Using the namespaced [squeez-release-bot] marker so the recursion
+          # guard cannot be tripped by prose in user commit messages.
+          git commit -m "chore(release): bump version to ${{ steps.version.outputs.next }} [squeez-release-bot]"
+          # Annotated tag so `git push --tags` propagates it (lightweight tags
+          # are not pushed by `--follow-tags`, which silently broke the prior
+          # release pipeline when v1.0.0 was cut but never published).
+          git tag -a "v${{ steps.version.outputs.next }}" -m "Release v${{ steps.version.outputs.next }}"
+          git push origin main
+          git push origin "v${{ steps.version.outputs.next }}"
           echo "Released v${{ steps.version.outputs.next }} — release.yml will take it from here."
