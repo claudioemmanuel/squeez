@@ -11,7 +11,7 @@
 //! stdout schema is not yet publicly documented, so this adapter treats
 //! Read/Grep/Glob budget enforcement as soft (hint in GEMINI.md) until we
 //! can empirically confirm the rewrite format. Upstream tracking:
-//!   https://github.com/google-gemini/gemini-cli/issues/14449
+//!   https://github.com/google-gemini/gemini-cli/issues/25629
 //!
 //! JSON patching of `settings.json` delegates to a python3 subprocess. The
 //! binary already requires python3 for Claude Code and Copilot CLI hook

@@ -9,7 +9,8 @@
 //!
 //! `PreToolUse` fires on Bash only (no Read/Grep/apply_patch hook surface),
 //! and `updatedInput` is parsed-but-unimplemented in Codex as of
-//! 2026-04-18 — tracked in openai/codex discussion #2150. Until upstream
+//! 2026-04-18 — tracked in openai/codex#18491 (plus background in discussion
+//! #2150). Until upstream
 //! expands the surface, Read/Grep enforcement ships as **soft** via a
 //! prose hint in the AGENTS.md block written by `inject_memory`.
 //!

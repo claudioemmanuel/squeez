@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Changelog](https://img.shields.io/badge/changelog-📋-blue.svg)](CHANGELOG.md)
 
-End-to-end token optimizer for Claude Code, OpenCode, and GitHub Copilot CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
+End-to-end token optimizer for Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, and OpenAI Codex CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
 
 ---
 
@@ -53,8 +53,8 @@ Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. 
 | **Claude Code** | `~/.claude/CLAUDE.md` | ✅ native | ✅ native | ✅ native | Restart Claude Code to pick up hooks |
 | **Copilot CLI** | `~/.copilot/copilot-instructions.md` | ✅ native | ✅ native | ✅ native | Restart Copilot CLI after setup |
 | **OpenCode** | `~/.config/opencode/AGENTS.md` | ✅ native | ✅ native | ✅ native | Plugin at `~/.config/opencode/plugins/squeez.js`; MCP tool calls skip hooks (upstream sst/opencode#2319) |
-| **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#14449](https://github.com/google-gemini/gemini-cli/issues/14449)) |
-| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | Codex `PreToolUse` is Bash-only until upstream expands ([openai/codex#2150](https://github.com/openai/codex/discussions/2150)) |
+| **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
+| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | Codex `PreToolUse` is Bash-only until upstream expands ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
 
 ### Manage
 
