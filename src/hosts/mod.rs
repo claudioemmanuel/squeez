@@ -12,9 +12,11 @@
 
 pub mod claude_code;
 pub mod copilot;
+pub mod gemini;
 pub mod opencode;
 pub use claude_code::ClaudeCodeAdapter;
 pub use copilot::CopilotCliAdapter;
+pub use gemini::GeminiCliAdapter;
 pub use opencode::OpenCodeAdapter;
 
 use std::path::{Path, PathBuf};
@@ -99,34 +101,7 @@ pub fn find(slug: &str) -> Option<Box<dyn HostAdapter>> {
     all_hosts().into_iter().find(|h| h.name() == slug)
 }
 
-// ── Stub implementations (US-005 .. US-006 fill these in) ──────────────────
-
-pub struct GeminiCliAdapter;
-impl HostAdapter for GeminiCliAdapter {
-    fn name(&self) -> &'static str {
-        "gemini"
-    }
-    fn is_installed(&self) -> bool {
-        Path::new(&format!("{}/.gemini", home_dir())).exists()
-    }
-    fn data_dir(&self) -> PathBuf {
-        PathBuf::from(format!("{}/.gemini/squeez", home_dir()))
-    }
-    fn capabilities(&self) -> HostCaps {
-        // BUDGET_HARD pending empirical validation of BeforeTool rewrite schema.
-        // Upstream: https://github.com/google-gemini/gemini-cli/issues/14449
-        HostCaps::BASH_WRAP | HostCaps::SESSION_MEM | HostCaps::BUDGET_SOFT
-    }
-    fn install(&self, _bin_path: &Path) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn uninstall(&self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn inject_memory(&self, _cfg: &Config, _summaries: &[Summary]) -> std::io::Result<()> {
-        Ok(())
-    }
-}
+// ── Stub implementations (US-006 fills this in) ────────────────────────────
 
 pub struct CodexCliAdapter;
 impl HostAdapter for CodexCliAdapter {
