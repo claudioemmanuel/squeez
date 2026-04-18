@@ -44,20 +44,36 @@ Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. 
 
 ---
 
-### After install
+### Supported hosts
 
-| Platform | What to do |
-|----------|-----------|
-| **Claude Code** | Restart Claude Code — hooks activate automatically |
-| **OpenCode** | Restart OpenCode — plugin auto-loads from `~/.config/opencode/plugins/` |
-| **Copilot CLI** | Restart Copilot CLI — hooks registered in `~/.copilot/settings.json` |
+`squeez setup` auto-detects every CLI present on disk and registers the hooks. `squeez uninstall` removes them. Session data and `config.ini` are preserved so reinstall is lossless.
+
+| Host | Memory file | Bash wrap | Session memory | Budget inject (Read/Grep) | Notes |
+|---|---|---|---|---|---|
+| **Claude Code** | `~/.claude/CLAUDE.md` | ✅ native | ✅ native | ✅ native | Restart Claude Code to pick up hooks |
+| **Copilot CLI** | `~/.copilot/copilot-instructions.md` | ✅ native | ✅ native | ✅ native | Restart Copilot CLI after setup |
+| **OpenCode** | `~/.config/opencode/AGENTS.md` | ✅ native | ✅ native | ✅ native | Plugin at `~/.config/opencode/plugins/squeez.js`; MCP tool calls skip hooks (upstream sst/opencode#2319) |
+| **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#14449](https://github.com/google-gemini/gemini-cli/issues/14449)) |
+| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | Codex `PreToolUse` is Bash-only until upstream expands ([openai/codex#2150](https://github.com/openai/codex/discussions/2150)) |
+
+### Manage
+
+```bash
+squeez setup                  # register into every detected host
+squeez setup --host=<slug>    # register into one host
+squeez uninstall              # remove squeez entries from every detected host
+squeez uninstall --host=<slug>
+```
+
+Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex`.
+
+After install, restart the CLI you use to pick up the new hooks.
 
 ### Uninstall
 
 ```bash
-bash ~/.claude/squeez/uninstall.sh
-# or, if you cloned the repo:
-bash uninstall.sh
+squeez uninstall              # preserves session data + config.ini
+bash ~/.claude/squeez/uninstall.sh   # (legacy) full wipe, if the script exists
 ```
 
 ### Self-update

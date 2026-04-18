@@ -20,7 +20,11 @@ No Makefile — all build tooling is Cargo-native.
 
 ## Architecture
 
-**squeez** is hook-based bash output compressor for Claude Code / Copilot CLI / OpenCode. It intercepts every tool invocation via Claude Code hooks (PreToolUse → wrap, SessionStart → init, PostToolUse → track-result) and runs output through 4-stage compression pipeline before Claude sees it.
+**squeez** is hook-based bash output compressor for five CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI. It intercepts every tool invocation via host-specific hooks (PreToolUse / BeforeTool → wrap, SessionStart → init, PostToolUse / AfterTool → track-result) and runs output through 4-stage compression pipeline before the model sees it.
+
+### Host adapters (`src/hosts/`)
+
+One adapter per supported CLI, all implementing the `HostAdapter` trait. `squeez setup` iterates the registry via `all_hosts()` + `is_installed()` probes; `squeez init --host=<slug>` targets a single host. Capability bitflags (`HostCaps::{BASH_WRAP, SESSION_MEM, BUDGET_HARD, BUDGET_SOFT}`) describe what each host supports natively — Claude/Copilot/OpenCode get BUDGET_HARD; Gemini/Codex ship BUDGET_SOFT (prose hints in `GEMINI.md` / `AGENTS.md`) pending upstream expansion.
 
 ### Compression pipeline (per command invocation)
 
@@ -48,7 +52,10 @@ Cross-call awareness across 16 recent invocations:
 |------|------|
 | `src/commands/wrap.rs` | Main orchestrator: spawn subprocess, capture, compress, inject header |
 | `src/commands/compress_md/` | Markdown compressor module: `mod.rs` (core logic), `locale.rs` (Locale struct + `from_code`), `locales/en.rs` + `locales/pt_br.rs` (word lists). Exposes `compress_text` (EN default) and `compress_text_with_locale`. Select locale via `lang=` in config or `--lang` CLI flag. |
-| `src/commands/init.rs` | Session start: finalize previous session memory, inject persona prompt |
+| `src/commands/init.rs` | Session start orchestrator: finalizes previous session, prints banner, delegates memory injection to `HostAdapter.inject_memory()` via `run_for_host(slug)` |
+| `src/hosts/` | Per-host adapters (`claude_code.rs` / `copilot.rs` / `opencode.rs` / `gemini.rs` / `codex.rs`) implementing the `HostAdapter` trait + `HostCaps` bitflags + `all_hosts()` / `find()` registry. Each adapter owns install/uninstall + memory-file injection for its CLI. |
+| `src/commands/setup.rs` | `squeez setup` — thin orchestrator over the adapter registry |
+| `src/commands/uninstall.rs` | `squeez uninstall` — reverse registration, preserves session data |
 | `src/commands/benchmark.rs` | 22-scenario reproducible benchmark suite (incl. 3 economy scenarios); `--baseline` flag prints C0 vs C4 A/B table |
 | `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults. Key tunable: `state_warn_calls` (default 5) — calls-remaining threshold that triggers State-First Pattern warning |
 | `src/session.rs` | Session state: token accounting, JSONL event log at `~/.claude/squeez/sessions/` |
@@ -62,7 +69,7 @@ Cross-call awareness across 16 recent invocations:
 
 ### Tests
 
-35 integration test files under `tests/`. Each strategy and handler has dedicated test file. Notable new ones: `test_redundancy_shingle.rs` (8 fuzzy-match tests), `test_mcp_server.rs` (10 JSON-RPC tests). Benchmark fixtures live in `bench/fixtures/`capture new ones w/ `bash bench/capture.sh`.
+38+ integration test files under `tests/`. Each strategy, handler, and host adapter has dedicated test file. Notable: `test_redundancy_shingle.rs` (fuzzy-match), `test_mcp_server.rs` (JSON-RPC), `test_hosts_{registry,opencode,gemini,codex}.rs` (adapter install/uninstall). Benchmark fixtures live in `bench/fixtures/`capture new ones w/ `bash bench/capture.sh`.
 
 ### Release & distribution
 
