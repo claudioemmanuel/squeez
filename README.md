@@ -346,11 +346,11 @@ Each bash command passes through four strategies in order:
 | Git | `git` |
 | Docker / containers | `docker`, `docker-compose`, `podman` |
 | Package managers | `npm`, `pnpm`, `bun`, `yarn` |
-| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build) |
-| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest` |
+| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build), `next build/dev/start` |
+| Test runners | `cargo test`, `jest`, `vitest`, `pytest`, `nextest`, `playwright`, `bun test` |
 | TypeScript / linters | `tsc`, `eslint`, `biome` |
-| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az` |
-| Databases | `psql`, `prisma`, `mysql` |
+| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az`, `wrangler` |
+| Databases | `psql`, `prisma`, `mysql`, `drizzle-kit` |
 | Filesystem | `find`, `ls`, `du`, `ps`, `env`, `lsof`, `netstat` |
 | JSON / YAML / IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
 | Text processing | `grep`, `rg`, `awk`, `sed` |
