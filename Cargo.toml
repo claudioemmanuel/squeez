@@ -2,9 +2,9 @@
 name = "squeez"
 version = "1.7.0"
 edition = "2021"
-description = "End-to-end token optimizer for Claude Code, Copilot CLI, and OpenCode. Compresses bash output up to 95%, collapses redundant calls, injects caveman persona, and compresses memory files. Zero new dependencies."
+description = "Hook-based token compressor for 5 AI CLI hosts (Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI). Up to 95% bash compression, signature-mode for code reads, cross-call dedup, MCP server, self-teaching protocol. Zero runtime deps."
 repository = "https://github.com/claudioemmanuel/squeez"
-license = "MIT"
+license = "Apache-2.0"
 keywords = ["claude-code", "token", "compression", "llm", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"

@@ -1,0 +1,55 @@
+name: DCO sign-off
+
+# Require every commit in a PR to carry a valid `Signed-off-by:` trailer.
+# This is the enforcement side of the DCO policy documented in CONTRIBUTING.md.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify every commit has a Signed-off-by trailer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -e
+          # Compute the range of commits this PR introduces (merge-base to head).
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          COMMITS=$(git rev-list --no-merges "${MERGE_BASE}..${HEAD_SHA}")
+          if [ -z "$COMMITS" ]; then
+            echo "No commits in PR range — nothing to check."
+            exit 0
+          fi
+
+          FAILED=0
+          for sha in $COMMITS; do
+            # Git's --format=%B includes the full commit message (subject + body).
+            # Look for a trailer matching `Signed-off-by: Name <email>`.
+            if ! git log -1 --format=%B "$sha" \
+                 | grep -qE '^Signed-off-by: [^<]+ <[^>]+>$'; then
+              echo "::error::Commit $sha is missing a Signed-off-by trailer."
+              echo "  Subject: $(git log -1 --format=%s "$sha")"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "Fix: amend the offending commits with 'git commit --amend -s' or"
+            echo "reword them with 'git rebase -i --signoff'. See CONTRIBUTING.md."
+            exit 1
+          fi
+          echo "All commits carry a valid Signed-off-by trailer."
