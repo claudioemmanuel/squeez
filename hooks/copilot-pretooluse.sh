@@ -41,11 +41,11 @@ if tool == 'Bash':
 
     if cmd.startswith('--no-squeez '):
         d['tool_input']['command'] = cmd[len('--no-squeez '):]
-        print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
         sys.exit(0)
 
     d['tool_input']['command'] = squeez + ' wrap ' + shlex.quote(cmd)
-    print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
     sys.exit(0)
 
 # ── Read/Grep/Glob: inject budget limits ──────────────────────────────
@@ -66,7 +66,7 @@ if tool in ('Read', 'Grep', 'Glob'):
                     changed = True
             if changed:
                 d['tool_input'] = inp
-                print(json.dumps({'hookSpecificOutput': {'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
                 sys.exit(0)
     except Exception:
         pass  # budget enforcement is best-effort
