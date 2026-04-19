@@ -14,17 +14,18 @@ bash bench/run.sh                 # Filter-mode benchmarks (14 fixtures)
 bash bench/run_context.sh         # Context engine benchmarks
 ./target/release/squeez benchmark # Full 19-scenario benchmark suite
 ./target/release/squeez benchmark --json  # JSON output
+./target/release/squeez benchmark --efficiency-proof  # prove US-001/US-003/US-004 savings
 ```
 
 No Makefile — all build tooling is Cargo-native.
 
 ## Architecture
 
-**squeez** is hook-based bash output compressor for five CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI. It intercepts every tool invocation via host-specific hooks (PreToolUse / BeforeTool → wrap, SessionStart → init, PostToolUse / AfterTool → track-result) and runs output through 4-stage compression pipeline before the model sees it.
+**squeez** is hook-based bash output compressor for five CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI. It intercepts every tool invocation via host-specific hooks (PreToolUse / BeforeTool → wrap, SessionStart → init, PostToolUse / AfterTool → track-result) and runs output through 4-stage compression pipeline before model sees it.
 
 ### Host adapters (`src/hosts/`)
 
-One adapter per supported CLI, all implementing the `HostAdapter` trait. `squeez setup` iterates the registry via `all_hosts()` + `is_installed()` probes; `squeez init --host=<slug>` targets a single host. Capability bitflags (`HostCaps::{BASH_WRAP, SESSION_MEM, BUDGET_HARD, BUDGET_SOFT}`) describe what each host supports natively — Claude/Copilot/OpenCode get BUDGET_HARD; Gemini/Codex ship BUDGET_SOFT (prose hints in `GEMINI.md` / `AGENTS.md`) pending upstream expansion.
+One adapter per supported CLI, all implementing `HostAdapter` trait. `squeez setup` iterates registry via `all_hosts()` + `is_installed()` probes; `squeez init --host=<slug>` targets single host. Capability bitflags (`HostCaps::{BASH_WRAP, SESSION_MEM, BUDGET_HARD, BUDGET_SOFT}`) describe what each host supports natively — Claude/Copilot/OpenCode get BUDGET_HARD; Gemini/Codex ship BUDGET_SOFT (prose hints in `GEMINI.md` / `AGENTS.md`) pending upstream expansion.
 
 ### Compression pipeline (per command invocation)
 
