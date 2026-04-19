@@ -108,14 +108,15 @@ pub struct CurrentSession {
 impl CurrentSession {
     pub fn load(sessions_dir: &Path) -> Option<Self> {
         let s = std::fs::read_to_string(sessions_dir.join("current.json")).ok()?;
+        let map = crate::json_util::extract_all(&s);
         Some(Self {
-            session_file: crate::json_util::extract_str(&s, "session_file").unwrap_or_default(),
-            total_tokens: crate::json_util::extract_u64(&s, "total_tokens").unwrap_or(0),
-            tokens_saved: crate::json_util::extract_u64(&s, "tokens_saved").unwrap_or(0),
-            total_calls: crate::json_util::extract_u64(&s, "total_calls").unwrap_or(0),
-            compact_warned: crate::json_util::extract_bool(&s, "compact_warned").unwrap_or(false),
-            state_warned: crate::json_util::extract_bool(&s, "state_warned").unwrap_or(false),
-            start_ts: crate::json_util::extract_u64(&s, "start_ts").unwrap_or(0),
+            session_file: crate::json_util::map_str(&map, "session_file").unwrap_or_default(),
+            total_tokens: crate::json_util::map_u64(&map, "total_tokens").unwrap_or(0),
+            tokens_saved: crate::json_util::map_u64(&map, "tokens_saved").unwrap_or(0),
+            total_calls: crate::json_util::map_u64(&map, "total_calls").unwrap_or(0),
+            compact_warned: crate::json_util::map_bool(&map, "compact_warned").unwrap_or(false),
+            state_warned: crate::json_util::map_bool(&map, "state_warned").unwrap_or(false),
+            start_ts: crate::json_util::map_u64(&map, "start_ts").unwrap_or(0),
         })
     }
 

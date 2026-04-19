@@ -680,15 +680,16 @@ impl SessionContext {
     }
 
     pub fn from_json(s: &str) -> Self {
+        let map = json_util::extract_all(s);
         let mut c = Self::default();
-        c.session_file = json_util::extract_str(s, "session_file").unwrap_or_default();
-        c.call_counter = json_util::extract_u64(s, "call_counter").unwrap_or(0);
+        c.session_file = json_util::map_str(&map, "session_file").unwrap_or_default();
+        c.call_counter = json_util::map_u64(&map, "call_counter").unwrap_or(0);
 
-        let cl_n = json_util::extract_u64_array(s, "call_log_n");
-        let cl_cmd = json_util::extract_str_array(s, "call_log_cmd");
-        let cl_hash = json_util::extract_u64_array(s, "call_log_hash");
-        let cl_len = json_util::extract_u64_array(s, "call_log_len");
-        let cl_short = json_util::extract_str_array(s, "call_log_short");
+        let cl_n = json_util::map_u64_array(&map, "call_log_n");
+        let cl_cmd = json_util::map_str_array(&map, "call_log_cmd");
+        let cl_hash = json_util::map_u64_array(&map, "call_log_hash");
+        let cl_len = json_util::map_u64_array(&map, "call_log_len");
+        let cl_short = json_util::map_str_array(&map, "call_log_short");
         let n = cl_n
             .len()
             .min(cl_cmd.len())
@@ -709,7 +710,7 @@ impl SessionContext {
         // context.json files. Inner separator is `;` (see to_json comment).
         // If absent or shorter than call_log, missing entries are left as
         // empty Vec and lookup_similar will skip them.
-        let cl_sh_strs = json_util::extract_str_array(s, "call_log_shingles");
+        let cl_sh_strs = json_util::map_str_array(&map, "call_log_shingles");
         for raw in cl_sh_strs.iter().take(n) {
             if raw.is_empty() {
                 c.call_log_shingles.push(Vec::new());
@@ -720,11 +721,11 @@ impl SessionContext {
             }
         }
 
-        let sf_path = json_util::extract_str_array(s, "seen_files_path");
-        let sf_size = json_util::extract_u64_array(s, "seen_files_size");
-        let sf_last = json_util::extract_u64_array(s, "seen_files_last");
+        let sf_path = json_util::map_str_array(&map, "seen_files_path");
+        let sf_size = json_util::map_u64_array(&map, "seen_files_size");
+        let sf_last = json_util::map_u64_array(&map, "seen_files_last");
         // Phase 4: access field — optional for backward compat; defaults to Read.
-        let sf_access = json_util::extract_str_array(s, "seen_files_access");
+        let sf_access = json_util::map_str_array(&map, "seen_files_access");
         let m = sf_path.len().min(sf_size.len()).min(sf_last.len());
         for i in 0..m {
             let access = sf_access
@@ -740,43 +741,43 @@ impl SessionContext {
             });
         }
 
-        c.seen_errors = json_util::extract_u64_array(s, "seen_errors");
+        c.seen_errors = json_util::map_u64_array(&map, "seen_errors");
 
         // Phase 2: error snippets — optional for backward compat.
-        let es_fp = json_util::extract_u64_array(s, "error_snippet_fp");
-        let es_text = json_util::extract_str_array(s, "error_snippet_text");
+        let es_fp = json_util::map_u64_array(&map, "error_snippet_fp");
+        let es_text = json_util::map_str_array(&map, "error_snippet_text");
         let es_n = es_fp.len().min(es_text.len());
         for i in 0..es_n {
             c.error_snippets.push((es_fp[i], es_text[i].clone()));
         }
 
-        c.seen_git_refs = json_util::extract_str_array(s, "seen_git_refs");
-        c.tokens_bash = json_util::extract_u64(s, "tokens_bash").unwrap_or(0);
-        c.tokens_read = json_util::extract_u64(s, "tokens_read").unwrap_or(0);
-        c.tokens_grep = json_util::extract_u64(s, "tokens_grep").unwrap_or(0);
-        c.tokens_other = json_util::extract_u64(s, "tokens_other").unwrap_or(0);
-        c.reread_count = json_util::extract_u64(s, "reread_count").unwrap_or(0) as u32;
+        c.seen_git_refs = json_util::map_str_array(&map, "seen_git_refs");
+        c.tokens_bash = json_util::map_u64(&map, "tokens_bash").unwrap_or(0);
+        c.tokens_read = json_util::map_u64(&map, "tokens_read").unwrap_or(0);
+        c.tokens_grep = json_util::map_u64(&map, "tokens_grep").unwrap_or(0);
+        c.tokens_other = json_util::map_u64(&map, "tokens_other").unwrap_or(0);
+        c.reread_count = json_util::map_u64(&map, "reread_count").unwrap_or(0) as u32;
 
         // Phase 6: stat counters — optional for backward compat.
         c.exact_dedup_hits =
-            json_util::extract_u64(s, "exact_dedup_hits").unwrap_or(0) as u32;
+            json_util::map_u64(&map, "exact_dedup_hits").unwrap_or(0) as u32;
         c.fuzzy_dedup_hits =
-            json_util::extract_u64(s, "fuzzy_dedup_hits").unwrap_or(0) as u32;
+            json_util::map_u64(&map, "fuzzy_dedup_hits").unwrap_or(0) as u32;
         c.summarize_triggers =
-            json_util::extract_u64(s, "summarize_triggers").unwrap_or(0) as u32;
+            json_util::map_u64(&map, "summarize_triggers").unwrap_or(0) as u32;
         c.intensity_ultra_calls =
-            json_util::extract_u64(s, "intensity_ultra_calls").unwrap_or(0) as u32;
+            json_util::map_u64(&map, "intensity_ultra_calls").unwrap_or(0) as u32;
 
         // Phase 7: token economy — optional for backward compat.
         c.agent_spawns =
-            json_util::extract_u64(s, "agent_spawns").unwrap_or(0) as u32;
+            json_util::map_u64(&map, "agent_spawns").unwrap_or(0) as u32;
         c.agent_estimated_tokens =
-            json_util::extract_u64(s, "agent_estimated_tokens").unwrap_or(0);
+            json_util::map_u64(&map, "agent_estimated_tokens").unwrap_or(0);
 
-        let as_call_n = json_util::extract_u64_array(s, "agent_spawn_log_call_n");
-        let as_tool = json_util::extract_str_array(s, "agent_spawn_log_tool");
-        let as_tokens = json_util::extract_u64_array(s, "agent_spawn_log_tokens");
-        let as_ts = json_util::extract_u64_array(s, "agent_spawn_log_ts");
+        let as_call_n = json_util::map_u64_array(&map, "agent_spawn_log_call_n");
+        let as_tool = json_util::map_str_array(&map, "agent_spawn_log_tool");
+        let as_tokens = json_util::map_u64_array(&map, "agent_spawn_log_tokens");
+        let as_ts = json_util::map_u64_array(&map, "agent_spawn_log_ts");
         let as_n = as_call_n.len().min(as_tool.len()).min(as_tokens.len()).min(as_ts.len());
         for i in 0..as_n {
             c.agent_spawn_log.push(AgentSpawnEntry {
@@ -787,9 +788,9 @@ impl SessionContext {
             });
         }
 
-        let bw_call_n = json_util::extract_u64_array(s, "burn_window_call_n");
-        let bw_tokens = json_util::extract_u64_array(s, "burn_window_tokens");
-        let bw_ts = json_util::extract_u64_array(s, "burn_window_ts");
+        let bw_call_n = json_util::map_u64_array(&map, "burn_window_call_n");
+        let bw_tokens = json_util::map_u64_array(&map, "burn_window_tokens");
+        let bw_ts = json_util::map_u64_array(&map, "burn_window_ts");
         let bw_n = bw_call_n.len().min(bw_tokens.len()).min(bw_ts.len());
         for i in 0..bw_n {
             c.burn_window.push(BurnEntry {
@@ -894,6 +895,48 @@ mod tests {
         assert_eq!(r.call_log[0].output_len, 100);
         assert_eq!(r.seen_files.len(), 2);
         assert_eq!(r.seen_errors.len(), 1);
+    }
+
+    #[test]
+    fn from_json_roundtrip_extract_all() {
+        // Build a context, serialize, deserialize with extract_all-based from_json,
+        // and verify all fields round-trip correctly.
+        let mut c = SessionContext::default();
+        c.session_file = "2026-04-19-12.jsonl".to_string();
+        c.call_counter = 7;
+        c.tokens_bash = 500;
+        c.tokens_read = 300;
+        c.tokens_grep = 100;
+        c.tokens_other = 50;
+        c.reread_count = 2;
+        c.exact_dedup_hits = 1;
+        c.fuzzy_dedup_hits = 3;
+        c.summarize_triggers = 2;
+        c.intensity_ultra_calls = 1;
+        c.agent_spawns = 1;
+        c.agent_estimated_tokens = 1000;
+        c.note_files(&["/a.rs".to_string(), "/b.rs".to_string()]);
+        c.note_errors(&["error: missing field".to_string()]);
+        c.note_git(&["abc1234def".to_string()]);
+        let n = c.next_call_n();
+        c.record_call("cargo test", 0xbeef, 200, n);
+
+        let json = c.to_json();
+        let r = SessionContext::from_json(&json);
+
+        assert_eq!(r.session_file, c.session_file);
+        assert_eq!(r.call_counter, c.call_counter);
+        assert_eq!(r.tokens_bash, c.tokens_bash);
+        assert_eq!(r.tokens_read, c.tokens_read);
+        assert_eq!(r.tokens_grep, c.tokens_grep);
+        assert_eq!(r.tokens_other, c.tokens_other);
+        assert_eq!(r.reread_count, c.reread_count);
+        assert_eq!(r.exact_dedup_hits, c.exact_dedup_hits);
+        assert_eq!(r.fuzzy_dedup_hits, c.fuzzy_dedup_hits);
+        assert_eq!(r.call_log.len(), c.call_log.len());
+        assert_eq!(r.seen_files.len(), c.seen_files.len());
+        assert_eq!(r.seen_errors.len(), c.seen_errors.len());
+        assert_eq!(r.seen_git_refs.len(), c.seen_git_refs.len());
     }
 
     #[test]

@@ -176,14 +176,48 @@ pub fn read_last_n(memory_dir: &Path, n: usize) -> Vec<Summary> {
     if n == 0 {
         return Vec::new();
     }
-    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
-        Ok(c) => c,
+    let path = memory_dir.join("summaries.jsonl");
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(_) => return Vec::new(),
     };
-    // Only parse the tail of the file: take last n*2 non-empty lines (to
-    // account for invalid lines), parse those, sort by ts, and truncate.
-    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-    let start = lines.len().saturating_sub(n * 2);
+    let file_len = match file.seek(SeekFrom::End(0)) {
+        Ok(l) => l,
+        Err(_) => return Vec::new(),
+    };
+    if file_len == 0 {
+        return Vec::new();
+    }
+
+    const CHUNK: u64 = 8192;
+    let mut chunks: Vec<Vec<u8>> = Vec::new();
+    let mut pos = file_len;
+    let mut newline_count = 0usize;
+
+    while pos > 0 {
+        let read_from = pos.saturating_sub(CHUNK);
+        let read_size = (pos - read_from) as usize;
+        if file.seek(SeekFrom::Start(read_from)).is_err() {
+            break;
+        }
+        let mut chunk = vec![0u8; read_size];
+        if file.read_exact(&mut chunk).is_err() {
+            break;
+        }
+        newline_count += chunk.iter().filter(|&&b| b == b'\n').count();
+        chunks.push(chunk);
+        pos = read_from;
+        if newline_count > n {
+            break;
+        }
+    }
+
+    chunks.reverse();
+    let buf: Vec<u8> = chunks.into_iter().flatten().collect();
+    let text = String::from_utf8_lossy(&buf);
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(n);
     let mut summaries: Vec<Summary> = lines[start..]
         .iter()
         .filter_map(|l| Summary::from_jsonl_line(l))
@@ -195,6 +229,7 @@ pub fn read_last_n(memory_dir: &Path, n: usize) -> Vec<Summary> {
 
 pub fn write_summary(memory_dir: &Path, summary: &Summary) {
     let path = memory_dir.join("summaries.jsonl");
+    let offset = jsonl_current_size(memory_dir);
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -202,6 +237,85 @@ pub fn write_summary(memory_dir: &Path, summary: &Summary) {
     {
         let _ = writeln!(f, "{}", summary.to_jsonl_line());
     }
+    // Append to index
+    let idx_path = index_path(memory_dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&idx_path)
+    {
+        let _ = writeln!(f, "{}\t{}", summary.ts, offset);
+    }
+}
+
+// ── Offset index helpers ──────────────────────────────────────────────────
+
+fn index_path(memory_dir: &Path) -> std::path::PathBuf {
+    memory_dir.join("summaries.index")
+}
+
+/// Reads (timestamp, byte_offset) pairs from summaries.index.
+/// Returns empty vec if missing or malformed.
+fn read_index(memory_dir: &Path) -> Vec<(u64, u64)> {
+    let content = match std::fs::read_to_string(index_path(memory_dir)) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let mut parts = l.splitn(2, '\t');
+            let ts: u64 = parts.next()?.trim().parse().ok()?;
+            let off: u64 = parts.next()?.trim().parse().ok()?;
+            Some((ts, off))
+        })
+        .collect()
+}
+
+/// Rebuilds summaries.index by scanning summaries.jsonl once (O(n) one-time cost).
+/// Called automatically when index is absent or stale.
+pub fn rebuild_index(memory_dir: &Path) {
+    use std::io::{BufRead, Write as _};
+    let jsonl_path = memory_dir.join("summaries.jsonl");
+    let file = match std::fs::File::open(&jsonl_path) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let mut reader = std::io::BufReader::new(file);
+    let mut entries: Vec<(u64, u64)> = Vec::new();
+    let mut offset: u64 = 0;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(n_read) => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    if let Some(ts) = crate::json_util::extract_u64(trimmed, "ts") {
+                        entries.push((ts, offset));
+                    }
+                }
+                offset += n_read as u64;
+            }
+            Err(_) => break,
+        }
+    }
+    let tmp = index_path(memory_dir).with_extension("index.tmp");
+    if let Ok(mut f) = std::fs::File::create(&tmp) {
+        for (ts, off) in &entries {
+            let _ = writeln!(f, "{}\t{}", ts, off);
+        }
+        let _ = std::fs::rename(&tmp, index_path(memory_dir));
+    }
+}
+
+/// Returns byte offset of summaries.jsonl just before writing, for index tracking.
+fn jsonl_current_size(memory_dir: &Path) -> u64 {
+    std::fs::metadata(memory_dir.join("summaries.jsonl"))
+        .map(|m| m.len())
+        .unwrap_or(0)
 }
 
 /// Search summaries.jsonl for sessions where `query` appears in any text field.
@@ -384,20 +498,37 @@ pub fn prune_old(memory_dir: &Path, retention_days: u32) {
         Err(_) => return,
     };
     let cutoff = crate::session::unix_now().saturating_sub(retention_days as u64 * 86400);
-    // Write kept lines directly to a temp file instead of materializing a
-    // joined String — avoids a second full-size allocation.
+
+    // Try index-assisted binary search first
+    let index = read_index(memory_dir);
+    let keep_from_line = if !index.is_empty() {
+        // index is sorted by ts ascending (append order)
+        // find first position where ts >= cutoff
+        index.partition_point(|(ts, _)| *ts < cutoff)
+    } else {
+        0
+    };
+
     let tmp = path.with_extension("tmp");
     if let Ok(mut f) = std::fs::File::create(&tmp) {
-        for line in content.lines().filter(|l| !l.trim().is_empty()) {
-            // Use effective_ts so invalidated summaries age from `valid_to`
-            // rather than from `ts`. Lines with neither field default to keep.
-            let eff = effective_ts(line);
-            if eff == 0 || eff >= cutoff {
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        let use_index = !index.is_empty();
+        for (i, line) in lines.iter().enumerate() {
+            let keep = if use_index {
+                i >= keep_from_line
+            } else {
+                // Fallback: filter by effective_ts for lines without index
+                let eff = effective_ts(line);
+                eff == 0 || eff >= cutoff
+            };
+            if keep {
                 let _ = writeln!(f, "{}", line);
             }
         }
         let _ = std::fs::rename(&tmp, &path);
     }
+    // Rebuild index after pruning
+    rebuild_index(memory_dir);
 }
 
 #[cfg(test)]
@@ -468,5 +599,128 @@ mod tests {
         let invalidated_line = s(1000, 5000).to_jsonl_line();
         assert_eq!(effective_ts(&active_line), 1000);
         assert_eq!(effective_ts(&invalidated_line), 5000);
+    }
+
+    fn tmp_dir(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "squeez_mem_{}_{}",
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ))
+    }
+
+    #[test]
+    fn test_read_last_n_tail_only() {
+        let dir = tmp_dir("tail");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Write 100 entries with distinct timestamps
+        for i in 1..=100u64 {
+            let mut entry = s(i, 0);
+            entry.date = format!("2026-04-{:02}", (i % 28) + 1);
+            write_summary(&dir, &entry);
+        }
+        let result = read_last_n(&dir, 3);
+        assert_eq!(result.len(), 3);
+        // Should be the 3 most recent (highest ts), sorted descending
+        assert_eq!(result[0].ts, 100);
+        assert_eq!(result[1].ts, 99);
+        assert_eq!(result[2].ts, 98);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_last_n_empty_file() {
+        let dir = tmp_dir("empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Create an empty file
+        std::fs::write(dir.join("summaries.jsonl"), "").unwrap();
+        let result = read_last_n(&dir, 5);
+        assert!(result.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_last_n_fewer_than_n() {
+        let dir = tmp_dir("fewer");
+        std::fs::create_dir_all(&dir).unwrap();
+        write_summary(&dir, &s(100, 0));
+        write_summary(&dir, &s(200, 0));
+        let result = read_last_n(&dir, 5);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].ts, 200);
+        assert_eq!(result[1].ts, 100);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_index_maintained_on_write() {
+        let dir = tmp_dir("idx_write");
+        std::fs::create_dir_all(&dir).unwrap();
+        write_summary(&dir, &s(1000, 0));
+        write_summary(&dir, &s(2000, 0));
+        write_summary(&dir, &s(3000, 0));
+        let index = read_index(&dir);
+        assert_eq!(index.len(), 3);
+        assert_eq!(index[0].0, 1000);
+        assert_eq!(index[1].0, 2000);
+        assert_eq!(index[2].0, 3000);
+        // Offsets should be monotonically increasing
+        assert!(index[1].1 > index[0].1);
+        assert!(index[2].1 > index[1].1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_rebuild_index() {
+        let dir = tmp_dir("rebuild");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Write summaries directly without index
+        let path = dir.join("summaries.jsonl");
+        {
+            use std::io::Write;
+            let mut f = std::fs::File::create(&path).unwrap();
+            writeln!(f, "{}", s(100, 0).to_jsonl_line()).unwrap();
+            writeln!(f, "{}", s(200, 0).to_jsonl_line()).unwrap();
+            writeln!(f, "{}", s(300, 0).to_jsonl_line()).unwrap();
+        }
+        // No index file yet
+        assert!(read_index(&dir).is_empty());
+        // Rebuild
+        rebuild_index(&dir);
+        let index = read_index(&dir);
+        assert_eq!(index.len(), 3);
+        assert_eq!(index[0].0, 100);
+        assert_eq!(index[1].0, 200);
+        assert_eq!(index[2].0, 300);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_prune_uses_binary_search() {
+        let dir = tmp_dir("prune_bs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let now = crate::session::unix_now();
+        // Write entries: 2 old (2 days ago), 2 recent (now)
+        let old_ts = now.saturating_sub(2 * 86400);
+        write_summary(&dir, &s(old_ts, 0));
+        write_summary(&dir, &s(old_ts + 1, 0));
+        write_summary(&dir, &s(now, 0));
+        write_summary(&dir, &s(now + 1, 0));
+        // Verify index has 4 entries
+        assert_eq!(read_index(&dir).len(), 4);
+        // Prune with 1-day retention
+        prune_old(&dir, 1);
+        // Should keep only the 2 recent entries
+        let remaining = read_last_n(&dir, 10);
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining[0].ts >= now);
+        assert!(remaining[1].ts >= now);
+        // Index should be rebuilt with 2 entries
+        let index = read_index(&dir);
+        assert_eq!(index.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
