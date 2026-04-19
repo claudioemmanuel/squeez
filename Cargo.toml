@@ -1,6 +1,6 @@
 [package]
 name = "squeez"
-version = "1.6.0"
+version = "1.6.1"
 edition = "2021"
 description = "End-to-end token optimizer for Claude Code, Copilot CLI, and OpenCode. Compresses bash output up to 95%, collapses redundant calls, injects caveman persona, and compresses memory files. Zero new dependencies."
 repository = "https://github.com/claudioemmanuel/squeez"
