@@ -172,14 +172,18 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
     {
         return;
     }
-    let content = match std::fs::read_to_string(sessions_dir.join(&prev.session_file)) {
-        Ok(c) => c,
+    let file = match std::fs::File::open(sessions_dir.join(&prev.session_file)) {
+        Ok(f) => f,
         Err(_) => return,
     };
+    let reader = std::io::BufReader::new(file);
 
     let mut files_touched: Vec<String> = Vec::new();
+    let mut files_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut git_events: Vec<String> = Vec::new();
+    let mut git_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut errors_resolved: Vec<String> = Vec::new();
+    let mut errors_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut test_summary = String::new();
     let mut total_in: u64 = 0;
     let mut total_out: u64 = 0;
@@ -187,24 +191,31 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
     let mut completed: Vec<String> = Vec::new();
     let mut next_steps: Vec<String> = Vec::new();
 
-    for line in content.lines() {
+    use std::io::BufRead;
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
         if line.trim().is_empty() {
             continue;
         }
-        match json_util::extract_str(line, "type").as_deref() {
+        match json_util::extract_str(&line, "type").as_deref() {
             Some("bash") => {
-                total_in += json_util::extract_u64(line, "in_tk").unwrap_or(0);
-                total_out += json_util::extract_u64(line, "out_tk").unwrap_or(0);
+                total_in += json_util::extract_u64(&line, "in_tk").unwrap_or(0);
+                total_out += json_util::extract_u64(&line, "out_tk").unwrap_or(0);
                 dedup_extend(
                     &mut files_touched,
-                    json_util::extract_str_array(line, "files"),
+                    &mut files_seen,
+                    json_util::extract_str_array(&line, "files"),
                 );
                 dedup_extend(
                     &mut errors_resolved,
-                    json_util::extract_str_array(line, "errors"),
+                    &mut errors_seen,
+                    json_util::extract_str_array(&line, "errors"),
                 );
-                dedup_extend(&mut git_events, json_util::extract_str_array(line, "git"));
-                if let Some(ts) = json_util::extract_str(line, "test_summary") {
+                dedup_extend(&mut git_events, &mut git_seen, json_util::extract_str_array(&line, "git"));
+                if let Some(ts) = json_util::extract_str(&line, "test_summary") {
                     if !ts.is_empty() {
                         test_summary = ts.clone();
                         let ts_lc = ts.to_lowercase();
@@ -227,9 +238,9 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
                         }
                     }
                 }
-                if let Some(cmd) = json_util::extract_str(line, "cmd") {
+                if let Some(cmd) = json_util::extract_str(&line, "cmd") {
                     let has_errors =
-                        !json_util::extract_str_array(line, "errors").is_empty();
+                        !json_util::extract_str_array(&line, "errors").is_empty();
                     if !has_errors {
                         if cmd.contains("cargo build") || cmd.contains("cargo check") {
                             let entry =
@@ -368,9 +379,9 @@ fn git(args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-fn dedup_extend(dest: &mut Vec<String>, src: Vec<String>) {
+fn dedup_extend(dest: &mut Vec<String>, seen: &mut std::collections::HashSet<String>, src: Vec<String>) {
     for item in src {
-        if !dest.contains(&item) {
+        if seen.insert(item.clone()) {
             dest.push(item);
         }
     }

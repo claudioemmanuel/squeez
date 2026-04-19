@@ -173,13 +173,19 @@ impl Summary {
 }
 
 pub fn read_last_n(memory_dir: &Path, n: usize) -> Vec<Summary> {
+    if n == 0 {
+        return Vec::new();
+    }
     let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
-    let mut summaries: Vec<Summary> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
+    // Only parse the tail of the file: take last n*2 non-empty lines (to
+    // account for invalid lines), parse those, sort by ts, and truncate.
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(n * 2);
+    let mut summaries: Vec<Summary> = lines[start..]
+        .iter()
         .filter_map(|l| Summary::from_jsonl_line(l))
         .collect();
     summaries.sort_by(|a, b| b.ts.cmp(&a.ts));
@@ -304,8 +310,11 @@ pub fn session_detail(sessions_dir: &Path, date: &str) -> String {
     }
     let mut total_calls: u32 = 0;
     let mut files: Vec<String> = Vec::new();
+    let mut files_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut errors: Vec<String> = Vec::new();
+    let mut errors_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut git_evts: Vec<String> = Vec::new();
+    let mut git_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut test_sum = String::new();
     let mut total_in: u64 = 0;
     let mut total_out: u64 = 0;
@@ -320,17 +329,17 @@ pub fn session_detail(sessions_dir: &Path, date: &str) -> String {
         total_in += extract_u64(line, "in_tk").unwrap_or(0);
         total_out += extract_u64(line, "out_tk").unwrap_or(0);
         for f in extract_str_array(line, "files") {
-            if !files.contains(&f) {
+            if files_seen.insert(f.clone()) {
                 files.push(f);
             }
         }
         for e in extract_str_array(line, "errors") {
-            if !errors.contains(&e) {
+            if errors_seen.insert(e.clone()) {
                 errors.push(e);
             }
         }
         for g in extract_str_array(line, "git") {
-            if !git_evts.contains(&g) {
+            if git_seen.insert(g.clone()) {
                 git_evts.push(g);
             }
         }
@@ -375,17 +384,20 @@ pub fn prune_old(memory_dir: &Path, retention_days: u32) {
         Err(_) => return,
     };
     let cutoff = crate::session::unix_now().saturating_sub(retention_days as u64 * 86400);
-    // Use effective_ts so invalidated summaries age from `valid_to` rather
-    // than from `ts`. Lines with neither field present default to keep.
-    let kept: Vec<&str> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter(|l| {
-            let eff = effective_ts(l);
-            eff == 0 || eff >= cutoff
-        })
-        .collect();
-    let _ = std::fs::write(&path, kept.join("\n") + "\n");
+    // Write kept lines directly to a temp file instead of materializing a
+    // joined String — avoids a second full-size allocation.
+    let tmp = path.with_extension("tmp");
+    if let Ok(mut f) = std::fs::File::create(&tmp) {
+        for line in content.lines().filter(|l| !l.trim().is_empty()) {
+            // Use effective_ts so invalidated summaries age from `valid_to`
+            // rather than from `ts`. Lines with neither field default to keep.
+            let eff = effective_ts(line);
+            if eff == 0 || eff >= cutoff {
+                let _ = writeln!(f, "{}", line);
+            }
+        }
+        let _ = std::fs::rename(&tmp, &path);
+    }
 }
 
 #[cfg(test)]

@@ -20,9 +20,8 @@ pub struct RedundancyHit {
     pub similarity: Option<f32>,
 }
 
-/// Compute the canonical hash + length for a compressed output.
-fn fingerprint(output: &[String]) -> (u64, usize) {
-    let joined = output.join("\n");
+/// Compute the canonical hash + length from a pre-joined string.
+fn fingerprint_str(joined: &str) -> (u64, usize) {
     (fnv1a_64(joined.as_bytes()), joined.len())
 }
 
@@ -34,7 +33,8 @@ pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
     if output.len() < MIN_LINES {
         return None;
     }
-    let (h, len) = fingerprint(output);
+    let joined = output.join("\n");
+    let (h, len) = fingerprint_str(&joined);
     // Fast path: exact hash + length match.
     if let Some(entry) = ctx.lookup_recent(h, len) {
         return Some(RedundancyHit {
@@ -48,7 +48,6 @@ pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
     if output.len() < MIN_LINES_FUZZY {
         return None;
     }
-    let joined = output.join("\n");
     let shingles = shingle_minhash(&joined);
     if shingles.is_empty() {
         return None;
@@ -65,10 +64,10 @@ pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
 /// Returns the assigned call_n. Stores both the exact hash and the MinHash
 /// sketch so that future calls can match either exactly or fuzzily.
 pub fn record(ctx: &mut SessionContext, cmd: &str, output: &[String]) -> u64 {
-    let (h, len) = fingerprint(output);
+    let joined = output.join("\n");
+    let (h, len) = fingerprint_str(&joined);
     let call_n = ctx.next_call_n();
     let shingles = if output.len() >= MIN_LINES_FUZZY {
-        let joined = output.join("\n");
         shingle_minhash(&joined)
     } else {
         Vec::new()

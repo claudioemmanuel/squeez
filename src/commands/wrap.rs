@@ -323,10 +323,15 @@ extern "C" fn forward_signal(sig: libc::c_int) {
 
 // ── Artifact extraction ────────────────────────────────────────────────────
 
+const MAX_FILE_PATHS: usize = 100;
+
 pub fn extract_file_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for word in text.split_whitespace() {
+        if out.len() >= MAX_FILE_PATHS {
+            break;
+        }
         let w = word.trim_matches(|c| c == ',' || c == ':' || c == '(' || c == ')' || c == '\'' || c == '"');
         if looks_like_path(w) && seen.insert(w.to_string()) {
             out.push(w.to_string());
