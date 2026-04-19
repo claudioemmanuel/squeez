@@ -18,7 +18,7 @@
     "type": "git",
     "url": "https://github.com/claudioemmanuel/squeez.git"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "readme": "README.md",
   "author": "claudioemmanuel",
   "bin": {

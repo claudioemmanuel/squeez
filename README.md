@@ -1,9 +1,14 @@
+<p align="center">
+  <img src="assets/banner.png" alt="squeez — hook-based token compressor for AI CLIs" width="100%">
+</p>
+
 # squeez
 
 [![CI](https://github.com/claudioemmanuel/squeez/actions/workflows/ci.yml/badge.svg)](https://github.com/claudioemmanuel/squeez/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/squeez.svg)](https://www.npmjs.com/package/squeez)
 [![Crates.io](https://img.shields.io/crates/v/squeez.svg)](https://crates.io/crates/squeez)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![DCO](https://img.shields.io/badge/contributions-DCO_signed--off-green.svg)](CONTRIBUTING.md#license--contributor-sign-off)
 [![Changelog](https://img.shields.io/badge/changelog-📋-blue.svg)](CHANGELOG.md)
 
 End-to-end token optimizer for Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, and OpenAI Codex CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
@@ -477,4 +482,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) + [NOTICE](NOTICE).
+
+Contributions require a DCO sign-off (`git commit -s …`) rather than a CLA. You keep copyright on what you contribute; sign-off is a lightweight affirmation that you have the right to submit it under Apache 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md#license--contributor-sign-off) for details.

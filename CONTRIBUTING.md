@@ -1,5 +1,36 @@
 # Contributing to squeez
 
+## License + Contributor sign-off
+
+squeez is licensed under **Apache License 2.0** (see [LICENSE](LICENSE)).
+
+Every contribution must be signed off under the
+[Developer Certificate of Origin (DCO) 1.1](https://developercertificate.org/).
+Signing off is a trailer in every commit:
+
+```
+Signed-off-by: Your Real Name <your.email@example.com>
+```
+
+The easy way — add `-s` to every commit:
+
+```bash
+git commit -s -m "your commit message"
+```
+
+Or configure git once per clone to always sign off:
+
+```bash
+git config --local format.signoff true
+```
+
+The signoff is a lightweight affirmation that you wrote (or have the right to
+contribute) the patch under the project's license. It's **not a CLA** — there's
+no separate document to sign, and you keep the copyright on what you contribute.
+
+A DCO workflow check blocks any PR whose commits lack a valid `Signed-off-by:`
+line until it's added.
+
 ## Adding a new command handler
 
 1. Create `src/commands/newcmd.rs` implementing `Handler` trait
