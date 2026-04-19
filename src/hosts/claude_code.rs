@@ -16,7 +16,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{HostAdapter, HostCaps};
+use super::{memory_size, HostAdapter, HostCaps};
 
 const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/pretooluse.sh");
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/session-start.sh");
@@ -248,7 +248,14 @@ impl HostAdapter for ClaudeCodeAdapter {
             return Ok(());
         }
 
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+
         let mut block = String::from("<!-- squeez:start -->\n");
+        if let Some(banner) =
+            memory_size::size_warning(&existing, "CLAUDE.md", cfg.memory_file_warn_tokens)
+        {
+            block.push_str(&banner);
+        }
         block.push_str("## squeez — always-on compression\n\n");
         block.push_str(&format!(
             "Persona: {} | Bash compression: ON | Memory: ON\n\n",
@@ -260,7 +267,6 @@ impl HostAdapter for ClaudeCodeAdapter {
         }
         block.push_str("<!-- squeez:end -->\n");
 
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
         let cleaned = strip_squeez_block(&existing);
         let contents = format!("{}\n{}", block, cleaned.trim_start());
         std::fs::write(&path, contents)

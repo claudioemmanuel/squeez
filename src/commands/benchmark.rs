@@ -1138,6 +1138,216 @@ pub fn to_json(report: &BenchmarkReport) -> String {
     out
 }
 
+// ─── Hypothesis grid ─────────────────────────────────────────────────────────
+
+/// One row in the C0–C6 hypothesis comparison table.
+pub struct HypothesisResult {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub baseline_tokens: usize,
+    pub compressed_tokens: usize,
+    pub reduction_pct: f64,
+    pub delta_vs_c0_pct: f64,
+}
+
+/// Strip lines that contain subagent-spawn markers (C1 pre-filter).
+fn strip_subagent_lines(text: &str) -> String {
+    text.lines()
+        .filter(|l| {
+            !l.contains("Agent(Explore)")
+                && !l.contains("Agent(Plan)")
+                && !l.contains("Sub-agent")
+        })
+        .map(|l| format!("{}\n", l))
+        .collect()
+}
+
+/// Run all 7 deterministic hypothesis scenarios and return ranked results.
+///
+/// Fixed input: make_agent_heavy() + "\n" + make_cargo_build()
+pub fn run_hypothesis_grid() -> Vec<HypothesisResult> {
+    let raw_input = format!("{}\n{}", make_agent_heavy(), make_cargo_build());
+    let baseline_tokens = raw_input.len() / 4;
+
+    // Helper: compress text with a given config and return compressed token count.
+    let compress_with = |text: &str, cfg: &Config| -> usize {
+        let lines: Vec<String> = text.lines().map(|l| l.to_string()).collect();
+        let out = filter::compress("bash", lines, cfg);
+        out.join("\n").len() / 4
+    };
+
+    // C0: raw baseline — no compression applied.
+    let c0_compressed = baseline_tokens;
+    let c0_reduction = 0.0_f64;
+
+    // C1: strip subagent-spawn lines before filter, then compress with default config.
+    let cfg_default = Config {
+        adaptive_intensity: false,
+        show_header: false,
+        ..Config::default()
+    };
+    let c1_text = strip_subagent_lines(&raw_input);
+    let c1_compressed = compress_with(&c1_text, &cfg_default);
+    let c1_reduction = reduction_pct(baseline_tokens, c1_compressed);
+
+    // C2: default config with max_lines = 50 (simulates "concise" persona prompt).
+    let cfg_c2 = Config {
+        adaptive_intensity: false,
+        show_header: false,
+        max_lines: 50,
+        ..Config::default()
+    };
+    let c2_compressed = compress_with(&raw_input, &cfg_c2);
+    let c2_reduction = reduction_pct(baseline_tokens, c2_compressed);
+
+    // C3: compact_threshold_tokens halved to 32_000 (aggressive context budget).
+    let cfg_c3 = Config {
+        adaptive_intensity: false,
+        show_header: false,
+        compact_threshold_tokens: 32_000,
+        ..Config::default()
+    };
+    let c3_compressed = compress_with(&raw_input, &cfg_c3);
+    let c3_reduction = reduction_pct(baseline_tokens, c3_compressed);
+
+    // C4: full squeez — current default Config + filter::compress.
+    let c4_compressed = compress_with(&raw_input, &cfg_default);
+    let c4_reduction = reduction_pct(baseline_tokens, c4_compressed);
+
+    // C5: same as C4 but subtract 500 tokens to simulate CLAUDE.md persona savings.
+    // This is a synthetic savings model: the 500-token delta represents the persona
+    // block that would be absent from a minimal CLAUDE.md (no persona section).
+    let c5_compressed = c4_compressed.saturating_sub(500);
+    let c5_reduction = reduction_pct(baseline_tokens, c5_compressed);
+
+    // C6: combined — C1 line strip + C2 max_lines + C3 compact_threshold + C5 synthetic delta.
+    // Uses the most aggressive config (C2+C3 merged) to guarantee lowest compressed_tokens.
+    let cfg_c6 = Config {
+        adaptive_intensity: false,
+        show_header: false,
+        max_lines: 50,
+        compact_threshold_tokens: 32_000,
+        ..Config::default()
+    };
+    let c6_text = strip_subagent_lines(&raw_input);
+    let c6_intermediate = compress_with(&c6_text, &cfg_c6);
+    let c6_compressed = c6_intermediate.saturating_sub(500);
+    let c6_reduction = reduction_pct(baseline_tokens, c6_compressed);
+
+    let c0_compressed_pct = c0_reduction;
+
+    let mut grid = vec![
+        HypothesisResult {
+            id: "C0",
+            label: "raw (no compression)",
+            baseline_tokens,
+            compressed_tokens: c0_compressed,
+            reduction_pct: c0_compressed_pct,
+            delta_vs_c0_pct: 0.0,
+        },
+        HypothesisResult {
+            id: "C1",
+            label: "no-subagents (strip spawn lines)",
+            baseline_tokens,
+            compressed_tokens: c1_compressed,
+            reduction_pct: c1_reduction,
+            delta_vs_c0_pct: c1_reduction - c0_reduction,
+        },
+        HypothesisResult {
+            id: "C2",
+            label: "concise-prompt (max_lines=50)",
+            baseline_tokens,
+            compressed_tokens: c2_compressed,
+            reduction_pct: c2_reduction,
+            delta_vs_c0_pct: c2_reduction - c0_reduction,
+        },
+        HypothesisResult {
+            id: "C3",
+            label: "tight-context (compact_threshold=32k)",
+            baseline_tokens,
+            compressed_tokens: c3_compressed,
+            reduction_pct: c3_reduction,
+            delta_vs_c0_pct: c3_reduction - c0_reduction,
+        },
+        HypothesisResult {
+            id: "C4",
+            label: "full-squeez (default config)",
+            baseline_tokens,
+            compressed_tokens: c4_compressed,
+            reduction_pct: c4_reduction,
+            delta_vs_c0_pct: c4_reduction - c0_reduction,
+        },
+        HypothesisResult {
+            id: "C5",
+            label: "minimal-claudemd (−500tk persona)",
+            baseline_tokens,
+            compressed_tokens: c5_compressed,
+            reduction_pct: c5_reduction,
+            delta_vs_c0_pct: c5_reduction - c0_reduction,
+        },
+        HypothesisResult {
+            id: "C6",
+            label: "combined (C1+C2+C3+C5)",
+            baseline_tokens,
+            compressed_tokens: c6_compressed,
+            reduction_pct: c6_reduction,
+            delta_vs_c0_pct: c6_reduction - c0_reduction,
+        },
+    ];
+
+    // Sort by reduction_pct descending (C6 expected at top).
+    grid.sort_by(|a, b| b.reduction_pct.partial_cmp(&a.reduction_pct).unwrap_or(std::cmp::Ordering::Equal));
+    grid
+}
+
+/// Render the hypothesis grid as a human-readable table, sorted by reduction_pct desc.
+pub fn print_hypothesis_table(grid: &[HypothesisResult]) {
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════════════════════╗");
+    println!("║         squeez hypothesis grid — C0–C6 token-reduction comparison           ║");
+    println!("╚══════════════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!(
+        "{:<4}  {:<30}  {:>8}  {:>10}  {:>9}  {:>8}",
+        "ID", "HYPOTHESIS", "BASELINE", "COMPRESSED", "REDUCTION", "Δ vs C0"
+    );
+    println!("{}", "─".repeat(80));
+    for r in grid {
+        println!(
+            "{:<4}  {:<30}  {:>6}tk  {:>8}tk  {:>8.1}%  {:>+8.1}%",
+            r.id,
+            r.label,
+            r.baseline_tokens,
+            r.compressed_tokens,
+            r.reduction_pct,
+            r.delta_vs_c0_pct,
+        );
+    }
+    println!();
+}
+
+/// Emit the hypothesis grid as JSON.
+pub fn hypothesis_to_json(grid: &[HypothesisResult]) -> String {
+    let mut out = String::new();
+    out.push_str("{\"schema_version\":1,\"hypotheses\":[");
+    for (i, r) in grid.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"id\":\"{}\",\"label\":\"{}\",\"baseline_tokens\":{},\"compressed_tokens\":{},\"reduction_pct\":{:.2},\"delta_vs_c0_pct\":{:.2}}}",
+            json_util::escape_str(r.id),
+            json_util::escape_str(r.label),
+            r.baseline_tokens,
+            r.compressed_tokens,
+            r.reduction_pct,
+            r.delta_vs_c0_pct,
+        ));
+    }
+    out.push_str("]}");
+    out
+}
+
 // ─── CLI entry ────────────────────────────────────────────────────────────────
 
 pub fn run(args: &[String]) -> i32 {
@@ -1147,6 +1357,7 @@ pub fn run(args: &[String]) -> i32 {
     let mut iterations: usize = 5;
     let mut list_only = false;
     let mut baseline_mode = false;
+    let mut hypothesis_mode = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -1154,6 +1365,7 @@ pub fn run(args: &[String]) -> i32 {
             "--json" => json_mode = true,
             "--list" => list_only = true,
             "--baseline" => baseline_mode = true,
+            "--hypothesis" => hypothesis_mode = true,
             "--output" | "-o" => {
                 i += 1;
                 output_file = args.get(i).cloned();
@@ -1178,6 +1390,17 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
         i += 1;
+    }
+
+    // --hypothesis wins over --baseline; runs the C0–C6 grid and exits early.
+    if hypothesis_mode {
+        let grid = run_hypothesis_grid();
+        if json_mode {
+            println!("{}", hypothesis_to_json(&grid));
+        } else {
+            print_hypothesis_table(&grid);
+        }
+        return 0;
     }
 
     let fixtures = fixtures_dir();
@@ -1320,6 +1543,7 @@ fn print_help() {
     eprintln!("  --scenario, -s <name>   Run only scenarios whose name/category contains <name>");
     eprintln!("  --iterations, -n <n>    Iterations per scenario (default: 5)");
     eprintln!("  --baseline              Show A/B comparison (C0 baseline vs C4 squeez)");
+    eprintln!("  --hypothesis            Run C0–C6 hypothesis grid (7 deterministic scenarios)");
     eprintln!("  --json                  Print JSON report to stdout");
     eprintln!("  --output, -o <file>     Write JSON report to <file>");
     eprintln!("  --help, -h              Show this help");

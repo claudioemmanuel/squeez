@@ -61,7 +61,8 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
         "psql" | "prisma" | "mysql" | "drizzle-kit" => Box::new(DatabaseHandler),
         "curl" | "wget" | "http" => Box::new(NetworkHandler),
         "node" | "python" | "python3" | "ruby" => Box::new(RuntimeHandler),
-        "find" | "ls" | "du" | "ps" | "env" | "lsof" | "netstat" => Box::new(FsHandler),
+        "find" | "ls" | "du" | "ps" | "env" | "lsof" | "netstat"
+        | "cat" | "head" | "tail" | "less" | "more" | "bat" => Box::new(FsHandler),
         // JSON/YAML/IaC tools
         "jq" | "yq" | "terraform" | "tofu" | "helm" | "pulumi" => Box::new(DataToolHandler),
         // Text-processing tools: grep match output

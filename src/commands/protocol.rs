@@ -9,67 +9,41 @@
 //! characters combined.
 
 /// High-level protocol the LLM should follow when reading squeez output.
-/// Five directives, plain English, no jargon.
 pub const SQUEEZ_PROTOCOL: &str = "\
-squeez memory protocol (read this once per session):
+squeez protocol (read once per session):
 
-1. Output prefixed with `# squeez [...]` is a header line — it shows the
-   compression intensity, token delta, and elapsed time. Not part of the
-   command's actual output.
-2. Lines containing `[squeez: identical to <hash> at bash#N — re-run with
-   --no-squeez]` mean the command produced output that already appeared in
-   call #N of this session. Do NOT re-run it; the result is unchanged.
-3. Lines containing `[squeez: ~95% similar to <hash> at bash#N]` mean the
-   output is near-identical to a prior call (whitespace, timestamps, or one
-   edited line). Treat as the same content unless you specifically need the
-   diff — re-run with --no-squeez to see verbatim.
-4. Lines starting with `squeez:summary` are dense summaries replacing huge
-   outputs. The original is in `~/.claude/squeez/sessions/{date}.jsonl`.
-   Errors and the last 20 lines are always preserved verbatim.
-5. MCP tools — use BEFORE re-running expensive commands or asking the user
-   to recall what changed:
-   Context:  `squeez_recent_calls` `squeez_seen_files` `squeez_seen_errors`
-             `squeez_seen_error_details` `squeez_context_pressure`
-   Session:  `squeez_session_summary` `squeez_session_detail`
-             `squeez_session_stats` `squeez_session_efficiency`
-             `squeez_agent_costs`
-   History:  `squeez_prior_summaries` `squeez_search_history`
-             `squeez_file_history` `squeez_protocol`
-
-6. Opus 4.7: new tokenizer +35% tokens; xhigh thinking — budget exhausts ~2× faster.
-7. When context is critical (≥75% budget or ≤10 calls remaining), write
-   `.claude/session_state.md` before clearing:
-     ## Current Objective / ## Files Read / ## Decisions Taken / ## Next Steps
-   Then `/clear` to reset, or `/compact [describe focus area]` for a
-   smaller focused summary. Reading the state file costs ~2K tokens vs
-   10K–20K for a compaction summary.
+1. `# squeez [...]` header — compression intensity, token delta, elapsed time.
+2. `[squeez: identical to <hash> at bash#N]` — exact output match from call N.
+   Do not re-run.
+3. `[squeez: ~P% similar to <hash> at bash#N]` — near-match (Jaccard ≥0.85).
+   Same content unless diff needed.
+4. `squeez:summary` — dense summaries for huge outputs. Original at
+   `~/.claude/squeez/sessions/{date}.jsonl`. Errors + last 20 lines verbatim.
+5. MCP tools (use before re-running):
+   Context: `squeez_recent_calls` `squeez_seen_files` `squeez_seen_errors`
+   `squeez_seen_error_details` `squeez_context_pressure`
+   Session: `squeez_session_summary` `squeez_session_detail` `squeez_session_stats`
+   `squeez_session_efficiency` `squeez_agent_costs`
+   History: `squeez_prior_summaries` `squeez_search_history` `squeez_file_history`
+   `squeez_protocol`
+6. Context critical (≥75% budget or ≤10 calls left): write `.claude/session_state.md`
+   (## Current Objective / ## Files Read / ## Decisions / ## Next Steps) then
+   `/clear` or `/compact [focus]`. State file ~2K tokens vs 10K+ for compaction.
 ";
 
 /// Specification of the structured markers squeez may inject into output.
-/// Designed to be greppable and unambiguous so the LLM can pattern-match.
 pub const SQUEEZ_MARKERS_SPEC: &str = "\
-squeez output markers:
+markers:
 
-* `# squeez [cmd] IN→OUT tokens (-N%) Tms [adaptive: Lite|Full|Ultra]`
-    Header. IN/OUT are token estimates. `[adaptive: ...]` shows the chosen
-    intensity (Full at <65% budget, Ultra at ≥65%, Lite when adaptive off).
-
-* `[squeez: identical to <hash> at bash#N — re-run with --no-squeez]`
-    Exact-hash redundancy hit. The output of this call exactly matches an
-    earlier call within the last 16 commands.
-
-* `[squeez: ~P% similar to <hash> at bash#N — re-run with --no-squeez]`
-    Fuzzy redundancy hit (Jaccard ≥ 0.85 over trigram shingles). Whitespace,
-    timestamps, or single-line edits don't break this match.
-
-* `squeez:summary cmd=<short>` followed by `total_lines=N`,
-  `unique_files=N`, optional `top_errors:`, `top_files:`,
-  `test_summary=...`, `tail_preserved=N`, then the verbatim last N lines.
-    Dense summary for outputs over the per-call line threshold.
-
-* `# squeez hint: <path> already in context (Read tool, call #N)`
-    Soft hint when `cat`/`head`/`tail`/`less`/`more`/`bat` is invoked on a
-    file the Read tool has already loaded earlier in the session.
+* `# squeez [cmd] IN→OUT (-N%) Tms [adaptive: Lite|Full|Ultra]` — Header.
+* `[squeez: identical to <hash> at bash#N]` — Exact redundancy hit.
+* `[squeez: ~P% similar to <hash> at bash#N]` — Fuzzy match (Jaccard ≥0.85).
+* `squeez:summary cmd=<short>` — Dense summary (total_lines, unique_files,
+  errors, test_summary, tail_preserved=N + verbatim last N lines).
+* `# squeez hint: <path> (Read tool, call #N)` — File already loaded.
+* `[squeez: sig-mode N signatures from K lines]` — AST extraction. Use sed.
+* `# squeez: <file> ~T tokens — memory file over 1KB limit` — Size warning.
+* `{\"squeez\":\"summary\",...}` — JSON envelope (cmd, total, files, errors).
 ";
 
 /// Combined payload returned by the MCP `squeez_protocol` tool and by
@@ -95,8 +69,8 @@ mod tests {
     #[test]
     fn full_payload_includes_both() {
         let p = full_payload();
-        assert!(p.contains("squeez memory protocol"));
-        assert!(p.contains("squeez output markers"));
+        assert!(p.contains("squeez protocol"));
+        assert!(p.contains("markers:"));
     }
 
     #[test]
@@ -129,5 +103,36 @@ mod tests {
         ] {
             assert!(p.contains(tool), "payload missing mention of {}", tool);
         }
+    }
+
+    #[test]
+    fn payload_documents_us001_sig_mode_marker() {
+        // US-001: sig-mode marker documents AST signature extraction.
+        let p = full_payload();
+        assert!(
+            p.contains("sig-mode"),
+            "payload missing sig-mode marker from US-001"
+        );
+    }
+
+    #[test]
+    fn payload_documents_us002_memory_file_warning() {
+        // US-002: memory-file size warning marker.
+        // Marker contains a glyph and file path reference.
+        let p = full_payload();
+        assert!(
+            p.contains("memory file") && p.contains("1KB"),
+            "payload missing memory-file warning marker from US-002"
+        );
+    }
+
+    #[test]
+    fn payload_documents_us003_structured_summary_json() {
+        // US-003: structured summary JSON envelope marker.
+        let p = full_payload();
+        assert!(
+            p.contains("\"squeez\":\"summary\""),
+            "payload missing structured summary JSON marker from US-003"
+        );
     }
 }

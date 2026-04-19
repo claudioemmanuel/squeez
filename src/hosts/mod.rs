@@ -14,6 +14,7 @@ pub mod claude_code;
 pub mod codex;
 pub mod copilot;
 pub mod gemini;
+pub mod memory_size;
 pub mod opencode;
 pub use claude_code::ClaudeCodeAdapter;
 pub use codex::CodexCliAdapter;

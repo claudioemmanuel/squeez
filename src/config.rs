@@ -48,6 +48,19 @@ pub struct Config {
     pub mcp_recent_calls_default: usize,
     /// Calls remaining threshold for State-First Pattern warning (default 5).
     pub state_warn_calls: u64,
+    // ── Signature-mode (US-001) ─────────────────────────────────────────────
+    /// Enable signature-mode compression for large code files (default true).
+    pub sig_mode_enabled: bool,
+    /// Minimum line count to trigger signature-mode (default 400).
+    pub sig_mode_threshold_lines: usize,
+    // ── Memory-file size warning (US-002) ───────────────────────────────────
+    /// Token threshold above which inject_memory emits a size warning banner
+    /// inside the squeez block. Set to 0 to disable. Default: 1000.
+    pub memory_file_warn_tokens: usize,
+    // ── Structured summary format (US-003) ──────────────────────────────────
+    /// Summary output shape: "prose" | "structured" | "auto".
+    /// "auto" selects Structured when Intensity == Ultra, Prose otherwise.
+    pub summary_format: String,
 }
 
 impl Default for Config {
@@ -88,6 +101,10 @@ impl Default for Config {
             mcp_prior_summaries_default: 5,
             mcp_recent_calls_default: 10,
             state_warn_calls: 10,
+            sig_mode_enabled: true,
+            sig_mode_threshold_lines: 400,
+            memory_file_warn_tokens: 1000,
+            summary_format: "auto".to_string(),
         }
     }
 }
@@ -175,6 +192,21 @@ impl Config {
                     }
                     "state_warn_calls" => {
                         c.state_warn_calls = v.parse().unwrap_or(c.state_warn_calls)
+                    }
+                    "sig_mode_enabled" => c.sig_mode_enabled = v == "true",
+                    "sig_mode_threshold_lines" => {
+                        c.sig_mode_threshold_lines =
+                            v.parse().unwrap_or(c.sig_mode_threshold_lines)
+                    }
+                    "memory_file_warn_tokens" => {
+                        c.memory_file_warn_tokens =
+                            v.parse().unwrap_or(c.memory_file_warn_tokens)
+                    }
+                    "summary_format" => {
+                        c.summary_format = match v {
+                            "prose" | "structured" | "auto" => v.to_string(),
+                            _ => "auto".to_string(),
+                        };
                     }
                     _ => {}
                 }
