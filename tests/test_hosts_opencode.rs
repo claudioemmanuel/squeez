@@ -61,8 +61,13 @@ fn opencode_install_drops_plugin_file() {
         let plugin = home.join("opencode/plugins/squeez.js");
         assert!(plugin.exists(), "plugin file missing at {:?}", plugin);
         let body = std::fs::read_to_string(&plugin).unwrap();
-        assert!(body.contains("SqueezPlugin"));
+        // The plugin must use the PluginModule shape (default export w/ `id`
+        // + async `server` returning a handler map). See issue #69.
+        assert!(body.contains("export default"));
+        assert!(body.contains("id: \"squeez\""));
+        assert!(body.contains("server: async"));
         assert!(body.contains("tool.execute.before"));
+        assert!(body.contains("tool.execute.after"));
         assert!(body.contains("session.created"));
     });
 }
