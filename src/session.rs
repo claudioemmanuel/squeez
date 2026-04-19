@@ -107,7 +107,12 @@ pub struct CurrentSession {
 
 impl CurrentSession {
     pub fn load(sessions_dir: &Path) -> Option<Self> {
-        let s = std::fs::read_to_string(sessions_dir.join("current.json")).ok()?;
+        let path = sessions_dir.join("current.json");
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size > crate::memory::MAX_FILE_BYTES {
+            return None;
+        }
+        let s = std::fs::read_to_string(&path).ok()?;
         let map = crate::json_util::extract_all(&s);
         Some(Self {
             session_file: crate::json_util::map_str(&map, "session_file").unwrap_or_default(),
@@ -132,6 +137,7 @@ impl CurrentSession {
             self.start_ts,
         );
         let path = sessions_dir.join("current.json");
+        let tmp = path.with_extension("json.tmp");
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -140,7 +146,7 @@ impl CurrentSession {
                 .create(true)
                 .truncate(true)
                 .mode(0o600)
-                .open(&path)
+                .open(&tmp)
             {
                 use std::io::Write;
                 let _ = f.write_all(json.as_bytes());
@@ -148,20 +154,26 @@ impl CurrentSession {
         }
         #[cfg(not(unix))]
         {
-            let _ = std::fs::write(path, json);
+            let _ = std::fs::write(&tmp, &json);
         }
+        let _ = std::fs::rename(&tmp, &path);
     }
 }
 
 // ── Event log ──────────────────────────────────────────────────────────────
 
+const MAX_SESSION_LOG_BYTES: u64 = 20 * 1024 * 1024;
+
 /// Appends one JSONL line to the session log file (creates if missing).
+/// Silently skips if the file exceeds MAX_SESSION_LOG_BYTES.
 pub fn append_event(sessions_dir: &Path, session_file: &str, event_json: &str) {
-    // Reject empty names and any path that tries to escape the sessions directory.
     if session_file.is_empty() || session_file.contains('/') || session_file.contains("..") {
         return;
     }
     let path = sessions_dir.join(session_file);
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > MAX_SESSION_LOG_BYTES {
+        return;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

@@ -32,8 +32,34 @@ pub fn extract_bool(json: &str, key: &str) -> Option<bool> {
     }
 }
 
+/// Split a JSON array interior into items respecting quoted strings.
+fn split_json_array_items(inner: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut start = 0;
+    for (i, ch) in inner.char_indices() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => escape_next = true,
+            '"' => in_string = !in_string,
+            ',' if !in_string => {
+                items.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if start < inner.len() {
+        items.push(&inner[start..]);
+    }
+    items
+}
+
 /// Extract a string array from a flat JSON object: {"key":["a","b"],...}
-/// Values must not contain commas or brackets.
 pub fn extract_str_array(json: &str, key: &str) -> Vec<String> {
     let pat = format!("\"{}\":[", key);
     let start = match json.find(&pat) {
@@ -48,7 +74,8 @@ pub fn extract_str_array(json: &str, key: &str) -> Vec<String> {
     if arr.trim().is_empty() {
         return Vec::new();
     }
-    arr.split(',')
+    split_json_array_items(arr)
+        .iter()
         .filter_map(|s| {
             let s = s.trim().trim_matches('"');
             if s.is_empty() {
@@ -190,6 +217,7 @@ pub fn extract_all(json: &str) -> HashMap<&str, &str> {
                 while i < len {
                     if bytes[i] == b'\\' {
                         i += 2;
+                        if i >= len { break; }
                         continue;
                     }
                     if bytes[i] == b'"' {
@@ -197,7 +225,7 @@ pub fn extract_all(json: &str) -> HashMap<&str, &str> {
                     }
                     i += 1;
                 }
-                let val_end = i;
+                let val_end = i.min(len);
                 if i < len {
                     i += 1; // closing quote
                 }
@@ -223,6 +251,7 @@ pub fn extract_all(json: &str) -> HashMap<&str, &str> {
                             while i < len {
                                 if bytes[i] == b'\\' {
                                     i += 2;
+                                    if i >= len { break; }
                                     continue;
                                 }
                                 if bytes[i] == b'"' {
@@ -235,7 +264,7 @@ pub fn extract_all(json: &str) -> HashMap<&str, &str> {
                     }
                     i += 1;
                 }
-                let val_end = i;
+                let val_end = i.min(len);
                 map.insert(key, &json[val_start..val_end]);
             }
             _ => {
@@ -278,13 +307,12 @@ pub fn map_str_array(map: &HashMap<&str, &str>, key: &str) -> Vec<String> {
         Some(r) => r,
         None => return Vec::new(),
     };
-    // raw is like `["a","b","c"]` — strip outer brackets and parse
     let inner = raw.trim().trim_start_matches('[').trim_end_matches(']');
     if inner.trim().is_empty() {
         return Vec::new();
     }
-    inner
-        .split(',')
+    split_json_array_items(inner)
+        .iter()
         .filter_map(|s| {
             let s = s.trim().trim_matches('"');
             if s.is_empty() {
@@ -332,6 +360,38 @@ mod tests {
         );
         assert!(map_u64_array(&map, "empty").is_empty());
         assert!(map_str_array(&map, "empty").is_empty());
+    }
+
+    #[test]
+    fn test_extract_all_trailing_backslash_no_panic() {
+        let json = r#"{"key":"value\"}"#;
+        let map = extract_all(json);
+        // Should not panic; partial parse is acceptable
+        let _ = map_str(&map, "key");
+    }
+
+    #[test]
+    fn test_extract_all_array_trailing_backslash() {
+        let json = r#"{"arr":["a\\"]}"#;
+        let map = extract_all(json);
+        let arr = map_str_array(&map, "arr");
+        assert!(!arr.is_empty());
+    }
+
+    #[test]
+    fn test_split_json_array_comma_in_string() {
+        let items = split_json_array_items(r#""echo \"a,b,c\"","other""#);
+        assert_eq!(items.len(), 2);
+        assert!(items[0].contains("a,b,c"));
+    }
+
+    #[test]
+    fn test_extract_str_array_comma_in_value() {
+        let json = r#"{"cmds":["echo \"a,b\"","ls"]}"#;
+        let arr = extract_str_array(json, "cmds");
+        assert_eq!(arr.len(), 2);
+        assert!(arr[0].contains("a,b"));
+        assert_eq!(arr[1], "ls");
     }
 
     #[test]

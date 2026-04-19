@@ -3,6 +3,17 @@ use std::path::Path;
 
 use crate::json_util::{escape_str, extract_str, extract_str_array, extract_u64, str_array};
 
+pub const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+pub const MAX_SESSION_BYTES: u64 = 100 * 1024 * 1024;
+
+fn guarded_read_to_string(path: &Path, limit: u64) -> Result<String, ()> {
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size > limit {
+        return Err(());
+    }
+    std::fs::read_to_string(path).map_err(|_| ())
+}
+
 pub struct Summary {
     pub date: String,
     pub duration_min: u64,
@@ -214,7 +225,11 @@ pub fn read_last_n(memory_dir: &Path, n: usize) -> Vec<Summary> {
     }
 
     chunks.reverse();
-    let buf: Vec<u8> = chunks.into_iter().flatten().collect();
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    let mut buf = Vec::with_capacity(total);
+    for chunk in chunks {
+        buf.extend_from_slice(&chunk);
+    }
     let text = String::from_utf8_lossy(&buf);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(n);
@@ -256,6 +271,7 @@ fn index_path(memory_dir: &Path) -> std::path::PathBuf {
 
 /// Reads (timestamp, byte_offset) pairs from summaries.index.
 /// Returns empty vec if missing or malformed.
+#[cfg(test)]
 fn read_index(memory_dir: &Path) -> Vec<(u64, u64)> {
     let content = match std::fs::read_to_string(index_path(memory_dir)) {
         Ok(c) => c,
@@ -321,7 +337,7 @@ fn jsonl_current_size(memory_dir: &Path) -> u64 {
 /// Search summaries.jsonl for sessions where `query` appears in any text field.
 /// Most-recent first; caps at 200 sessions to keep linear scan bounded.
 pub fn search_history(memory_dir: &Path, query: &str, limit: usize) -> Vec<SearchResult> {
-    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+    let content = match guarded_read_to_string(&memory_dir.join("summaries.jsonl"), MAX_FILE_BYTES) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
@@ -369,7 +385,7 @@ pub fn search_history(memory_dir: &Path, query: &str, limit: usize) -> Vec<Searc
 /// Return sessions where `path_query` substring matches any files_touched entry.
 /// Most-recent first; caps at 200 sessions.
 pub fn file_history(memory_dir: &Path, path_query: &str, limit: usize) -> Vec<FileHistoryResult> {
-    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+    let content = match guarded_read_to_string(&memory_dir.join("summaries.jsonl"), MAX_FILE_BYTES) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
@@ -415,7 +431,7 @@ pub fn session_detail(sessions_dir: &Path, date: &str) -> String {
         let fname = entry.file_name();
         let fname_str = fname.to_string_lossy();
         if fname_str.starts_with(&safe) && fname_str.ends_with(".jsonl") {
-            content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+            content = guarded_read_to_string(&entry.path(), MAX_SESSION_BYTES).unwrap_or_default();
             break;
         }
     }
@@ -493,41 +509,25 @@ pub fn session_detail(sessions_dir: &Path, date: &str) -> String {
 
 pub fn prune_old(memory_dir: &Path, retention_days: u32) {
     let path = memory_dir.join("summaries.jsonl");
-    let content = match std::fs::read_to_string(&path) {
+    let content = match guarded_read_to_string(&path, MAX_FILE_BYTES) {
         Ok(c) => c,
         Err(_) => return,
     };
     let cutoff = crate::session::unix_now().saturating_sub(retention_days as u64 * 86400);
 
-    // Try index-assisted binary search first
-    let index = read_index(memory_dir);
-    let keep_from_line = if !index.is_empty() {
-        // index is sorted by ts ascending (append order)
-        // find first position where ts >= cutoff
-        index.partition_point(|(ts, _)| *ts < cutoff)
-    } else {
-        0
-    };
-
     let tmp = path.with_extension("tmp");
     if let Ok(mut f) = std::fs::File::create(&tmp) {
-        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-        let use_index = !index.is_empty();
-        for (i, line) in lines.iter().enumerate() {
-            let keep = if use_index {
-                i >= keep_from_line
-            } else {
-                // Fallback: filter by effective_ts for lines without index
-                let eff = effective_ts(line);
-                eff == 0 || eff >= cutoff
-            };
-            if keep {
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let eff = effective_ts(line);
+            if eff == 0 || eff >= cutoff {
                 let _ = writeln!(f, "{}", line);
             }
         }
         let _ = std::fs::rename(&tmp, &path);
     }
-    // Rebuild index after pruning
     rebuild_index(memory_dir);
 }
 

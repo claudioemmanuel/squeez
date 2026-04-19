@@ -193,6 +193,10 @@ pub struct SimilarMatch {
 impl SessionContext {
     pub fn load(sessions_dir: &Path) -> Self {
         let path = sessions_dir.join("context.json");
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size > crate::memory::MAX_FILE_BYTES {
+            return Self::default();
+        }
         let content = match std::fs::read_to_string(&path) {
             Ok(s) => s,
             Err(_) => return Self::default(),
@@ -212,6 +216,7 @@ impl SessionContext {
     pub fn save(&self, sessions_dir: &Path) {
         let _ = std::fs::create_dir_all(sessions_dir);
         let path = sessions_dir.join("context.json");
+        let tmp = path.with_extension("json.tmp");
         let json = self.to_json();
         #[cfg(unix)]
         {
@@ -222,15 +227,16 @@ impl SessionContext {
                 .create(true)
                 .truncate(true)
                 .mode(0o600)
-                .open(&path)
+                .open(&tmp)
             {
                 let _ = f.write_all(json.as_bytes());
             }
         }
         #[cfg(not(unix))]
         {
-            let _ = std::fs::write(path, json);
+            let _ = std::fs::write(&tmp, &json);
         }
+        let _ = std::fs::rename(&tmp, &path);
     }
 
     pub fn next_call_n(&mut self) -> u64 {

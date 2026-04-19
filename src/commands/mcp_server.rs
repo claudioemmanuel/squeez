@@ -429,7 +429,12 @@ struct RichSummary {
 
 fn read_rich_summaries(n: usize) -> Vec<RichSummary> {
     let memory_dir = session::memory_dir();
-    let content = match std::fs::read_to_string(memory_dir.join("summaries.jsonl")) {
+    let path = memory_dir.join("summaries.jsonl");
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if size > crate::memory::MAX_FILE_BYTES {
+        return Vec::new();
+    }
+    let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(_) => return Vec::new(),
     };
@@ -468,6 +473,9 @@ fn read_rich_summaries(n: usize) -> Vec<RichSummary> {
 /// storage yet (graceful degradation via direct context.json read).
 fn tool_seen_error_details(limit: usize) -> String {
     let path = session::sessions_dir().join("context.json");
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
+        return "(context.json too large)".to_string();
+    }
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return "(no context.json — no active session or snippets not yet recorded)".to_string(),
@@ -508,6 +516,9 @@ fn tool_search_history(query: &str, limit: usize) -> String {
         return "(query is empty — provide a search term)".to_string();
     }
     let path = session::memory_dir().join("summaries.jsonl");
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
+        return "(summaries.jsonl too large — run squeez prune)".to_string();
+    }
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(_) => return "(no session history on disk)".to_string(),
@@ -563,6 +574,9 @@ fn tool_file_history(path: &str, limit: usize) -> String {
         return "(path is empty — provide a file path substring to search)".to_string();
     }
     let sumpath = session::memory_dir().join("summaries.jsonl");
+    if std::fs::metadata(&sumpath).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
+        return "(summaries.jsonl too large — run squeez prune)".to_string();
+    }
     let content = match std::fs::read_to_string(&sumpath) {
         Ok(c) => c,
         Err(_) => return "(no session history on disk)".to_string(),
@@ -626,6 +640,10 @@ fn tool_session_detail(date: &str) -> String {
     let mut git_events: Vec<String> = Vec::new();
     let mut test_lines: Vec<String> = Vec::new();
     for fpath in &matched {
+        let fsize = std::fs::metadata(fpath).map(|m| m.len()).unwrap_or(0);
+        if fsize > crate::memory::MAX_SESSION_BYTES {
+            continue;
+        }
         let text = match std::fs::read_to_string(fpath) {
             Ok(t) => t,
             Err(_) => continue,
@@ -681,6 +699,9 @@ fn tool_session_detail(date: &str) -> String {
 /// for all counters if the fields are absent (backwards-compatible).
 fn tool_session_stats() -> String {
     let path = session::sessions_dir().join("context.json");
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
+        return "(context.json too large)".to_string();
+    }
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return "(no context.json — session stats unavailable)".to_string(),
