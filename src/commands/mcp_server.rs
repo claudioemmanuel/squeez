@@ -245,8 +245,36 @@ fn tools_call_response(id: &str, line: &str) -> String {
 
 // ── Tool implementations ──────────────────────────────────────────────────
 
+use std::cell::RefCell;
+use std::time::SystemTime;
+
+struct CachedCtx {
+    mtime: SystemTime,
+    ctx: SessionContext,
+}
+
+thread_local! {
+    static CTX_CACHE: RefCell<Option<CachedCtx>> = const { RefCell::new(None) };
+}
+
 fn load_ctx() -> SessionContext {
-    SessionContext::load(&session::sessions_dir())
+    let sessions = session::sessions_dir();
+    let path = sessions.join("context.json");
+    let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    CTX_CACHE.with(|cache| {
+        // Check cache validity
+        if let (Some(mt), Some(cached)) = (mtime, cache.borrow().as_ref()) {
+            if cached.mtime == mt {
+                return cached.ctx.clone();
+            }
+        }
+        // Cache miss — load from disk
+        let ctx = SessionContext::load(&sessions);
+        if let Some(mt) = mtime {
+            *cache.borrow_mut() = Some(CachedCtx { mtime: mt, ctx: ctx.clone() });
+        }
+        ctx
+    })
 }
 
 fn tool_recent_calls(n: usize) -> String {

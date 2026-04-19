@@ -25,6 +25,11 @@ jobs:
             target/aarch64-apple-darwin/release/squeez \
             target/x86_64-apple-darwin/release/squeez \
             -output squeez-macos-universal
+      - name: Smoke test binary
+        run: |
+          ./squeez-macos-universal --version
+          ./squeez-macos-universal benchmark --efficiency-proof
+          ./squeez-macos-universal benchmark --hypothesis
       - uses: actions/upload-artifact@v4
         with:
           name: squeez-macos-universal
@@ -44,6 +49,11 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-unknown-linux-musl
       - run: mv target/x86_64-unknown-linux-musl/release/squeez squeez-linux-x86_64
+      - name: Smoke test binary
+        run: |
+          ./squeez-linux-x86_64 --version
+          ./squeez-linux-x86_64 benchmark --efficiency-proof
+          ./squeez-linux-x86_64 benchmark --hypothesis
       - uses: actions/upload-artifact@v4
         with:
           name: squeez-linux-x86_64
@@ -61,6 +71,11 @@ jobs:
       - name: Build
         run: cross build --release --target aarch64-unknown-linux-musl
       - run: mv target/aarch64-unknown-linux-musl/release/squeez squeez-linux-aarch64
+      - name: Smoke test binary
+        run: |
+          ./squeez-linux-aarch64 --version
+          ./squeez-linux-aarch64 benchmark --efficiency-proof
+          ./squeez-linux-aarch64 benchmark --hypothesis
       - uses: actions/upload-artifact@v4
         with:
           name: squeez-linux-aarch64
@@ -76,6 +91,11 @@ jobs:
       - name: Build
         run: cargo build --release --target x86_64-pc-windows-msvc
       - run: mv target/x86_64-pc-windows-msvc/release/squeez.exe squeez-windows-x86_64.exe
+      - name: Smoke test binary
+        run: |
+          .\squeez-windows-x86_64.exe --version
+          .\squeez-windows-x86_64.exe benchmark --efficiency-proof
+          .\squeez-windows-x86_64.exe benchmark --hypothesis
       - uses: actions/upload-artifact@v4
         with:
           name: squeez-windows-x86_64
@@ -149,7 +169,14 @@ jobs:
           if npm view "squeez@${VERSION}" version 2>/dev/null | grep -q "${VERSION}"; then
             echo "squeez@${VERSION} already published, skipping."
           else
-            cd npm && npm publish --access public
+            # Detect prerelease tags (e.g. v1.8.0-alpha.1, v2.0.0-beta.2, v2.0.0-rc.1)
+            # and publish to the @next dist-tag instead of @latest.
+            if [[ "${GITHUB_REF_NAME}" =~ -[a-zA-Z] ]]; then
+              echo "Prerelease tag detected — publishing with --tag next"
+              cd npm && npm publish --access public --tag next
+            else
+              cd npm && npm publish --access public
+            fi
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -31,6 +31,49 @@ no separate document to sign, and you keep the copyright on what you contribute.
 A DCO workflow check blocks any PR whose commits lack a valid `Signed-off-by:`
 line until it's added.
 
+## Releases
+
+### How the release pipeline works
+
+1. **Every merge to `main`** triggers `release-please.yml`, which opens or updates a "Release PR" at the top of the PR list. The PR title is always `chore(main): release X.Y.Z`.
+2. **Merging the Release PR** causes release-please to tag the repo (`vX.Y.Z`) and push the tag using `RELEASE_PAT`. That tag push triggers `release.yml`, which builds platform binaries (macOS universal, Linux x86_64/aarch64 musl, Windows MSVC), runs smoke tests, publishes the GitHub Release, then publishes to npm and crates.io.
+3. **`CHANGELOG.md` is auto-managed** by release-please — do not edit it by hand except through the Release PR. Sections are generated from conventional commit messages.
+
+### Conventional commit bump rules
+
+| Prefix | Version bump |
+|--------|-------------|
+| `feat:` | minor |
+| `fix:` / `perf:` | patch |
+| `feat!:` / `fix!:` / `BREAKING CHANGE:` in body | major |
+| `chore:` / `docs:` / `test:` / `ci:` / `refactor:` | no bump (no release) |
+
+### Prerelease / @next dist-tag
+
+When a tag contains a prerelease identifier (e.g. `v2.0.0-alpha.1`, `v2.0.0-beta.2`, `v2.0.0-rc.1`), `release.yml` publishes to npm with `--tag next` instead of `--tag latest`. To opt into prereleases:
+
+```bash
+npm install squeez@next
+```
+
+To configure release-please to generate prerelease tags, set `"prerelease": true` and `"prerelease-type": "alpha"` (or `beta`/`rc`) in `release-please-config.json`. Currently disabled — `"prerelease": false`.
+
+### GPG signed tags (optional)
+
+By default tags are unsigned. To enable signed tags:
+
+1. Generate a key: `gpg --full-generate-key`
+2. Export the public key: `gpg --armor --export KEYID` → add to your GitHub profile under Settings → SSH and GPG keys
+3. Add the private key to repo secrets as `RELEASE_GPG_PRIVATE_KEY`
+4. Add the passphrase to repo secrets as `RELEASE_GPG_PASSPHRASE`
+5. Configure git locally:
+   ```bash
+   git config --global user.signingkey KEYID
+   git config --global commit.gpgsign true
+   git config --global tag.gpgSign true
+   ```
+6. Uncomment the GPG import block inside `.github/workflows/release-please.yml` (see the comments there).
+
 ## Adding a new command handler
 
 1. Create `src/commands/newcmd.rs` implementing `Handler` trait
