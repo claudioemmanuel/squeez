@@ -9,6 +9,14 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-04-19
+
+### Changed
+- chore(release): bump version to 1.7.3 [squeez-release-bot]
+
+### Fixed
+- fix(ci): use native ubuntu-24.04-arm runner for aarch64 build
+
 ## [1.7.0] - 2026-04-18
 ### Features
 - Efficiency-proof benchmark suite — quantitative token-savings proof for US-001 / US-003 / US-004 (#74)
@@ -28,8 +36,9 @@ conventional commit messages on `main`.
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.7.3...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/claudioemmanuel/squeez/releases/tag/v1.5.2
+[1.7.3]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.3

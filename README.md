@@ -119,29 +119,29 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 54.6 ms |
-| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 164 µs |
-| `high_context_adaptive` | 4,418 tk | 52 tk | **-99%** | 637 µs |
-| `ps_aux` | 40,373 tk | 2,352 tk | **-94%** | 2.2 ms |
-| `git_log_200` | 2,692 tk | 289 tk | **-89%** | 179 µs |
-| `tsc_errors` | 731 tk | 101 tk | **-86%** | 20 µs |
-| `cargo_build_noisy` | 2,106 tk | 452 tk | **-79%** | 201 µs |
-| `docker_logs` | 665 tk | 186 tk | **-72%** | 36 µs |
-| `find_deep` | 424 tk | 134 tk | **-68%** | 61 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 9 µs |
-| `state_first_simulation` | 182 tk | 69 tk | **-62%** | 9 µs |
-| `verbose_app_log` | 4,957 tk | 1,991 tk | **-60%** | 235 µs |
-| `npm_install` | 524 tk | 232 tk | **-56%** | 38 µs |
-| `claude_md_overhead` | 717 tk | 318 tk | **-56%** | 272 µs |
-| `crosscall_redundancy_3x` | 486 tk | 241 tk | **-50%** | 51.2 ms |
-| `ls_la` | 1,782 tk | 886 tk | **-50%** | 168 µs |
-| `env_dump` | 441 tk | 287 tk | **-35%** | 19 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 88 µs |
-| `agent_heavy` | 2,306 tk | 1,564 tk | **-32%** | 310 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 505 µs |
-| `md_claude_md` | 316 tk | 247 tk | **-22%** | 938 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 35 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 20 µs |
+| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 55.4 ms |
+| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 206 µs |
+| `high_context_adaptive` | 4,418 tk | 52 tk | **-99%** | 803 µs |
+| `ps_aux` | 40,373 tk | 2,352 tk | **-94%** | 2.7 ms |
+| `git_log_200` | 2,692 tk | 289 tk | **-89%** | 203 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 27 µs |
+| `cargo_build_noisy` | 2,106 tk | 452 tk | **-79%** | 244 µs |
+| `docker_logs` | 665 tk | 186 tk | **-72%** | 44 µs |
+| `find_deep` | 424 tk | 134 tk | **-68%** | 80 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 11 µs |
+| `state_first_simulation` | 182 tk | 69 tk | **-62%** | 13 µs |
+| `verbose_app_log` | 4,957 tk | 1,991 tk | **-60%** | 286 µs |
+| `npm_install` | 524 tk | 232 tk | **-56%** | 46 µs |
+| `claude_md_overhead` | 717 tk | 318 tk | **-56%** | 334 µs |
+| `crosscall_redundancy_3x` | 486 tk | 241 tk | **-50%** | 51.5 ms |
+| `ls_la` | 1,782 tk | 886 tk | **-50%** | 210 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 24 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 97 µs |
+| `agent_heavy` | 2,306 tk | 1,564 tk | **-32%** | 378 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 639 µs |
+| `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.1 ms |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 44 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 28 µs |
 
 ### Aggregate
 
@@ -152,7 +152,7 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **23 / 23 pass** |
-| Latency p50 (filter mode) | **4.9 ms** |
+| Latency p50 (filter mode) | **5.0 ms** |
 | Latency p95 (incl. wrap/summarize) | **51 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
