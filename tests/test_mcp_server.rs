@@ -47,7 +47,7 @@ fn tools_call_protocol_returns_payload_text() {
     assert_jsonrpc_response(&resp, "3");
     assert!(resp.contains("\"content\""));
     assert!(resp.contains("\"type\":\"text\""));
-    assert!(resp.contains("squeez memory protocol"));
+    assert!(resp.contains("squeez protocol"));
 }
 
 #[test]

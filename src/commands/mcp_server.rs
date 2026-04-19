@@ -862,8 +862,8 @@ mod tests {
 \"params\":{\"name\":\"squeez_protocol\",\"arguments\":{}}}";
         let resp = handle_request(req).expect("must respond");
         assert!(resp.contains("\"content\""));
-        assert!(resp.contains("squeez memory protocol"));
-        assert!(resp.contains("squeez output markers"));
+        assert!(resp.contains("squeez protocol"));
+        assert!(resp.contains("markers:"));
     }
 
     #[test]

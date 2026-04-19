@@ -1,8 +1,21 @@
 use crate::commands::wrap;
 use crate::config::Config;
+use crate::json_util;
 
-/// Number of last lines to preserve verbatim in the summary.
+/// Which output shape to use for the dense summary.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SummaryFormat {
+    /// Multi-line prose (original behaviour).
+    Prose,
+    /// Single JSON line followed by verbatim tail lines.
+    Structured,
+}
+
+/// Number of last lines to preserve verbatim in the Prose summary.
 const TAIL_KEEP: usize = 20;
+/// Tail lines preserved in Structured (JSON) summary — fewer since the JSON
+/// envelope already captures errors/files/test status compactly.
+const TAIL_KEEP_STRUCTURED: usize = 5;
 /// Number of top items to keep per category.
 const TOP_N: usize = 5;
 /// When the output looks benign (no errors, panics, failures, tracebacks)
@@ -60,8 +73,23 @@ pub fn should_apply(lines: &[String], cfg: &Config) -> bool {
     lines.len() > threshold
 }
 
-/// Build a dense ≤40-line summary from a large output.
+/// Build a dense ≤40-line summary from a large output (Prose shape).
 pub fn apply(lines: Vec<String>, cmd: &str) -> Vec<String> {
+    apply_with_format(lines, cmd, SummaryFormat::Prose)
+}
+
+/// Build a summary in the requested format.
+///
+/// * `Prose`      — multi-line key=value output (original behaviour, ≤40 lines).
+/// * `Structured` — one compact JSON line + up to TAIL_KEEP verbatim tail lines.
+pub fn apply_with_format(lines: Vec<String>, cmd: &str, format: SummaryFormat) -> Vec<String> {
+    match format {
+        SummaryFormat::Prose => apply_prose(lines, cmd),
+        SummaryFormat::Structured => apply_structured(lines, cmd),
+    }
+}
+
+fn apply_prose(lines: Vec<String>, cmd: &str) -> Vec<String> {
     let total = lines.len();
     let joined = lines.join("\n");
 
@@ -99,6 +127,61 @@ pub fn apply(lines: Vec<String>, cmd: &str) -> Vec<String> {
     out.push(format!("tail_preserved={}", tail_n));
 
     let tail_start = total.saturating_sub(tail_n);
+    for line in lines.into_iter().skip(tail_start) {
+        out.push(line);
+    }
+    out
+}
+
+fn apply_structured(lines: Vec<String>, cmd: &str) -> Vec<String> {
+    let total = lines.len();
+    let joined = lines.join("\n");
+
+    let files = wrap::extract_file_paths(&joined);
+    let errors = wrap::extract_errors(&joined);
+    let test = wrap::extract_test_summary(&joined);
+
+    let cmd_short: String = cmd.chars().take(30).collect();
+    let tail_n = TAIL_KEEP_STRUCTURED.min(total);
+    let tail_start = total.saturating_sub(tail_n);
+
+    // Build files JSON array (top 5)
+    let files_json = {
+        let items: Vec<String> = files
+            .iter()
+            .take(TOP_N)
+            .map(|f| format!("\"{}\"", json_util::escape_str(f)))
+            .collect();
+        format!("[{}]", items.join(","))
+    };
+
+    // Build errors JSON array (top 5, each truncated to 120 chars)
+    let errors_json = {
+        let items: Vec<String> = errors
+            .iter()
+            .take(TOP_N)
+            .map(|e| {
+                let trimmed: String = e.chars().take(120).collect();
+                format!("\"{}\"", json_util::escape_str(&trimmed))
+            })
+            .collect();
+        format!("[{}]", items.join(","))
+    };
+
+    let test_json = json_util::escape_str(&test);
+
+    let json_line = format!(
+        "{{\"squeez\":\"summary\",\"cmd\":\"{}\",\"total\":{},\"files\":{},\"errors\":{},\"test\":\"{}\",\"tail\":{}}}",
+        json_util::escape_str(&cmd_short),
+        total,
+        files_json,
+        errors_json,
+        test_json,
+        tail_n,
+    );
+
+    let mut out: Vec<String> = Vec::with_capacity(1 + tail_n);
+    out.push(json_line);
     for line in lines.into_iter().skip(tail_start) {
         out.push(line);
     }

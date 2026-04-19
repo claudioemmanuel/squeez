@@ -24,7 +24,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{HostAdapter, HostCaps};
+use super::{memory_size, HostAdapter, HostCaps};
 
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/gemini-session-start.sh");
 const BEFORE_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-before-tool.sh");
@@ -231,6 +231,11 @@ impl HostAdapter for GeminiCliAdapter {
         let existing = std::fs::read_to_string(&path).unwrap_or_default();
 
         let mut block = String::from("<!-- squeez:start -->\n");
+        if let Some(banner) =
+            memory_size::size_warning(&existing, "GEMINI.md", cfg.memory_file_warn_tokens)
+        {
+            block.push_str(&banner);
+        }
         block.push_str("## squeez — session context\n");
         let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
         block.push_str(&format!(

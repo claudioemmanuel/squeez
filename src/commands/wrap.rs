@@ -148,7 +148,20 @@ pub fn run(cmd_str: &str) -> i32 {
     // ── Summarize fallback for huge outputs (pre-handler) ──────────────
     // Decision based on raw line count so handlers can't hide huge inputs.
     let mut compressed = if context::summarize::should_apply(&lines, &eff_cfg) {
-        context::summarize::apply(lines, cmd_str)
+        let fmt = {
+            use context::summarize::SummaryFormat;
+            use context::intensity::Intensity;
+            match config.summary_format.as_str() {
+                "prose"      => SummaryFormat::Prose,
+                "structured" => SummaryFormat::Structured,
+                _            => if intensity == Intensity::Ultra {
+                    SummaryFormat::Structured
+                } else {
+                    SummaryFormat::Prose
+                },
+            }
+        };
+        context::summarize::apply_with_format(lines, cmd_str, fmt)
     } else {
         filter::compress(cmd_str, lines, &eff_cfg)
     };
