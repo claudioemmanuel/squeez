@@ -7,6 +7,10 @@ STATUS_INPUT=$(cat)  # forward input from statusLine chain
 
 python3 - "$SQUEEZ_DIR" << 'PYEOF'
 import json, os, sys, glob
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
 
 squeez_dir = sys.argv[1]
 sessions_dir = f'{squeez_dir}/sessions'
