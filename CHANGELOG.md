@@ -9,6 +9,23 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+## [1.7.6] - 2026-04-21
+
+### Changed
+- chore(release): bump version to 1.7.6 [squeez-release-bot]
+- docs: update changelog and benchmarks for v1.7.5
+- chore(release): bump version to 1.7.5 [squeez-release-bot]
+- docs: update changelog and benchmarks for v1.7.4
+- chore(release): bump version to 1.7.4 [squeez-release-bot]
+- perf: O(log n) refactor — tail read, offset index, single-pass parser
+- docs: update changelog and benchmarks for v1.7.3
+- chore(release): bump version to 1.7.3 [squeez-release-bot]
+
+### Fixed
+- fix(hosts): preserve user settings.json when existing JSON fails to parse (#83)
+- prevent OOM from unbounded file reads + data integrity fixes
+- fix(ci): use native ubuntu-24.04-arm runner for aarch64 build
+
 ## [1.7.5] - 2026-04-19
 
 ### Changed
@@ -61,7 +78,7 @@ conventional commit messages on `main`.
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.7.5...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.7.6...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0
@@ -69,3 +86,4 @@ See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pr
 [1.7.3]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.3
 [1.7.4]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.4
 [1.7.5]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.5
+[1.7.6]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.6
