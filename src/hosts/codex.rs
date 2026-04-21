@@ -31,17 +31,27 @@ const PRE_TOOL_USE_SCRIPT: &str = include_str!("../../hooks/codex-pretooluse.sh"
 const POST_TOOL_USE_SCRIPT: &str = include_str!("../../hooks/codex-posttooluse.sh");
 
 const PATCH_SCRIPT: &str = r#"
-import json, os, sys
+import json, os, shutil, sys
 
 path = sys.argv[1]
 hooks_dir = sys.argv[2]
 settings = {}
-if os.path.exists(path):
+file_existed = os.path.exists(path)
+if file_existed:
     try:
-        with open(path) as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             settings = json.load(f)
-    except Exception:
-        settings = {}
+    except Exception as e:
+        sys.stderr.write(
+            "squeez: refusing to overwrite {path}: could not parse existing JSON ({err}).\n"
+            "squeez: fix or remove the file, then re-run `squeez setup`.\n".format(path=path, err=e)
+        )
+        sys.exit(2)
+if not isinstance(settings, dict):
+    sys.stderr.write(
+        "squeez: refusing to overwrite {path}: top-level value is not a JSON object.\n".format(path=path)
+    )
+    sys.exit(2)
 
 hooks = settings.get("hooks")
 if not isinstance(hooks, dict):
@@ -73,23 +83,33 @@ ensure_entry("SessionStart",  ".*",                 "codex-session-start.sh", 50
 ensure_entry("PreToolUse",    ".*",                 "codex-pretooluse.sh",    5000)
 ensure_entry("PostToolUse",   ".*",                 "codex-posttooluse.sh",   3000)
 
-tmp = path + ".tmp"
 os.makedirs(os.path.dirname(path), exist_ok=True)
-with open(tmp, "w") as f:
+if file_existed:
+    try:
+        shutil.copy2(path, path + ".bak")
+    except Exception:
+        pass
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(settings, f, indent=2)
 os.replace(tmp, path)
 "#;
 
 const UNPATCH_SCRIPT: &str = r#"
-import json, os, sys
+import json, os, shutil, sys
 
 path = sys.argv[1]
 if not os.path.exists(path):
     sys.exit(0)
 try:
-    with open(path) as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         settings = json.load(f)
-except Exception:
+except Exception as e:
+    sys.stderr.write(
+        "squeez: refusing to rewrite {path}: could not parse existing JSON ({err}).\n".format(path=path, err=e)
+    )
+    sys.exit(0)
+if not isinstance(settings, dict):
     sys.exit(0)
 
 hooks = settings.get("hooks")
@@ -106,8 +126,12 @@ if isinstance(hooks, dict):
     if not hooks:
         settings.pop("hooks", None)
 
+try:
+    shutil.copy2(path, path + ".bak")
+except Exception:
+    pass
 tmp = path + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(settings, f, indent=2)
 os.replace(tmp, path)
 "#;

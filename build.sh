@@ -24,16 +24,24 @@ cp "$BINARY" "$REPO/bin/squeez"
 
 # Register hooks + statusline
 python3 - <<'EOF'
-import json, os, sys
+import json, os, shutil, sys
 
 path = os.path.expanduser("~/.claude/settings.json")
 settings = {}
-try:
-    if os.path.exists(path):
-        with open(path) as f:
+file_existed = os.path.exists(path)
+if file_existed:
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
             settings = json.load(f)
-except (json.JSONDecodeError, IOError) as e:
-    print("Warning: could not read settings.json: " + str(e), file=sys.stderr)
+    except Exception as e:
+        sys.stderr.write(
+            "squeez: refusing to overwrite " + path + ": could not parse existing JSON (" + str(e) + ").\n"
+            "squeez: fix or remove the file, then re-run the installer.\n"
+        )
+        sys.exit(2)
+if not isinstance(settings, dict):
+    sys.stderr.write("squeez: refusing to overwrite " + path + ": top-level value is not a JSON object.\n")
+    sys.exit(2)
 
 def ensure_list(key):
     if not isinstance(settings.get(key), list):
@@ -65,8 +73,13 @@ if "squeez" not in existing_cmd:
         settings["statusLine"] = {"type": "command", "command": squeez_cmd}
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
+if file_existed:
+    try:
+        shutil.copy2(path, path + ".bak")
+    except Exception:
+        pass
 tmp = path + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(settings, f, indent=2)
 os.replace(tmp, path)
 print("hooks registered in ~/.claude/settings.json")

@@ -21,19 +21,24 @@ fn tmp_dirs(label: &str) -> (PathBuf, PathBuf) {
 /// Set up a prior session with the given bash event JSON lines, then call
 /// `run_with_dirs` to trigger finalization into the memory dir.
 fn finalize_session(sessions: &std::path::Path, memory: &std::path::Path, events: &[&str]) {
-    let session_file = "2026-04-10-00.jsonl";
+    // Use a recent timestamp so prune_old (default 30-day retention)
+    // inside run_with_dirs doesn't delete the just-written summary.
+    let now = squeez::session::unix_now();
+    let start_ts = now.saturating_sub(3600);
+    let date = squeez::session::unix_to_date(start_ts);
+    let session_file = format!("{}-00.jsonl", date);
     let prior = squeez::session::CurrentSession {
-        session_file: session_file.to_string(),
+        session_file: session_file.clone(),
         total_tokens: 1000,
         tokens_saved: 0,
         total_calls: 0,
         compact_warned: false,
         state_warned: false,
-        start_ts: 1_774_137_600,
+        start_ts,
     };
     prior.save(sessions);
     for ev in events {
-        squeez::session::append_event(sessions, session_file, ev);
+        squeez::session::append_event(sessions, &session_file, ev);
     }
     let cfg = squeez::config::Config::default();
     squeez::commands::init::run_with_dirs(sessions, memory, &cfg);

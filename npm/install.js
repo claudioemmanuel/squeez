@@ -111,11 +111,28 @@ async function main() {
 function registerHooks() {
   const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
   let settings = {};
-  try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const fileExisted = fs.existsSync(settingsPath);
+  if (fileExisted) {
+    let raw;
+    try {
+      raw = fs.readFileSync(settingsPath, 'utf8');
+      if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // strip BOM
+    } catch (err) {
+      warn(`could not read ${settingsPath}: ${err.message} — skipping hook registration.`);
+      return;
     }
-  } catch (_) {}
+    try {
+      settings = JSON.parse(raw);
+    } catch (err) {
+      warn(`refusing to overwrite ${settingsPath}: could not parse existing JSON (${err.message}).`);
+      warn(`fix or remove the file, then re-run: squeez setup`);
+      return;
+    }
+    if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
+      warn(`refusing to overwrite ${settingsPath}: top-level value is not a JSON object.`);
+      return;
+    }
+  }
 
   let changed = false;
 
@@ -153,6 +170,9 @@ function registerHooks() {
 
   if (changed) {
     try {
+      if (fileExisted) {
+        try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) {}
+      }
       fs.writeFileSync(settingsPath + '.tmp', JSON.stringify(settings, null, 2));
       fs.renameSync(settingsPath + '.tmp', settingsPath);
       log('Claude Code hooks registered.');

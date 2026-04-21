@@ -41,23 +41,30 @@ fn test_init_returns_zero() {
 #[test]
 fn test_init_finalizes_prior_session_to_memory() {
     let (sessions, memory) = tmp_dirs("finalize");
-    let prior_file = "2026-03-22-10.jsonl";
-    // 1774137600 = 2026-03-22 00:00:00 UTC
+    // Use a timestamp within the retention window (default 30 days) so the
+    // just-written summary is not pruned by init's prune_old call. Hardcoding
+    // absolute dates makes this test time-bomb as the clock advances.
+    let now = squeez::session::unix_now();
+    let start_ts = now.saturating_sub(3600); // 1 hour ago
+    let expected_date = squeez::session::unix_to_date(start_ts);
+    let prior_file = format!("{}-0.jsonl", expected_date);
     let prior = squeez::session::CurrentSession {
-        session_file: prior_file.to_string(),
+        session_file: prior_file.clone(),
         total_tokens: 5_000,
         tokens_saved: 0,
         total_calls: 0,
         compact_warned: false,
         state_warned: false,
-        start_ts: 1_774_137_600,
+        start_ts,
     };
     prior.save(&sessions);
-    // Write a bash event in the session log
     squeez::session::append_event(
         &sessions,
-        prior_file,
-        r#"{"type":"bash","in_tk":200,"out_tk":20,"files":["src/foo.rs"],"errors":[],"git":[],"test_summary":"","ts":1774137601}"#,
+        &prior_file,
+        &format!(
+            r#"{{"type":"bash","in_tk":200,"out_tk":20,"files":["src/foo.rs"],"errors":[],"git":[],"test_summary":"","ts":{}}}"#,
+            start_ts + 1
+        ),
     );
 
     let cfg = squeez::config::Config::default();
@@ -68,7 +75,7 @@ fn test_init_finalizes_prior_session_to_memory() {
         !summaries.is_empty(),
         "Expected prior session to be summarised"
     );
-    assert_eq!(summaries[0].date, "2026-03-22");
+    assert_eq!(summaries[0].date, expected_date);
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
 

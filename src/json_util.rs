@@ -1,9 +1,18 @@
 /// Extract a string value from a flat JSON object: {"key":"value",...}
+/// Tolerates whitespace between `:` and `"` (GitHub API pretty-prints).
 pub fn extract_str(json: &str, key: &str) -> Option<String> {
-    let pat = format!("\"{}\":\"", key);
-    let start = json.find(&pat)? + pat.len();
-    let end = json[start..].find('"')?;
-    Some(json[start..start + end].to_string())
+    let pat = format!("\"{}\":", key);
+    let mut pos = json.find(&pat)? + pat.len();
+    let bytes = json.as_bytes();
+    while pos < bytes.len() && (bytes[pos] == b' ' || bytes[pos] == b'\t' || bytes[pos] == b'\n' || bytes[pos] == b'\r') {
+        pos += 1;
+    }
+    if pos >= bytes.len() || bytes[pos] != b'"' {
+        return None;
+    }
+    pos += 1;
+    let end = json[pos..].find('"')?;
+    Some(json[pos..pos + end].to_string())
 }
 
 /// Extract a u64 value from a flat JSON object: {"key":123,...}
