@@ -55,6 +55,9 @@ def ensure_list(key):
     if not isinstance(settings.get(key), list):
         settings[key] = []
 
+PRETOOLUSE_MATCHER = "Bash|Read|Grep|Glob|Agent|Task"
+PRETOOLUSE_CMD = "bash " + os.path.join(hooks_dir, "pretooluse.sh")
+
 def has_squeez(arr):
     for m in arr:
         try:
@@ -65,12 +68,31 @@ def has_squeez(arr):
             continue
     return False
 
+def find_squeez_pretooluse(arr):
+    """Return the index of an existing squeez PreToolUse entry, or -1."""
+    for i, m in enumerate(arr):
+        try:
+            for h in m.get("hooks", []):
+                if "pretooluse.sh" in str(h.get("command", "")) and "squeez" in str(h.get("command", "")):
+                    return i
+        except Exception:
+            continue
+    return -1
+
 ensure_list("PreToolUse")
-if not has_squeez(settings["PreToolUse"]):
+idx = find_squeez_pretooluse(settings["PreToolUse"])
+if idx == -1:
     settings["PreToolUse"].append({
-        "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "pretooluse.sh")}],
+        "matcher": PRETOOLUSE_MATCHER,
+        "hooks": [{"type": "command", "command": PRETOOLUSE_CMD}],
     })
+else:
+    entry = settings["PreToolUse"][idx]
+    if entry.get("matcher") != PRETOOLUSE_MATCHER:
+        entry["matcher"] = PRETOOLUSE_MATCHER
+    cmd_list = entry.get("hooks", [])
+    if cmd_list and cmd_list[0].get("command") != PRETOOLUSE_CMD:
+        cmd_list[0]["command"] = PRETOOLUSE_CMD
 
 ensure_list("SessionStart")
 if not has_squeez(settings["SessionStart"]):
