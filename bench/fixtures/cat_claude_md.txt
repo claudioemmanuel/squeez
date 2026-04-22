@@ -1,0 +1,485 @@
+# CLAUDE.md — Project Context
+
+This file provides guidance to Claude Code when working with code in this repo.
+
+## Section 1: Architecture
+
+Paragraph 1: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 2: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 3: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 4: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 5: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 6: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 7: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 8: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+
+## Section 2: Commands
+
+Paragraph 1: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 2: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 3: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 4: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 5: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 6: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 7: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 8: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+
+## Section 3: Handler Dispatch
+
+Paragraph 1: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 2: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 3: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 4: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 5: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 6: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 7: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 8: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+
+## Section 4: Context Engine
+
+Paragraph 1: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 2: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 3: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 4: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 5: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 6: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 7: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 8: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+
+
+
+## Section 5: Zero-Dependency Constraint
+
+Paragraph 1: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 2: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 3: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 4: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 5: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 6: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 7: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 8: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+
+## Section 6: Tests
+
+Paragraph 1: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 2: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 3: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 4: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 5: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 6: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 7: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 8: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+
+## Section 7: Release and Distribution
+
+Paragraph 1: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 2: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 3: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 4: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 5: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 6: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 7: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 8: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+
+## Section 8: Host Adapters
+
+Paragraph 1: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 2: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 3: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 4: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 5: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 6: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 7: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 8: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+
+
+
+## Section 9: Compression Pipeline
+
+Paragraph 1: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 2: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 3: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 4: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 5: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 6: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 7: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 8: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+
+## Section 10: Session State
+
+Paragraph 1: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 2: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 3: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 4: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 5: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 6: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 7: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 8: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+
+## Section 11: Memory Files
+
+Paragraph 1: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 2: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 3: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 4: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 5: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 6: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 7: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 8: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+
+## Section 12: Configuration
+
+Paragraph 1: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 2: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 3: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 4: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 5: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 6: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 7: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 8: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+
+
+
+## Section 13: MCP Server
+
+Paragraph 1: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 2: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 3: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 4: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 5: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 6: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 7: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 8: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+
+## Section 14: Protocol
+
+Paragraph 1: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 2: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 3: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 4: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 5: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 6: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 7: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 8: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+
+## Section 15: Architecture
+
+Paragraph 1: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 2: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 3: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 4: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 5: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 6: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 7: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 8: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+
+## Section 16: Commands
+
+Paragraph 1: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 2: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 3: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 4: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 5: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 6: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 7: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 8: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+
+
+
+## Section 17: Handler Dispatch
+
+Paragraph 1: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 2: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 3: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 4: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 5: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 6: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 7: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 8: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+
+## Section 18: Context Engine
+
+Paragraph 1: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 2: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 3: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 4: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 5: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 6: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 7: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 8: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+
+## Section 19: Zero-Dependency Constraint
+
+Paragraph 1: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 2: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 3: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 4: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 5: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 6: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 7: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 8: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+
+## Section 20: Tests
+
+Paragraph 1: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 2: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 3: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 4: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 5: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 6: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 7: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 8: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+
+
+
+## Section 21: Release and Distribution
+
+Paragraph 1: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 2: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 3: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 4: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 5: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 6: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 7: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 8: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+
+## Section 22: Host Adapters
+
+Paragraph 1: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 2: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 3: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 4: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 5: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 6: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 7: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 8: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+
+## Section 23: Compression Pipeline
+
+Paragraph 1: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 2: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 3: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 4: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 5: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 6: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 7: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 8: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+
+## Section 24: Session State
+
+Paragraph 1: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 2: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 3: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 4: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 5: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 6: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 7: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 8: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+
+
+
+## Section 25: Memory Files
+
+Paragraph 1: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 2: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 3: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 4: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 5: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 6: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 7: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 8: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+
+## Section 26: Configuration
+
+Paragraph 1: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 2: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 3: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 4: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 5: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 6: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 7: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 8: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+
+## Section 27: MCP Server
+
+Paragraph 1: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 2: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 3: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 4: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 5: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 6: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 7: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 8: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+
+## Section 28: Protocol
+
+Paragraph 1: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 2: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 3: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 4: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 5: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 6: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 7: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 8: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+
+
+
+## Section 29: Architecture
+
+Paragraph 1: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 2: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 3: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 4: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 5: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 6: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 7: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+Paragraph 8: The system is basically a hook-based bash output compressor that intercepts every tool invocation. It runs output through a compression pipeline before the model sees it. The pipeline has four stages that you should use carefully.
+
+## Section 30: Commands
+
+Paragraph 1: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 2: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 3: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 4: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 5: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 6: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 7: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+Paragraph 8: You can run the tests with cargo test. You should build the release binary with cargo build --release. The benchmark suite is also available for testing performance improvements.
+
+## Section 31: Handler Dispatch
+
+Paragraph 1: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 2: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 3: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 4: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 5: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 6: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 7: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+Paragraph 8: The filter module detects the command type and routes to one of thirteen handlers. Each handler implements the Handler trait. Adding a new handler is really just a matter of implementing the trait and registering it.
+
+## Section 32: Context Engine
+
+Paragraph 1: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 2: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 3: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 4: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 5: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 6: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 7: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+Paragraph 8: Cross-call awareness across sixteen recent invocations is maintained. The cache tracks seen outputs, file paths, and errors. Redundancy detection uses two paths: exact hash matching and fuzzy MinHash trigram Jaccard similarity.
+
+
+
+## Section 33: Zero-Dependency Constraint
+
+Paragraph 1: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 2: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 3: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 4: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 5: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 6: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 7: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+Paragraph 8: The Cargo.toml lists only libc as a dependency for Unix signal forwarding. Do not add runtime dependencies because binary size and CI reproducibility depend on stdlib-only builds.
+
+## Section 34: Tests
+
+Paragraph 1: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 2: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 3: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 4: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 5: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 6: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 7: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+Paragraph 8: There are thirty-eight integration test files under the tests directory. Each strategy, handler, and host adapter has a dedicated test file. Benchmark fixtures live in the bench fixtures directory.
+
+## Section 35: Release and Distribution
+
+Paragraph 1: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 2: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 3: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 4: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 5: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 6: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 7: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+Paragraph 8: Three install methods are available: curl for local build, npm for pre-built binary download, and cargo install. The release workflow builds universal macOS binaries as well as Linux and Windows binaries.
+
+## Section 36: Host Adapters
+
+Paragraph 1: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 2: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 3: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 4: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 5: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 6: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 7: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+Paragraph 8: One adapter per supported CLI, all implementing the HostAdapter trait. The setup command iterates the registry and probes for installed hosts. Capability bitflags describe what each host supports natively.
+
+
+
+## Section 37: Compression Pipeline
+
+Paragraph 1: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 2: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 3: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 4: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 5: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 6: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 7: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+Paragraph 8: The first stage strips ANSI codes, progress bars, spinners, and timestamps. The second stage collapses repeated lines. The third stage collapses sibling files in the same directory. The fourth stage truncates by head or tail.
+
+## Section 38: Session State
+
+Paragraph 1: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 2: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 3: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 4: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 5: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 6: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 7: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+Paragraph 8: Token accounting is maintained across invocations. Events are logged to a JSONL file. The session can be finalized at the end of a coding session to produce a structured summary.
+
+## Section 39: Memory Files
+
+Paragraph 1: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 2: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 3: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 4: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 5: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 6: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 7: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+Paragraph 8: Memory files are compressed using the markdown compressor. The compressor preserves code blocks, URLs, headings, file paths, and tables. Only natural-language prose is compressed.
+
+## Section 40: Configuration
+
+Paragraph 1: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 2: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 3: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 4: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 5: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 6: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 7: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+Paragraph 8: The config file is located at the squeez directory inside the Claude config directory. All fields have sensible defaults. The key tunable is the state warn calls threshold that triggers a State-First Pattern warning.
+
+
+
+## Section 41: MCP Server
+
+Paragraph 1: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 2: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 3: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 4: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 5: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 6: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 7: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+Paragraph 8: A JSON-RPC 2.0 MCP server is available over stdio. It exposes fourteen read-only tools for inspecting session state. The tools include recent calls, seen files, seen errors, and session statistics.
+
+## Section 42: Protocol
+
+Paragraph 1: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 2: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 3: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 4: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 5: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 6: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 7: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
+Paragraph 8: The auto-teach payload is injected at session start. It teaches the model how to interpret squeez markers. The payload is approximately two point four kilobytes of structured text.
