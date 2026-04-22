@@ -110,6 +110,45 @@ squeez update --insecure  # skip checksum (not recommended)
 
 ---
 
+## Scope & Limits
+
+squeez optimizes what it can reach — the surfaces exposed by each host's hook API. It cannot fix token leaks outside those surfaces.
+
+### Coverage table
+
+| Surface | How | When | Supported hosts |
+|---|---|---|---|
+| **Bash stdout/stderr** | `PreToolUse` wraps command w/ 4-stage pipeline (smart-filter → dedup → grouping → truncation) | Every Bash invocation | all 5 |
+| **Read / Grep / Glob limits** | `PreToolUse` injects `limit` / `head_limit` per `read_max_lines` / `grep_max_results` | Every Read/Grep/Glob call | Claude Code, Copilot, OpenCode (hard); Gemini + Codex soft via GEMINI.md / AGENTS.md |
+| **Agent / Task prompt** | `PreToolUse` compresses `tool_input.prompt` (markdown-aware, via `compress-prompt`) | When prompt > `agent_prompt_max_tokens` | Claude Code (post–v1.8.0) |
+| **Session memory** | `SessionStart` injects prior session summary + file-access cache | Once per session start | all 5 |
+| **Markdown viewing** | Bash handler routes `.md` reads through `compress-md` when `auto_compress_md=true` | Viewer commands on .md paths | all 5 |
+
+### What squeez CANNOT compress
+
+**Agent/Task returned output.** `PostToolUse` hooks are observation-only — squeez sees the result *after* the model has received it. No hook API surface exists to rewrite an Agent's return value. Workaround: keep agent prompts compact (squeez compresses at dispatch time), and use `squeez_agent_costs` MCP tool to monitor spawn overhead.
+
+**Skills & slash-command files.** Claude Code loads these into the system prompt before any hook fires. squeez has no visibility into session-start system prompt construction.
+
+**User's top-level prompt.** squeez runs per tool call, not on user turns.
+
+**Tools whose host doesn't expose PreToolUse / BeforeTool.** E.g. Codex `PreToolUse` today only fires on Bash (tracked upstream at [openai/codex#18491](https://github.com/openai/codex/issues/18491)), so Read/Grep caps for Codex are soft hints in AGENTS.md, not hard injections.
+
+### Secondary wins (not compression, but token-saving)
+
+- **Cross-call redundancy dedup** — exact-hash and fuzzy-trigram collapsing across 16 recent calls (see [Context engine](#what-it-does))
+- **File-access cache** — subsequent Bash commands trimmed when re-reading a file squeez has already fingerprinted
+- **Burn-rate warnings** — `[budget: ~N calls left]` nudges so the user changes behavior before context pressure spikes
+
+### Reducing overall session cost
+
+squeez cannot automate these, but you can:
+- Fewer Agent/Task dispatches per session → use `squeez_agent_costs` to track, then refactor tasks to batch work
+- Smaller prompts injected into agents → squeez compresses them at dispatch, but smaller is better
+- Shorter CLAUDE.md / AGENTS.md files → run `squeez compress-md --ultra` to drop abbreviations and filler
+
+---
+
 ## Benchmarks
 
 <!-- BENCHMARK:START -->
