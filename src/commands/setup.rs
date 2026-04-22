@@ -35,6 +35,7 @@ summarize_threshold_lines = 300\n\
 dedup_min = 2\n\
 read_max_lines = 300\n\
 grep_max_results = 100\n\
+agent_prompt_max_tokens = 2000\n\
 \n\
 # Memory\n\
 memory_retention_days = 30\n\

@@ -65,6 +65,25 @@ if tool in ('Read', 'Grep', 'Glob'):
         pass  # budget enforcement is best-effort
     sys.exit(0)
 
+# ── Agent/Task: compress prompt ───────────────────────────────────────
+if tool in ('Agent', 'Task'):
+    prompt = d.get('tool_input', {}).get('prompt')
+    if isinstance(prompt, str) and prompt:
+        try:
+            result = subprocess.run(
+                [squeez, 'compress-prompt'],
+                input=prompt, capture_output=True, text=True, timeout=5,
+            )
+            compressed = result.stdout
+            # Only replace when compression actually shrinks the prompt.
+            if compressed and len(compressed) < len(prompt):
+                d['tool_input']['prompt'] = compressed
+                print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
+                sys.exit(0)
+        except Exception:
+            pass
+    sys.exit(0)
+
 # ── All other tools: pass through ─────────────────────────────────────
 sys.exit(0)
 "
