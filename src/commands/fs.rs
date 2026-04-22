@@ -16,6 +16,43 @@ const NOISY_ENV_PREFIXES: &[&str] = &[
 // Viewer commands that may display code files.
 const VIEWER_CMDS: &[&str] = &["cat", "head", "tail", "less", "more", "bat"];
 
+/// Returns the target file path if `cmd` is a viewer command targeting a `.md` file.
+fn extract_md_viewer_target(cmd: &str) -> Option<String> {
+    let mut parts = cmd.split_whitespace();
+    let first = parts.next()?;
+    let base = first.rsplit('/').next().unwrap_or(first);
+    if !VIEWER_CMDS.contains(&base) {
+        return None;
+    }
+    let mut path: Option<String> = None;
+    let mut skip_next = false;
+    for tok in parts {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if tok == "-n" || tok == "-c" {
+            skip_next = true;
+            continue;
+        }
+        if tok.starts_with('-') {
+            continue;
+        }
+        path = Some(tok.to_string());
+        break;
+    }
+    let path = path?;
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())?
+        .to_ascii_lowercase();
+    if ext == "md" {
+        Some(path)
+    } else {
+        None
+    }
+}
+
 /// Returns (file_path, language_tag) if `cmd` is a viewer command targeting a code file.
 fn extract_path_and_ext(cmd: &str) -> Option<(String, &'static str)> {
     let mut parts = cmd.split_whitespace();
@@ -158,7 +195,10 @@ fn is_signature(line: &str, lang: &str) -> bool {
             let trimmed = line.trim_end();
             (trimmed.ends_with(')') || trimmed.ends_with(") {") || trimmed.ends_with("){"))
                 && line.contains('(')
-                && line.chars().next().map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
+                && line
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_ascii_alphabetic() || c == '_')
         }
         _ => false,
     }
@@ -206,6 +246,36 @@ impl Handler for FsHandler {
                     out.extend(compressed);
                     return out;
                 }
+            }
+        }
+
+        // ── Markdown viewer path ──────────────────────────────────────────
+        if config.auto_compress_md {
+            if let Some(md_path) = extract_md_viewer_target(cmd) {
+                let orig_chars: usize = lines.iter().map(|l| l.len() + 1).sum();
+                let text = lines.join("\n");
+                let locale = crate::commands::compress_md::Locale::from_code(&config.lang);
+                let result = crate::commands::compress_md::compress_text_with_locale(
+                    &text,
+                    crate::commands::compress_md::Mode::Full,
+                    locale,
+                );
+                let compressed_text = if result.safe { result.output } else { text };
+                let new_chars: usize = compressed_text.len();
+                let orig_tokens = orig_chars / 4;
+                let new_tokens = new_chars / 4;
+                let marker = format!(
+                    "[squeez: md-mode — compressed {}→{} tokens from {}]",
+                    orig_tokens, new_tokens, md_path
+                );
+                let mut out: Vec<String> = std::iter::once(marker)
+                    .chain(compressed_text.lines().map(|l| l.to_string()))
+                    .collect();
+                // remove trailing empty line that split may introduce
+                if out.last().map(|l| l.is_empty()).unwrap_or(false) {
+                    out.pop();
+                }
+                return out;
             }
         }
 
