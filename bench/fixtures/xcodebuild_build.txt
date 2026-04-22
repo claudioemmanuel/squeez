@@ -1,0 +1,75 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild build -scheme MyApp -destination "platform=iOS Simulator,name=iPhone 15"
+
+Build settings from command line:
+    ARCHS = arm64
+
+note: Using new build system
+note: Using codesigning identity override: -
+note: Build preparation complete
+note: Planning
+Analyze workspace
+Create build description
+Build description signature: 7f3e9a2c1b8d4f5e6a9b0c3d2e1f4a5b
+Build description path: /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/XCBuildData/7f3e9a2c1b8d4f5e6a9b0c3d2e1f4a5b.xcbuilddata
+
+ComputePackagePrebuildTargetDependencyGraph
+SendPIFToBuildSystem
+CreateBuildRequest
+
+ClangStatCache /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/SDKStatCaches.noindex/iphonesimulator17.5-21F77-abc.sdkstatcache
+RegisterExecutionPolicyException /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/MyApp
+MkDir /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    builtin-mkdir /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app
+
+WriteAuxiliaryFile /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp.SwiftFileList (in target 'MyApp' from project 'MyApp')
+WriteAuxiliaryFile /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp.swiftmodule.DependencyMetadataFileListPath (in target 'MyApp' from project 'MyApp')
+WriteAuxiliaryFile /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp-OutputFileMap.json (in target 'MyApp' from project 'MyApp')
+
+ProcessInfoPlistFile /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/Info.plist /Users/dev/projects/MyApp/MyApp/Info.plist (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    builtin-infoPlistUtility /Users/dev/projects/MyApp/MyApp/Info.plist -producttype com.apple.product-type.application -expandbuildsettings -format binary -platform iphonesimulator -o /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/Info.plist
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ MyApp (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    builtin-swiftTaskExecution -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -frontend -emit-module
+
+SwiftDriverJobDiscovery normal arm64 Compiling ContentView.swift (in target 'MyApp' from project 'MyApp')
+SwiftDriverJobDiscovery normal arm64 Compiling MyAppApp.swift (in target 'MyApp' from project 'MyApp')
+SwiftDriverJobDiscovery normal arm64 Compiling Signpost.swift (in target 'MyApp' from project 'MyApp')
+SwiftDriverJobDiscovery normal arm64 Compiling WhistleFormLabel.swift (in target 'MyApp' from project 'MyApp')
+SwiftDriverJobDiscovery normal arm64 Compiling ImageCache.swift (in target 'MyApp' from project 'MyApp')
+
+SwiftCompile normal arm64 Compiling\ 'ContentView.swift' /Users/dev/projects/MyApp/MyApp/ContentView.swift (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    builtin-swiftTaskExecution -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -frontend -c /Users/dev/projects/MyApp/MyApp/ContentView.swift
+
+SwiftCompile normal arm64 Compiling\ 'MyAppApp.swift' /Users/dev/projects/MyApp/MyApp/MyAppApp.swift (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    builtin-swiftTaskExecution -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-frontend -frontend -c /Users/dev/projects/MyApp/MyApp/MyAppApp.swift
+
+SwiftMergeGeneratedHeaders /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp-Swift.h /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp-swiftinterface.h (in target 'MyApp' from project 'MyApp')
+
+CompileAssetCatalog /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app /Users/dev/projects/MyApp/MyApp/Assets.xcassets (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool --output-format human-readable-text --notices --warnings --export-dependency-info
+
+Ld /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/MyApp normal (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -target arm64-apple-ios17.5-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator17.5.sdk -L/Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator -F/Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator -filelist /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp.LinkFileList -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -object_path_lto -Xlinker /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/Objects-normal/arm64/MyApp_lto.o -Xlinker -export_dynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -o /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/MyApp
+
+GenerateDSYMFile /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app.dSYM /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app/MyApp (in target 'MyApp' from project 'MyApp')
+
+Touch /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app (in target 'MyApp' from project 'MyApp')
+
+RegisterWithLaunchServices /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app (in target 'MyApp' from project 'MyApp')
+
+CodeSign /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app (in target 'MyApp' from project 'MyApp')
+    cd /Users/dev/projects/MyApp
+
+    Signing Identity:     "-"
+
+    /usr/bin/codesign --force --sign - --entitlements /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Intermediates.noindex/MyApp.build/Debug-iphonesimulator/MyApp.build/MyApp.app.xcent --timestamp=none --generate-entitlement-der /Users/dev/Library/Developer/Xcode/DerivedData/MyApp-abc123/Build/Products/Debug-iphonesimulator/MyApp.app
+
+** BUILD SUCCEEDED **
