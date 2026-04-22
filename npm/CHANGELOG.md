@@ -9,6 +9,8 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-04-22
+
 ## [1.7.7] - 2026-04-21
 
 ### Changed
@@ -98,7 +100,7 @@ conventional commit messages on `main`.
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.7.7...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.9.0...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0
@@ -108,3 +110,4 @@ See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pr
 [1.7.5]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.5
 [1.7.6]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.6
 [1.7.7]: https://github.com/claudioemmanuel/squeez/compare/v1.7.2...v1.7.7
+[1.9.0]: https://github.com/claudioemmanuel/squeez/compare/v1.10.0...v1.9.0
