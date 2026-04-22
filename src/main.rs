@@ -43,6 +43,9 @@ fn main() {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::compress_md::run(&rest));
         }
+        Some("compress-prompt") => {
+            std::process::exit(squeez::commands::compress_prompt::run());
+        }
         Some("setup") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::setup::run_with_help(&rest));

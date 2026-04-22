@@ -61,6 +61,10 @@ pub struct Config {
     /// Summary output shape: "prose" | "structured" | "auto".
     /// "auto" selects Structured when Intensity == Ultra, Prose otherwise.
     pub summary_format: String,
+    // ── Agent prompt compression ─────────────────────────────────────────────
+    /// Max token estimate for Agent/Task prompt before compression kicks in.
+    /// 0 = disabled. Default: 2000.
+    pub agent_prompt_max_tokens: usize,
 }
 
 impl Default for Config {
@@ -105,6 +109,7 @@ impl Default for Config {
             sig_mode_threshold_lines: 400,
             memory_file_warn_tokens: 1000,
             summary_format: "auto".to_string(),
+            agent_prompt_max_tokens: 2000,
         }
     }
 }
@@ -207,6 +212,10 @@ impl Config {
                             "prose" | "structured" | "auto" => v.to_string(),
                             _ => "auto".to_string(),
                         };
+                    }
+                    "agent_prompt_max_tokens" => {
+                        c.agent_prompt_max_tokens =
+                            v.parse().unwrap_or(c.agent_prompt_max_tokens)
                     }
                     _ => {}
                 }
