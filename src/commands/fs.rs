@@ -220,7 +220,47 @@ impl Handler for FsHandler {
             return truncation::apply(filtered, 80, truncation::Keep::Head);
         }
 
-        let lines = grouping::group_files_by_dir(lines, 5);
-        truncation::apply(lines, config.find_max_results, truncation::Keep::Head)
+        // Viewer commands (cat/head/tail/less/more/bat) emit file CONTENT,
+        // not file LISTS — grouping by parent-dir would collapse every line
+        // into a single "./ N modified" summary. Skip grouping for those.
+        let is_viewer = base_cmd(cmd).map(|b| VIEWER_CMDS.contains(&b)).unwrap_or(false);
+        let lines = if is_viewer {
+            lines
+        } else {
+            grouping::group_files_by_dir(lines, 5)
+        };
+        let keep = if should_keep_tail(cmd) {
+            truncation::Keep::Tail
+        } else {
+            truncation::Keep::Head
+        };
+        truncation::apply(lines, config.find_max_results, keep)
     }
+}
+
+fn base_cmd(cmd: &str) -> Option<&str> {
+    let first = cmd.split_whitespace().next()?;
+    Some(first.rsplit('/').next().unwrap_or(first))
+}
+
+/// `tail` is always tail-oriented. `cat`/`less`/`more`/`bat` on a log-ish
+/// path (.log/.out/.err) also benefit from tail — recent lines matter most.
+fn should_keep_tail(cmd: &str) -> bool {
+    let Some(base) = base_cmd(cmd) else { return false };
+    if base == "tail" {
+        return true;
+    }
+    if !matches!(base, "cat" | "less" | "more" | "bat") {
+        return false;
+    }
+    for tok in cmd.split_whitespace().skip(1) {
+        if tok.starts_with('-') {
+            continue;
+        }
+        let lower = tok.to_lowercase();
+        if lower.ends_with(".log") || lower.ends_with(".out") || lower.ends_with(".err") {
+            return true;
+        }
+    }
+    false
 }
