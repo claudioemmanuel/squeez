@@ -10,6 +10,7 @@ pub fn apply(lines: Vec<String>) -> Vec<String> {
         .filter(|l| !is_progress_bar(l))
         .filter(|l| !is_git_hint(l))
         .filter(|l| !is_npm_noise(l))
+        .filter(|l| !is_vite_plugin_noise(l))
         .filter(|l| !is_node_modules_frame(l))
         .map(strip_log_timestamp)
         .collect()
@@ -56,6 +57,19 @@ fn is_npm_noise(s: &str) -> bool {
         || t.starts_with("WARN deprecated")
         || t.starts_with("npm notice")
         || t.starts_with("npm warn EBADENGINE")
+}
+
+fn is_vite_plugin_noise(s: &str) -> bool {
+    let t = s.trim_start();
+    // vite-tsconfig-paths deprecation warning block — repeats once per vitest run,
+    // producing ~3KB of identical noise across 6 runs in the analyzed session.
+    t.starts_with("[tsconfig-paths]")
+        || t.starts_with("The plugin \"vite-tsconfig-paths\"")
+        || t.starts_with("The plugin \"@vitejs/plugin-react\"")
+        || t.starts_with("Vite now supports tsconfig paths resolution natively")
+        || t.starts_with("You can remove the plugin and set resolve.tsconfigPaths")
+        || t.starts_with("For new projects, use create-next-app to choose")
+        || t.starts_with("`next lint` is deprecated")
 }
 
 fn is_node_modules_frame(s: &str) -> bool {
