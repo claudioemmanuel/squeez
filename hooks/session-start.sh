@@ -14,14 +14,24 @@ _settings="$HOME/.claude/settings.json"
 if [ -f "$_settings" ]; then
     _has_squeez=$(python3 -c "
 import json, sys
+HOOK_EVENTS = ('PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop')
 try:
     d = json.load(open(sys.argv[1]))
-    hooks = d.get('hooks', {}) if isinstance(d, dict) else {}
-    for entries in hooks.values():
-        for e in (entries if isinstance(entries, list) else []):
-            for h in (e.get('hooks', []) if isinstance(e, dict) else []):
-                if 'squeez' in str(h.get('command', '')):
-                    print('ok'); sys.exit(0)
+    if not isinstance(d, dict):
+        print('ok'); sys.exit(0)
+    # Squeez writes hooks at top-level event keys; some other tools nest under 'hooks.*'.
+    # Check both shapes plus the statusLine slot.
+    candidates = [d.get('hooks', {}) if isinstance(d.get('hooks'), dict) else {}]
+    candidates.append({k: d.get(k) for k in HOOK_EVENTS if k in d})
+    for bucket in candidates:
+        for entries in bucket.values():
+            for e in (entries if isinstance(entries, list) else []):
+                for h in (e.get('hooks', []) if isinstance(e, dict) else []):
+                    if 'squeez' in str(h.get('command', '')):
+                        print('ok'); sys.exit(0)
+    sl = d.get('statusLine', {})
+    if isinstance(sl, dict) and 'squeez' in str(sl.get('command', '')):
+        print('ok'); sys.exit(0)
     print('missing')
 except Exception:
     print('ok')
