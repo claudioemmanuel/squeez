@@ -70,3 +70,32 @@ fn passthrough_normal_lines() {
     let input = vec!["modified: src/auth.ts".to_string()];
     assert_eq!(apply(input), vec!["modified: src/auth.ts"]);
 }
+
+#[test]
+fn removes_vite_tsconfig_paths_warning_block() {
+    // This block repeated 6× in a single session (~27KB total noise).
+    let input = vec![
+        "The plugin \"vite-tsconfig-paths\" is detected. Vite now supports tsconfig paths resolution natively via the resolve.tsconfigPaths option.".to_string(),
+        "You can remove the plugin and set resolve.tsconfigPaths: true in your Vite config instead.".to_string(),
+        "[tsconfig-paths] An error occurred while parsing \"/project/.codesandbox/templates/vue/tsconfig.json\".".to_string(),
+        "[tsconfig-paths] An error occurred while parsing \"/project/public/libs/tsconfig.json\".".to_string(),
+        " RUN v4.1.0 /project".to_string(),
+    ];
+    let result = apply(input);
+    assert!(!result.iter().any(|l| l.contains("vite-tsconfig-paths")));
+    assert!(!result.iter().any(|l| l.contains("[tsconfig-paths]")));
+    assert!(!result.iter().any(|l| l.contains("resolve.tsconfigPaths")));
+    assert!(result.iter().any(|l| l.contains("RUN v4.1.0")));
+}
+
+#[test]
+fn removes_next_lint_deprecation() {
+    let input = vec![
+        "`next lint` is deprecated and will be removed in Next.js 16.".to_string(),
+        "For new projects, use create-next-app to choose your preferred linter.".to_string(),
+        "✔ No ESLint warnings or errors".to_string(),
+    ];
+    let result = apply(input);
+    assert!(!result.iter().any(|l| l.contains("deprecated")));
+    assert!(result.iter().any(|l| l.contains("No ESLint")));
+}
