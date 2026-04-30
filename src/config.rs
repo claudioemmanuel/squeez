@@ -65,6 +65,9 @@ pub struct Config {
     /// Max token estimate for Agent/Task prompt before compression kicks in.
     /// 0 = disabled. Default: 2000.
     pub agent_prompt_max_tokens: usize,
+    /// Pass through all output uncompressed when SQUEEZ_PLAN_MODE=1 env var is set.
+    /// Default: true. Set to false to compress even in plan mode.
+    pub plan_mode_passthrough: bool,
 }
 
 impl Default for Config {
@@ -110,6 +113,7 @@ impl Default for Config {
             memory_file_warn_tokens: 1000,
             summary_format: "auto".to_string(),
             agent_prompt_max_tokens: 2000,
+            plan_mode_passthrough: true,
         }
     }
 }
@@ -217,6 +221,7 @@ impl Config {
                         c.agent_prompt_max_tokens =
                             v.parse().unwrap_or(c.agent_prompt_max_tokens)
                     }
+                    "plan_mode_passthrough" => c.plan_mode_passthrough = v == "true",
                     _ => {}
                 }
             }
