@@ -113,6 +113,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Extract release notes from CHANGELOG
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          awk "/^## \[${VERSION_NO_V}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md \
+            | sed '/^[[:space:]]*$/d' > release_notes.txt
+          if [ ! -s release_notes.txt ]; then
+            echo "No changelog entry found for ${VERSION_NO_V}" > release_notes.txt
+          fi
       - uses: actions/download-artifact@v4
       - name: Generate checksums
         run: |
@@ -123,6 +132,7 @@ jobs:
       - name: Upload to GitHub release
         uses: softprops/action-gh-release@v1
         with:
+          body_path: release_notes.txt
           files: |
             squeez-macos-universal/squeez-macos-universal
             squeez-linux-x86_64/squeez-linux-x86_64
