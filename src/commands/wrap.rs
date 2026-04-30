@@ -39,6 +39,12 @@ pub fn run(cmd_str: &str) -> i32 {
         return passthrough(cmd_str);
     }
 
+    if config.plan_mode_passthrough
+        && std::env::var("SQUEEZ_PLAN_MODE").as_deref() == Ok("1")
+    {
+        return passthrough(cmd_str);
+    }
+
     // ── Context engine pre-pass ────────────────────────────────────────
     let sessions_dir_pp = session::sessions_dir();
     let used_tokens = session::CurrentSession::load(&sessions_dir_pp)
