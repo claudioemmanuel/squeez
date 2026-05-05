@@ -65,6 +65,7 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
         | "cat" | "head" | "tail" | "less" | "more" | "bat"
         | "bfs" => Box::new(FsHandler),
         "ugrep" => Box::new(TextProcHandler),
+        "monitor" => Box::new(GenericHandler),
         // JSON/YAML/IaC tools
         "jq" | "yq" | "terraform" | "tofu" | "helm" | "pulumi" => Box::new(DataToolHandler),
         // Text-processing tools: grep match output
