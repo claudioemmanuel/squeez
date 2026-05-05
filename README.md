@@ -104,7 +104,7 @@ squeez update --insecure  # skip checksum (not recommended)
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
 | **Session memory** | On `SessionStart`, injects a structured summary of the previous session: files investigated, learned facts (errors + git events), completed work (builds, test passes), and next steps (unresolved errors, failing tests). Summaries carry temporal validity (`valid_from`/`valid_to`). |
-| **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob) feeds a `SessionContext` so squeez knows what the agent has already seen. |
+| **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob, Monitor, SubagentStop) feeds a `SessionContext` so squeez knows what the agent has already seen. Read/Grep/Glob/Monitor outputs are also rewritten via `updatedToolOutput` (Claude Code v2.1.119+) when content is redundant or oversized. |
 | **Token economy** | Sub-agent cost tracking (~200K tokens/spawn), burn rate prediction (`[budget: ~N calls left]`), session efficiency scoring, tool result size budgets. |
 | **Auto-calibration** | `squeez calibrate` runs benchmarks on install and generates an optimized `config.ini` (aggressive / balanced / conservative profiles). |
 
@@ -120,13 +120,16 @@ squeez optimizes what it can reach — the surfaces exposed by each host's hook 
 |---|---|---|---|
 | **Bash stdout/stderr** | `PreToolUse` wraps command w/ 4-stage pipeline (smart-filter → dedup → grouping → truncation) | Every Bash invocation | all 5 |
 | **Read / Grep / Glob limits** | `PreToolUse` injects `limit` / `head_limit` per `read_max_lines` / `grep_max_results` | Every Read/Grep/Glob call | Claude Code, Copilot, OpenCode (hard); Gemini + Codex soft via GEMINI.md / AGENTS.md |
+| **Read / Grep / Glob / Monitor output rewrite** | `PostToolUse` runs `squeez compress-output` and returns `updatedToolOutput` when content is redundant or oversized | Claude Code v2.1.119+ | Claude Code |
 | **Agent / Task prompt** | `PreToolUse` compresses `tool_input.prompt` (markdown-aware, via `compress-prompt`) | When prompt > `agent_prompt_max_tokens` | Claude Code (post–v1.8.0) |
+| **Sub-agent output** | `SubagentStop` hook feeds `last_assistant_message` into SessionContext for cross-call dedup | On every sub-agent completion | Claude Code |
+| **Compaction lifecycle** | `PreCompact` logs the event; `PostCompact` emits a re-arm reminder so the model knows compression is still active | On context compaction | Claude Code |
 | **Session memory** | `SessionStart` injects prior session summary + file-access cache | Once per session start | all 5 |
 | **Markdown viewing** | Bash handler routes `.md` reads through `compress-md` when `auto_compress_md=true` | Viewer commands on .md paths | all 5 |
 
 ### What squeez CANNOT compress
 
-**Agent/Task returned output.** `PostToolUse` hooks are observation-only — squeez sees the result *after* the model has received it. No hook API surface exists to rewrite an Agent's return value. Workaround: keep agent prompts compact (squeez compresses at dispatch time), and use `squeez_agent_costs` MCP tool to monitor spawn overhead.
+**Agent/Task returned output.** No hook API surface exists to rewrite an Agent's return value. `PostToolUse updatedToolOutput` (Claude Code v2.1.119+) covers built-in tools (Read, Grep, Glob, Monitor) but not the Agent/Task result. Workaround: keep agent prompts compact (squeez compresses at dispatch time via PreToolUse), and use `squeez_agent_costs` MCP tool to monitor spawn overhead.
 
 **Skills & slash-command files.** Claude Code loads these into the system prompt before any hook fires. squeez has no visibility into session-start system prompt construction.
 
@@ -420,11 +423,14 @@ Each bash command passes through four strategies in order:
 
 ### Hooks (Claude Code & Copilot CLI)
 
-Three hooks work together automatically after install:
+Six hooks work together automatically after install on Claude Code (three on Copilot CLI):
 
-- **`PreToolUse`** — rewrites every Bash call: `git status` → `squeez wrap git status`
+- **`PreToolUse`** — rewrites every Bash call: `git status` → `squeez wrap git status`; injects Read/Grep/Glob limits; compresses Agent/Task prompts
 - **`SessionStart`** — runs `squeez init`: finalizes previous session into a memory summary, injects the persona prompt
-- **`PostToolUse`** — runs `squeez track-result`: scans every tool result (Bash, Read, Grep, Glob) for file paths and errors, feeding `SessionContext`
+- **`PostToolUse`** — tracks every tool result; rewrites Read/Grep/Glob/Monitor output via `updatedToolOutput` when content is redundant or oversized (Claude Code v2.1.119+)
+- **`SubagentStop`** *(Claude Code only)* — feeds `last_assistant_message` into SessionContext so the parent agent can dedup against what the sub-agent saw
+- **`PreCompact`** *(Claude Code only)* — logs compaction events for session efficiency metrics; allows compaction to proceed
+- **`PostCompact`** *(Claude Code only)* — emits a re-arm reminder after compaction so the model knows compression is still active
 
 ### Cross-call redundancy
 
