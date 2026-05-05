@@ -28,20 +28,25 @@ pub fn run(tool: &str) -> i32 {
 }
 
 pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32 {
+    if let Some(out) = compute_rewrite(raw, tool, sessions_dir, cfg) {
+        emit_updated_output(&out);
+    }
+    0
+}
+
+/// Core logic: returns the rewritten content string if compression applies,
+/// or `None` if the original should be kept as-is. Exposed for testing.
+pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> Option<String> {
     if raw.trim().is_empty() {
-        return 0;
+        return None;
     }
 
-    let content = match extract_content(raw) {
-        Some(c) if !c.trim().is_empty() => c,
-        _ => return 0,
-    };
-
+    let content = extract_content(raw).filter(|c| !c.trim().is_empty())?;
     let content: String = content.chars().take(MAX_CONTENT_BYTES).collect();
     let lines: Vec<String> = content.lines().map(String::from).collect();
 
     if lines.is_empty() {
-        return 0;
+        return None;
     }
 
     let mut ctx = context::cache::SessionContext::load(sessions_dir);
@@ -61,10 +66,9 @@ pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32
                     hit.call_n
                 ),
             };
-            emit_updated_output(&note);
             ctx.exact_dedup_hits += 1;
             ctx.save(sessions_dir);
-            return 0;
+            return Some(note);
         }
     }
 
@@ -80,17 +84,13 @@ pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32
         None
     };
 
-    if let Some(ref out) = rewritten {
-        emit_updated_output(out);
-    }
-
     // Record content so future calls can dedup against it.
     if cfg.redundancy_cache_enabled {
         context::redundancy::record(&mut ctx, tool, &lines);
         ctx.save(sessions_dir);
     }
 
-    0
+    rewritten
 }
 
 fn emit_updated_output(content: &str) {

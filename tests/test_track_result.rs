@@ -74,3 +74,44 @@ fn empty_input_no_error() {
     assert_eq!(run_with_dir("Read", "   \n  ", &dir), 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn subagent_stop_extracts_last_assistant_message() {
+    let dir = tmp("subagent_stop");
+    // SubagentStop JSON has last_assistant_message at top level (not tool_result)
+    let json = r#"{"tool_name":"SubagentStop","agent_id":"abc123","last_assistant_message":"Completed. Modified src/api.rs and src/auth.rs.\nerror: unused variable 'x'"}"#;
+    assert_eq!(run_with_dir("SubagentStop", json, &dir), 0);
+    let ctx = SessionContext::load(&dir);
+    // Should extract file paths from the message
+    assert!(
+        ctx.seen_files.iter().any(|f| f.path.contains("api.rs")),
+        "SubagentStop should extract file paths from last_assistant_message"
+    );
+    assert!(
+        !ctx.seen_errors.is_empty(),
+        "SubagentStop should record errors from last_assistant_message"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn subagent_stop_with_tool_result_content_works_too() {
+    let dir = tmp("subagent_result");
+    // Hook wraps last_assistant_message into tool_result.content
+    let json = r#"{"tool_name":"SubagentStop","tool_result":{"content":"Done. Wrote src/out.rs"}}"#;
+    assert_eq!(run_with_dir("SubagentStop", json, &dir), 0);
+    let ctx = SessionContext::load(&dir);
+    assert!(
+        ctx.seen_files.iter().any(|f| f.path.contains("out.rs")),
+        "SubagentStop with tool_result.content should extract paths"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn subagent_stop_empty_message_exits_cleanly() {
+    let dir = tmp("subagent_empty");
+    let json = r#"{"tool_name":"SubagentStop","agent_id":"xyz","last_assistant_message":""}"#;
+    assert_eq!(run_with_dir("SubagentStop", json, &dir), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}

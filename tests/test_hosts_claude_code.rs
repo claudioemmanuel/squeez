@@ -162,3 +162,68 @@ fn claude_code_install_upgrades_old_bash_only_matcher_in_place() {
         );
     });
 }
+
+#[test]
+fn claude_code_install_registers_subagent_stop_precompact_postcompact() {
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez"))
+            .expect("install should succeed");
+
+        let body = std::fs::read_to_string(home.join(".claude/settings.json")).unwrap();
+        assert!(body.contains("SubagentStop"), "SubagentStop missing from settings.json:\n{body}");
+        assert!(body.contains("PreCompact"),   "PreCompact missing from settings.json:\n{body}");
+        assert!(body.contains("PostCompact"),  "PostCompact missing from settings.json:\n{body}");
+        assert!(body.contains("subagent-stop.sh"), "subagent-stop.sh cmd missing:\n{body}");
+        assert!(body.contains("precompact.sh"),    "precompact.sh cmd missing:\n{body}");
+        assert!(body.contains("postcompact.sh"),   "postcompact.sh cmd missing:\n{body}");
+    });
+}
+
+#[test]
+fn claude_code_uninstall_removes_subagent_stop_precompact_postcompact() {
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+        a.uninstall().expect("uninstall should succeed");
+
+        let settings_path = home.join(".claude/settings.json");
+        if settings_path.exists() {
+            let body = std::fs::read_to_string(&settings_path).unwrap();
+            assert!(!body.contains("subagent-stop.sh"), "subagent-stop.sh left after uninstall:\n{body}");
+            assert!(!body.contains("precompact.sh"),    "precompact.sh left after uninstall:\n{body}");
+            assert!(!body.contains("postcompact.sh"),   "postcompact.sh left after uninstall:\n{body}");
+        }
+    });
+}
+
+#[test]
+fn claude_code_install_is_idempotent_for_new_hooks() {
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+
+        let body = std::fs::read_to_string(home.join(".claude/settings.json")).unwrap();
+        // Each new hook should appear exactly once
+        for script in &["subagent-stop.sh", "precompact.sh", "postcompact.sh"] {
+            let count = body.matches(script).count();
+            assert_eq!(count, 1, "{script} appears {count}× after double install (want 1):\n{body}");
+        }
+    });
+}
