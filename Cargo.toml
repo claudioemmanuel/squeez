@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "bench_i18n"
-path = "benches/bench_i18n.rs"
+path = "bench/bench_i18n.rs"
 
 [lib]
 name = "squeez"
