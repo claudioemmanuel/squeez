@@ -22,6 +22,8 @@ const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/pretooluse.sh");
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/session-start.sh");
 const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/posttooluse.sh");
 const SUBAGENT_STOP_SCRIPT: &str = include_str!("../../hooks/subagent-stop.sh");
+const PRECOMPACT_SCRIPT: &str = include_str!("../../hooks/precompact.sh");
+const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
 const STATUSLINE_SCRIPT: &str = include_str!("../../hooks/statusline.sh");
 
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
@@ -113,6 +115,18 @@ if not has_squeez(settings["SubagentStop"]):
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "subagent-stop.sh")}],
     })
 
+ensure_list("PreCompact")
+if not has_squeez(settings["PreCompact"]):
+    settings["PreCompact"].append({
+        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "precompact.sh")}],
+    })
+
+ensure_list("PostCompact")
+if not has_squeez(settings["PostCompact"]):
+    settings["PostCompact"].append({
+        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "postcompact.sh")}],
+    })
+
 existing_status = settings.get("statusLine")
 existing_cmd = existing_status.get("command", "") if isinstance(existing_status, dict) else ""
 squeez_cmd = "bash " + statusline_bin
@@ -156,7 +170,7 @@ except Exception as e:
 if not isinstance(settings, dict):
     sys.exit(0)
 
-for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop"):
+for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact"):
     arr = settings.get(event)
     if isinstance(arr, list):
         settings[event] = [
@@ -263,6 +277,8 @@ impl HostAdapter for ClaudeCodeAdapter {
         write_hook(&hooks, "session-start.sh", SESSION_START_SCRIPT)?;
         write_hook(&hooks, "posttooluse.sh", POSTTOOLUSE_SCRIPT)?;
         write_hook(&hooks, "subagent-stop.sh", SUBAGENT_STOP_SCRIPT)?;
+        write_hook(&hooks, "precompact.sh", PRECOMPACT_SCRIPT)?;
+        write_hook(&hooks, "postcompact.sh", POSTCOMPACT_SCRIPT)?;
         write_hook(&bin, "statusline.sh", STATUSLINE_SCRIPT)?;
 
         run_python(
