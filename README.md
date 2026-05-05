@@ -59,7 +59,7 @@ Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. 
 | **Copilot CLI** | `~/.copilot/copilot-instructions.md` | ✅ native | ✅ native | ✅ native | Restart Copilot CLI after setup |
 | **OpenCode** | `~/.config/opencode/AGENTS.md` | ✅ native | ✅ native | ✅ native | Plugin at `~/.config/opencode/plugins/squeez.js`; MCP tool calls skip hooks (upstream sst/opencode#2319) |
 | **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
-| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | Codex `PreToolUse` is Bash-only until upstream expands ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
+| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | `apply_patch` hooks landed in 0.123.0 ([#18391](https://github.com/openai/codex/pull/18391)); `updatedInput` + `read_file`/`grep` hook surface still pending ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
 
 ### Manage
 
@@ -132,7 +132,7 @@ squeez optimizes what it can reach — the surfaces exposed by each host's hook 
 
 **User's top-level prompt.** squeez runs per tool call, not on user turns.
 
-**Tools whose host doesn't expose PreToolUse / BeforeTool.** E.g. Codex `PreToolUse` today only fires on Bash (tracked upstream at [openai/codex#18491](https://github.com/openai/codex/issues/18491)), so Read/Grep caps for Codex are soft hints in AGENTS.md, not hard injections.
+**Tools whose host doesn't expose PreToolUse / BeforeTool.** E.g. Codex `apply_patch` hooks landed in 0.123.0, but `updatedInput` is explicitly unsupported and `read_file`/`grep` still have no hook surface ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) — so Read/Grep caps for Codex are soft hints in AGENTS.md, not hard injections.
 
 ### Secondary wins (not compression, but token-saving)
 

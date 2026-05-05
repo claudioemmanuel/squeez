@@ -7,12 +7,16 @@
 //!
 //! Capability ceiling: `BASH_WRAP | SESSION_MEM | BUDGET_SOFT`.
 //!
-//! `PreToolUse` fires on Bash only (no Read/Grep/apply_patch hook surface),
-//! and `updatedInput` is parsed-but-unimplemented in Codex as of
-//! 2026-04-18 — tracked in openai/codex#18491 (plus background in discussion
-//! #2150). Until upstream
-//! expands the surface, Read/Grep enforcement ships as **soft** via a
-//! prose hint in the AGENTS.md block written by `inject_memory`.
+//! Partial hook surface as of Codex 0.123.0 (2026-04-23):
+//! - `apply_patch` now emits `PreToolUse`/`PostToolUse` (PR openai/codex#18391)
+//! - `read_file` and `grep` still have no hook surface
+//! - `updatedInput` in `PreToolUse` responses is explicitly rejected by the
+//!   Codex runtime (`output_parser.rs`: "PreToolUse hook returned unsupported
+//!   updatedInput") — tracked in openai/codex#18491
+//!
+//! Until `updatedInput` + `read_file`/`grep` hooks land upstream,
+//! Read/Grep budget enforcement ships as **soft** via a prose hint in the
+//! AGENTS.md block written by `inject_memory`.
 //!
 //! JSON patching of `hooks.json` uses a python3 subprocess, consistent
 //! with every other adapter in this crate.
@@ -262,8 +266,9 @@ impl HostAdapter for CodexCliAdapter {
         if summaries.is_empty() {
             block.push_str("- No prior sessions recorded yet.\n");
         }
-        // Soft budget hint — Codex PreToolUse fires on Bash only (upstream
-        // openai/codex#2150), so we nudge the model via AGENTS.md prose.
+        // Soft budget hint — updatedInput is explicitly unsupported in Codex
+        // and read_file/grep have no hook surface (openai/codex#18491), so we
+        // nudge the model via AGENTS.md prose.
         block.push_str(&format!(
             "\n## Tool-output budget (soft enforcement)\nWhen using read_file / grep, cap output to ~{} lines unless the user explicitly asks for more.\nWhen using apply_patch on large files, target minimal diffs instead of rewriting whole files.\n",
             cfg.read_max_lines
