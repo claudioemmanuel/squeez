@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# squeez PostToolUse hook — tracks token usage per tool call
+# squeez PostToolUse hook — tracks token usage and rewrites tool output when
+# content is redundant or oversized (Claude Code v2.1.119+ updatedToolOutput).
+# Bash compression is handled at PreToolUse via `squeez wrap`; this hook covers
+# Read / Grep / Glob whose output bypasses the wrap mechanism.
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
@@ -36,6 +39,15 @@ except Exception:
 
 "$SQUEEZ" track "$tool" "$size" 2>/dev/null || true
 
-# Also feed the raw JSON to track-result so non-Bash tool outputs
-# (Read, Grep, LS, Glob) update SessionContext for cross-call dedup.
+# Feed to track-result so Read/Grep/Glob update SessionContext (files, errors).
 printf '%s' "$input" | "$SQUEEZ" track-result "$tool" 2>/dev/null || true
+
+# For Read/Grep/Glob: attempt output rewrite via updatedToolOutput.
+# compress-output prints hookSpecificOutput JSON if content is redundant or
+# oversized; prints nothing if the original should be kept as-is.
+if [ "$tool" = "Read" ] || [ "$tool" = "Grep" ] || [ "$tool" = "Glob" ]; then
+    rewrite=$(printf '%s' "$input" | "$SQUEEZ" compress-output "$tool" 2>/dev/null || true)
+    if [ -n "$rewrite" ]; then
+        printf '%s\n' "$rewrite"
+    fi
+fi

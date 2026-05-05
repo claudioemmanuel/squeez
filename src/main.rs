@@ -66,6 +66,10 @@ fn main() {
             let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
             std::process::exit(squeez::commands::track_result::run(tool));
         }
+        Some("compress-output") => {
+            let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
+            std::process::exit(squeez::commands::compress_output::run(tool));
+        }
         Some("mcp") => {
             // JSON-RPC 2.0 server over stdin/stdout, exposing read-only access
             // to session memory + the protocol payload. See `commands/mcp_server.rs`.

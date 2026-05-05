@@ -1,9 +1,7 @@
-// PostToolUse hook reads the JSON tool result from stdin and pipes it
-// to `squeez track-result <tool>`. We extract artifacts (file paths,
-// errors) and feed them into the SessionContext so future Bash calls
-// can dedup against already-seen state. We do NOT (and cannot) rewrite
-// the model's view of the result — Claude Code's PostToolUse only allows
-// observation. The win is cross-tool dedup in subsequent calls.
+// PostToolUse observer — extracts artifacts (file paths, errors) and feeds
+// them into SessionContext so future calls can dedup against already-seen
+// state. Output rewriting (updatedToolOutput) is handled by compress_output.rs,
+// which runs as a separate step in posttooluse.sh for Read/Grep/Glob.
 
 use std::io::Read;
 use std::path::Path;
