@@ -21,6 +21,7 @@ use super::{memory_size, HostAdapter, HostCaps};
 const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/pretooluse.sh");
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/session-start.sh");
 const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/posttooluse.sh");
+const SUBAGENT_STOP_SCRIPT: &str = include_str!("../../hooks/subagent-stop.sh");
 const STATUSLINE_SCRIPT: &str = include_str!("../../hooks/statusline.sh");
 
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
@@ -106,6 +107,12 @@ if not has_squeez(settings["PostToolUse"]):
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "posttooluse.sh")}],
     })
 
+ensure_list("SubagentStop")
+if not has_squeez(settings["SubagentStop"]):
+    settings["SubagentStop"].append({
+        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "subagent-stop.sh")}],
+    })
+
 existing_status = settings.get("statusLine")
 existing_cmd = existing_status.get("command", "") if isinstance(existing_status, dict) else ""
 squeez_cmd = "bash " + statusline_bin
@@ -149,7 +156,7 @@ except Exception as e:
 if not isinstance(settings, dict):
     sys.exit(0)
 
-for event in ("PreToolUse", "SessionStart", "PostToolUse"):
+for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop"):
     arr = settings.get(event)
     if isinstance(arr, list):
         settings[event] = [
@@ -255,6 +262,7 @@ impl HostAdapter for ClaudeCodeAdapter {
         write_hook(&hooks, "pretooluse.sh", PRETOOLUSE_SCRIPT)?;
         write_hook(&hooks, "session-start.sh", SESSION_START_SCRIPT)?;
         write_hook(&hooks, "posttooluse.sh", POSTTOOLUSE_SCRIPT)?;
+        write_hook(&hooks, "subagent-stop.sh", SUBAGENT_STOP_SCRIPT)?;
         write_hook(&bin, "statusline.sh", STATUSLINE_SCRIPT)?;
 
         run_python(

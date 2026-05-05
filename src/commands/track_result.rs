@@ -30,7 +30,11 @@ pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
     let file_path = extract_string_field(raw, "file_path");
     let pattern = extract_string_field(raw, "pattern");
     let path_arg = extract_string_field(raw, "path");
-    let content = extract_content(raw);
+    // SubagentStop wraps last_assistant_message as tool_result.content in the
+    // hook script, so extract_content() already handles it. For direct calls
+    // (e.g. tests) also check last_assistant_message at the top level.
+    let content = extract_content(raw)
+        .or_else(|| extract_string_field(raw, "last_assistant_message").map(|s| unescape(&s)));
 
     let mut ctx = SessionContext::load(sessions_dir);
 
