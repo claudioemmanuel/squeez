@@ -14,4 +14,6 @@ if [ ! -x "$SQUEEZ" ]; then
 fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
-"$SQUEEZ" track PreCompact 0 2>/dev/null || true
+input=$(cat)
+ctx_bytes=${#input}
+"$SQUEEZ" track PreCompact "$ctx_bytes" 2>/dev/null || true

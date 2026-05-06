@@ -937,6 +937,77 @@ fn make_large_claude_md() -> String {
     out
 }
 
+/// Minified SSR HTML page simulating `curl http://localhost:3000 | head -50`.
+/// Tests HTML-aware tag-stripping in NetworkHandler — 50 dense lines of HTML
+/// should compress to ≤30 lines of extracted text.
+fn make_curl_html_response() -> String {
+    let mut out = String::new();
+    out.push_str("<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/>");
+    out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>");
+    out.push_str("<title>Band World Cup</title>");
+    for i in 0..8 {
+        out.push_str(&format!(
+            "<link rel=\"stylesheet\" href=\"/_next/static/css/chunk-{}.css\"/>",
+            i
+        ));
+    }
+    out.push_str("</head><body><div id=\"__next\"><main class=\"min-h-screen\">");
+    for i in 0..30 {
+        out.push_str(&format!(
+            "<div class=\"section-{} container mx-auto px-4 py-8\"><h2 class=\"text-2xl font-bold\">Section {}</h2><p class=\"text-gray-600\">Content for section {} with nested markup and many attributes.</p><button class=\"btn btn-primary\" data-id=\"{}\">Action {}</button></div>",
+            i, i, i, i, i
+        ));
+    }
+    out.push_str("</main></div>");
+    for i in 0..5 {
+        out.push_str(&format!(
+            "<script src=\"/_next/static/chunks/chunk-{}.js\" defer></script>",
+            i
+        ));
+    }
+    out.push_str("</body></html>\n");
+    out
+}
+
+/// Explore-agent style markdown directory listing — simulates the 14.6 KB
+/// uncompressed agent output found in the session analysis.
+fn make_agent_directory_output() -> String {
+    let mut out = String::with_capacity(16_000);
+    out.push_str("Perfect! Now I have a comprehensive view. Let me create a well-organized summary.\n\n");
+    out.push_str("## Full Directory Structure Map\n\n");
+    let dirs = [
+        "app", "components", "lib", "hooks", "types", "utils",
+        "public", "styles", "config", "tests", "prisma", "scripts",
+    ];
+    for dir in &dirs {
+        out.push_str(&format!("### {}/\n\n", dir));
+        for j in 0..15 {
+            let ext = ["ts", "tsx", "json", "css", "md"][j % 5];
+            out.push_str(&format!(
+                "- `{}/module_{}.{}` — handles {} logic for the {} subsystem\n",
+                dir, j, ext, j, dir
+            ));
+        }
+        out.push('\n');
+    }
+    out.push_str("## Infrastructure Files\n\n");
+    for f in &[
+        "next.config.ts", "tsconfig.json", "package.json",
+        "tailwind.config.ts", "prisma/schema.prisma",
+        "docker-compose.yml", ".env.example", "Dockerfile",
+    ] {
+        out.push_str(&format!("- `{}` — project configuration\n", f));
+    }
+    out.push_str("\n## Key Dependencies\n\n");
+    for dep in &["next@16", "react@19", "prisma@6", "tailwindcss@4", "zod@3"] {
+        out.push_str(&format!("- `{}` — core runtime dependency\n", dep));
+    }
+    out.push_str("\n## Summary\n\n");
+    out.push_str("The project is a Next.js 16 application with 12 top-level directories, ");
+    out.push_str("180+ source files, and a Prisma-backed PostgreSQL database.\n");
+    out
+}
+
 // ─── Scenario construction ────────────────────────────────────────────────────
 
 fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
@@ -1052,6 +1123,26 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         content: make_jest_failures(),
         required_keywords: vec!["FAIL".to_string(), "failed".to_string()],
         quality_mode: QualityMode::Signal,
+    });
+    // curl HTML response: minified SSR page — validates NetworkHandler HTML stripping.
+    // Quality: Keywords only (tags are stripped; no surviving HTML terms expected).
+    s.push(Scenario {
+        name: "curl_html_response".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "curl http://localhost:3000".to_string() },
+        content: make_curl_html_response(),
+        required_keywords: vec!["Section".to_string()],
+        quality_mode: QualityMode::Keywords,
+    });
+    // agent_directory_output: Explore-agent markdown summary — validates that
+    // large agent tool results get compressed by the generic summarize pipeline.
+    s.push(Scenario {
+        name: "agent_directory_output".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "bash".to_string() },
+        content: make_agent_directory_output(),
+        required_keywords: vec!["app".to_string()],
+        quality_mode: QualityMode::Keywords,
     });
 
     // ── Markdown / context scenarios ──────────────────────────────────────────
