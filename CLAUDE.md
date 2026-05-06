@@ -19,6 +19,20 @@ bash bench/run_context.sh         # Context engine benchmarks
 
 No Makefile — all build tooling is Cargo-native.
 
+## Contributing
+
+Every commit must carry a DCO sign-off — CI enforces this via the `check-signoff` job:
+
+```bash
+git commit -s -m "feat(scope): description"
+```
+
+Or append manually to the commit body:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
 ## Architecture
 
 **squeez** is hook-based bash output compressor for five CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI. It intercepts every tool invocation via host-specific hooks and runs output through 4-stage compression pipeline before model sees it. Claude Code hooks: PreToolUse → wrap/budget/prompt-compress, SessionStart → init, PostToolUse → track-result + updatedToolOutput rewrite (Read/Grep/Glob/Monitor), SubagentStop → feed sub-agent output into SessionContext, PreCompact → log event, PostCompact → re-arm reminder.
