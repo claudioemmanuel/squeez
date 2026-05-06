@@ -16,59 +16,63 @@ fi
 saved_tokens=0
 total_calls=0
 if command -v python3 &>/dev/null; then
-    read -r saved_tokens total_calls < <(python3 - <<'PYEOF'
-import json, sys
-try:
-    with open("'"$SESSION_FILE"'") as f:
-        d = json.load(f)
-    saved = d.get("tokens_saved", 0)
-    calls = d.get("total_calls", 0)
-    print(saved, calls)
-except Exception:
-    print(0, 0)
-PYEOF
-)
-fi
-
-# Read agent_spawns from context.json
-agent_spawns=0
-if [[ -f "$CONTEXT_FILE" ]] && command -v python3 &>/dev/null; then
-    agent_spawns=$(python3 - <<'PYEOF'
+    read -r saved_tokens total_calls < <(python3 -c "
 import json
 try:
-    with open("'"$CONTEXT_FILE"'") as f:
+    with open('$SESSION_FILE') as f:
         d = json.load(f)
-    print(d.get("agent_spawns", 0))
+    print(d.get('tokens_saved', 0), d.get('total_calls', 0))
 except Exception:
-    print(0)
-PYEOF
-)
+    print(0, 0)
+")
+fi
+
+# Read agent_spawns and total_in from context.json
+agent_spawns=0
+total_in=0
+if [[ -f "$CONTEXT_FILE" ]] && command -v python3 &>/dev/null; then
+    read -r agent_spawns total_in < <(python3 -c "
+import json
+try:
+    with open('$CONTEXT_FILE') as f:
+        d = json.load(f)
+    spawns = d.get('agent_spawns', 0)
+    tin = (d.get('tokens_bash', 0) + d.get('tokens_read', 0)
+           + d.get('tokens_grep', 0) + d.get('tokens_other', 0))
+    print(spawns, tin)
+except Exception:
+    print(0, 0)
+")
 fi
 
 # Read efficiency_overall_bp from last line of summaries.jsonl
 efficiency_bp=""
 if [[ -f "$SUMMARIES_FILE" ]] && command -v python3 &>/dev/null; then
-    efficiency_bp=$(python3 - <<'PYEOF'
+    efficiency_bp=$(python3 -c "
 import json
 try:
-    with open("'"$SUMMARIES_FILE"'") as f:
+    with open('$SUMMARIES_FILE') as f:
         lines = f.readlines()
     if lines:
         last = json.loads(lines[-1].strip())
-        val = last.get("efficiency_overall_bp")
+        val = last.get('efficiency_overall_bp')
         if val is not None:
             print(val)
 except Exception:
     pass
-PYEOF
-)
+")
 fi
 
 # Build output line
 parts=("squeez")
 
 if [[ "$saved_tokens" -gt 0 ]]; then
-    parts+=("| -${saved_tokens}tk")
+    if [[ "$total_in" -gt 0 ]]; then
+        ratio=$(python3 -c "print(f'{$saved_tokens*100/$total_in:.0f}')" 2>/dev/null || echo "")
+        parts+=("| -${saved_tokens}tk ${ratio}%")
+    else
+        parts+=("| -${saved_tokens}tk")
+    fi
 fi
 
 if [[ "$total_calls" -gt 0 ]]; then
