@@ -30,7 +30,7 @@ git commit -s -m "feat(scope): description"
 Or append manually to the commit body:
 
 ```
-Signed-off-by: claudioemmanuel <42774167+claudioemmanuel@users.noreply.github.com>
+Signed-off-by: Your Name <you@example.com>
 ```
 
 ## Architecture
