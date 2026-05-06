@@ -216,6 +216,84 @@ fn make_kubectl_pods() -> String {
     out
 }
 
+fn make_pytest_failures() -> String {
+    let mut out = String::new();
+    out.push_str("============================= test session starts ==============================\n");
+    out.push_str("platform linux -- Python 3.11.8, pytest-7.4.3, pluggy-1.3.0\n");
+    out.push_str("rootdir: /home/user/project\n");
+    out.push_str("configfile: pyproject.toml\n");
+    out.push_str("collected 312 items\n\n");
+    for i in 0..280 {
+        let module = ["auth", "billing", "search", "notify", "storage"][i % 5];
+        out.push_str(&format!("tests/test_{}.py::test_case_{} PASSED\n", module, i));
+    }
+    out.push_str("\ntests/test_auth.py::test_token_expiry FAILED\n");
+    out.push_str("tests/test_billing.py::test_refund_idempotency FAILED\n");
+    out.push_str("tests/test_search.py::test_unicode_query FAILED\n");
+    out.push_str("\n================================= FAILURES =================================\n");
+    out.push_str("___________________________ test_token_expiry ___________________________\n\n");
+    out.push_str("    def test_token_expiry():\n");
+    out.push_str(">       assert verify_token(expired_token) is False\n");
+    out.push_str("E       AssertionError: assert True is False\n");
+    out.push_str("E       JWT library returned True for expired token (clock skew?)\n\n");
+    out.push_str("tests/test_auth.py:88: AssertionError\n");
+    out.push_str("________________________ test_refund_idempotency ________________________\n\n");
+    out.push_str("    def test_refund_idempotency():\n");
+    out.push_str(">       assert refund(order_id) == refund(order_id)\n");
+    out.push_str("E       AssertionError: Duplicate refund created: second call returned new charge_id\n\n");
+    out.push_str("tests/test_billing.py:142: AssertionError\n");
+    out.push_str("__________________________ test_unicode_query ___________________________\n\n");
+    out.push_str("    def test_unicode_query():\n");
+    out.push_str(">       results = search(query=\"日本語\")\n");
+    out.push_str("E       UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe6 in position 0\n\n");
+    out.push_str("tests/test_search.py:67: UnicodeDecodeError\n");
+    out.push_str("=========================== short test summary info ============================\n");
+    out.push_str("FAILED tests/test_auth.py::test_token_expiry - AssertionError\n");
+    out.push_str("FAILED tests/test_billing.py::test_refund_idempotency - AssertionError\n");
+    out.push_str("FAILED tests/test_search.py::test_unicode_query - UnicodeDecodeError\n");
+    out.push_str("========================= 3 failed, 280 passed in 14.32s =========================\n");
+    out
+}
+
+fn make_jest_failures() -> String {
+    let mut out = String::new();
+    out.push_str(" PASS  src/components/Button.test.tsx\n");
+    out.push_str(" PASS  src/components/Modal.test.tsx\n");
+    out.push_str(" PASS  src/hooks/useAuth.test.ts\n");
+    for i in 0..18 {
+        let comp = ["Card", "Form", "Table", "Nav", "Footer", "Header",
+                    "Input", "Select", "Checkbox", "Radio", "Badge",
+                    "Alert", "Toast", "Tooltip", "Drawer", "Tabs", "Avatar", "Spinner"][i % 18];
+        out.push_str(&format!(" PASS  src/components/{}.test.tsx\n", comp));
+    }
+    out.push_str(" FAIL  src/api/client.test.ts\n");
+    out.push_str(" FAIL  src/utils/format.test.ts\n");
+    out.push_str("\n  ● API client › should retry on 503\n\n");
+    out.push_str("    expect(received).toHaveBeenCalledTimes(expected)\n\n");
+    out.push_str("    Expected number of calls: 3\n");
+    out.push_str("    Received number of calls: 1\n\n");
+    out.push_str("      45 |   it('should retry on 503', async () => {\n");
+    out.push_str("      46 |     mockFetch.mockResolvedValueOnce({ status: 503 });\n");
+    out.push_str("    > 47 |     expect(client.get).toHaveBeenCalledTimes(3);\n");
+    out.push_str("         |                        ^\n");
+    out.push_str("      48 |   });\n\n");
+    out.push_str("      at src/api/client.test.ts:47:24\n\n");
+    out.push_str("  ● format utils › formatCurrency should handle negative values\n\n");
+    out.push_str("    expect(received).toBe(expected)\n\n");
+    out.push_str("    Expected: \"-$12.34\"\n");
+    out.push_str("    Received: \"$-12.34\"\n\n");
+    out.push_str("      23 |   it('formatCurrency should handle negative values', () => {\n");
+    out.push_str("    > 24 |     expect(formatCurrency(-12.34)).toBe('-$12.34');\n");
+    out.push_str("         |                                  ^\n\n");
+    out.push_str("      at src/utils/format.test.ts:24:34\n\n");
+    out.push_str("Test Suites: 2 failed, 21 passed, 23 total\n");
+    out.push_str("Tests:       2 failed, 147 passed, 149 total\n");
+    out.push_str("Snapshots:   0 total\n");
+    out.push_str("Time:        8.451 s\n");
+    out.push_str("Ran all test suites.\n");
+    out
+}
+
 fn make_agent_heavy() -> String {
     let mut out = String::new();
     // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
@@ -947,6 +1025,32 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         kind: ScenarioKind::Filter { hint: "kubectl get pods".to_string() },
         content: make_kubectl_pods(),
         required_keywords: vec!["Running".to_string(), "NAME".to_string()],
+        quality_mode: QualityMode::Signal,
+    });
+    if let Some(content) = load("xcodebuild_build.txt") {
+        s.push(Scenario {
+            name: "xcode_build".to_string(),
+            category: "bash_output".to_string(),
+            kind: ScenarioKind::Filter { hint: "xcodebuild".to_string() },
+            content,
+            required_keywords: vec![],
+            quality_mode: QualityMode::Keywords,
+        });
+    }
+    s.push(Scenario {
+        name: "pytest_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "pytest".to_string() },
+        content: make_pytest_failures(),
+        required_keywords: vec!["FAILED".to_string(), "failed".to_string()],
+        quality_mode: QualityMode::Signal,
+    });
+    s.push(Scenario {
+        name: "jest_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "jest".to_string() },
+        content: make_jest_failures(),
+        required_keywords: vec!["FAIL".to_string(), "failed".to_string()],
         quality_mode: QualityMode::Signal,
     });
 
