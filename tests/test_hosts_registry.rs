@@ -1,9 +1,9 @@
 use squeez::hosts::{all_hosts, find, HostCaps};
 
 #[test]
-fn registry_contains_five_adapters() {
+fn registry_contains_six_adapters() {
     let hosts = all_hosts();
-    assert_eq!(hosts.len(), 5, "expected 5 host adapters");
+    assert_eq!(hosts.len(), 6, "expected 6 host adapters");
 }
 
 #[test]
@@ -25,8 +25,8 @@ fn all_hosts_expose_bash_wrap_and_session_mem() {
 }
 
 #[test]
-fn claude_copilot_opencode_expose_budget_hard() {
-    for name in &["claude-code", "copilot", "opencode"] {
+fn claude_copilot_opencode_pi_expose_budget_hard() {
+    for name in &["claude-code", "copilot", "opencode", "pi"] {
         let a = find(name).expect(name);
         assert!(
             a.capabilities().contains(HostCaps::BUDGET_HARD),
@@ -50,7 +50,7 @@ fn gemini_and_codex_expose_budget_soft() {
 
 #[test]
 fn find_known_slugs() {
-    for slug in &["claude-code", "copilot", "opencode", "gemini", "codex"] {
+    for slug in &["claude-code", "copilot", "opencode", "gemini", "codex", "pi"] {
         assert!(find(slug).is_some(), "find({}) returned None", slug);
     }
 }
