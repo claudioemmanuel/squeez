@@ -16,11 +16,13 @@ pub mod copilot;
 pub mod gemini;
 pub mod memory_size;
 pub mod opencode;
+pub mod pi;
 pub use claude_code::ClaudeCodeAdapter;
 pub use codex::CodexCliAdapter;
 pub use copilot::CopilotCliAdapter;
 pub use gemini::GeminiCliAdapter;
 pub use opencode::OpenCodeAdapter;
+pub use pi::PiAdapter;
 
 use std::path::{Path, PathBuf};
 
@@ -95,6 +97,7 @@ pub fn all_hosts() -> Vec<Box<dyn HostAdapter>> {
         Box::new(OpenCodeAdapter),
         Box::new(GeminiCliAdapter),
         Box::new(CodexCliAdapter),
+        Box::new(PiAdapter),
     ]
 }
 

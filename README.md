@@ -60,6 +60,7 @@ Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. 
 | **OpenCode** | `~/.config/opencode/AGENTS.md` | ✅ native | ✅ native | ✅ native | Plugin at `~/.config/opencode/plugins/squeez.js`; MCP tool calls skip hooks (upstream sst/opencode#2319) |
 | **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
 | **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | `apply_patch` hooks landed in 0.123.0 ([#18391](https://github.com/openai/codex/pull/18391)); `updatedInput` + `read_file`/`grep` hook surface still pending ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
+| **Pi** | `~/.pi/agent/skills/squeez/SKILL.md` | ✅ native | ✅ via skill | ✅ native | TypeScript extension at `~/.pi/agent/extensions/squeez/index.ts`; restart Pi after setup |
 
 ### Manage
 
@@ -70,7 +71,7 @@ squeez uninstall              # remove squeez entries from every detected host
 squeez uninstall --host=<slug>
 ```
 
-Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex`.
+Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex` / `pi`.
 
 After install, restart the CLI you use to pick up the new hooks.
 
@@ -491,6 +492,10 @@ Refresh memory manually:
 SQUEEZ_DIR=~/.copilot/squeez ~/.claude/squeez/bin/squeez init --copilot
 ```
 
+### Pi
+
+TypeScript extension installed at `~/.pi/agent/extensions/squeez/index.ts`. Pi auto-discovers extensions from that directory — no settings patching needed. Session memory is injected via a skill at `~/.pi/agent/skills/squeez/SKILL.md`; Pi includes the skill description in every system prompt and loads full instructions on demand. Unlike other hosts, Pi achieves `BUDGET_HARD` output compression via the `tool_result` event (return-patch API), not just soft hints.
+
 ---
 
 ## Local development
@@ -527,6 +532,12 @@ gh pr create --base main --title "Short title" --body "Description"
 CI runs `cargo test`, `bench/run.sh`, `bench/run_context.sh`, and `squeez benchmark` on every push and pull request.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards.
+
+---
+
+## Similar projects
+
+There is an unrelated project with the same name at [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez). This project (claudioemmanuel/squeez) is a hook-based token compressor for AI coding CLIs.
 
 ---
 
