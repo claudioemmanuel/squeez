@@ -69,6 +69,15 @@ fn opencode_install_drops_plugin_file() {
         assert!(body.contains("tool.execute.before"));
         assert!(body.contains("tool.execute.after"));
         assert!(body.contains("session.created"));
+        // The bash-rewrite path MUST single-quote the command before
+        // prepending `squeez wrap`, otherwise multi-line `python3 -c`,
+        // `bash -c`, and quoted `git commit -m "..."` are split into
+        // separate argv tokens by the host shell and break.
+        assert!(
+            body.contains("command.replace(/'/g"),
+            "plugin must shell-quote the command before wrapping; \
+             raw template-literal concat splits multi-line / quoted args"
+        );
     });
 }
 

@@ -99,7 +99,14 @@ export default {
           if (command.startsWith(SQUEEZ_BIN)) return;
           if (command.includes("squeez wrap")) return;
           if (command.startsWith("--no-squeez")) return;
-          output.args.command = `${SQUEEZ_BIN} wrap ${command}`;
+          // Shell-quote the command before prepending `squeez wrap`. Without
+          // this, multi-line `python3 -c "..."`, `bash -c '...'`, and quoted
+          // `git commit -m "msg with spaces"` are split into separate argv
+          // tokens by the host shell and end up with `-c` getting no argument,
+          // pathspec errors on commit messages, etc. Matches what the
+          // claude-code Python hook does with `shlex.quote(cmd)`.
+          const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
+          output.args.command = `${SQUEEZ_BIN} wrap ${quoted}`;
           return;
         }
 
