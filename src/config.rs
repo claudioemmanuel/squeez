@@ -68,6 +68,23 @@ pub struct Config {
     /// Pass through all output uncompressed when SQUEEZ_PLAN_MODE=1 env var is set.
     /// Default: true. Set to false to compress even in plan mode.
     pub plan_mode_passthrough: bool,
+    // ── Auto-curation nudges (item 1) ────────────────────────────────────────
+    /// Emit `[squeez: hint ...]` markers when recurring patterns are detected.
+    /// Default: true.
+    pub nudge_enabled: bool,
+    /// Recurrence count at which a repeated error fingerprint triggers a nudge.
+    /// Default: 3.
+    pub nudge_error_threshold: u32,
+    /// Modification count at which a repeatedly-edited file triggers a nudge.
+    /// Default: 5.
+    pub nudge_file_mod_threshold: u32,
+    /// Repeat count at which an expensive command triggers a nudge.
+    /// Default: 4.
+    pub nudge_cmd_repeat_threshold: u32,
+    // ── Continuous handler calibration (item 2) ──────────────────────────────
+    /// Accumulate per-handler in/out token counts in handler_stats.json so
+    /// `squeez_handler_stats` can surface under/over-performers. Default: true.
+    pub handler_stats_enabled: bool,
 }
 
 impl Default for Config {
@@ -114,6 +131,11 @@ impl Default for Config {
             summary_format: "auto".to_string(),
             agent_prompt_max_tokens: 2000,
             plan_mode_passthrough: true,
+            nudge_enabled: true,
+            nudge_error_threshold: 3,
+            nudge_file_mod_threshold: 5,
+            nudge_cmd_repeat_threshold: 4,
+            handler_stats_enabled: true,
         }
     }
 }
@@ -222,6 +244,20 @@ impl Config {
                             v.parse().unwrap_or(c.agent_prompt_max_tokens)
                     }
                     "plan_mode_passthrough" => c.plan_mode_passthrough = v == "true",
+                    "nudge_enabled" => c.nudge_enabled = v == "true",
+                    "nudge_error_threshold" => {
+                        c.nudge_error_threshold =
+                            v.parse().unwrap_or(c.nudge_error_threshold)
+                    }
+                    "nudge_file_mod_threshold" => {
+                        c.nudge_file_mod_threshold =
+                            v.parse().unwrap_or(c.nudge_file_mod_threshold)
+                    }
+                    "nudge_cmd_repeat_threshold" => {
+                        c.nudge_cmd_repeat_threshold =
+                            v.parse().unwrap_or(c.nudge_cmd_repeat_threshold)
+                    }
+                    "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
                     _ => {}
                 }
             }

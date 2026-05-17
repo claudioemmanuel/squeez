@@ -371,6 +371,15 @@ burn_rate_warn_calls      = 20    # warn when < 20 calls remaining
 agent_spawn_cost          = 200000 # estimated tokens per Agent/Task spawn
 read_max_lines            = 0     # max lines injected into Read tool_input (0 = off)
 grep_max_results          = 0     # max results injected into Grep tool_input (0 = off)
+
+# ── Auto-curation nudges ──────────────────────────────────────
+nudge_enabled              = true   # emit [squeez: hint ...] markers on recurring patterns
+nudge_error_threshold      = 3      # fingerprint repeats before a nudge fires
+nudge_file_mod_threshold   = 5      # writes/creates to same path before nudge fires
+nudge_cmd_repeat_threshold = 4      # expensive-command repeats before nudge fires
+
+# ── Continuous handler calibration ────────────────────────────
+handler_stats_enabled      = true   # accumulate per-handler savings across sessions
 ```
 
 ### Adaptive intensity — Full / Ultra split

@@ -265,7 +265,23 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.note_tool_tokens("Bash", input_tokens as u64);
         // Token economy: record burn rate
         ctx.note_burn(output_tokens as u64);
+
+        // ── Auto-curation nudges (item 1) ──────────────────────────────
+        let nudges = crate::economy::nudge::evaluate(
+            &mut ctx, cmd_str, &files, access, &errors, &config,
+        );
+        for n in &nudges {
+            println!("{}", n);
+        }
+
         ctx.save(&sessions_dir_pp);
+    }
+
+    // ── Continuous handler calibration (item 2) ────────────────────────
+    if config.handler_stats_enabled {
+        let mut stats = crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp);
+        stats.record(cmd_name, input_tokens as u64, output_tokens as u64);
+        stats.save(&sessions_dir_pp);
     }
 
     exit_code
