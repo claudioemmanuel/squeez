@@ -142,6 +142,21 @@ pub struct SessionContext {
     pub agent_estimated_tokens: u64,
     pub agent_spawn_log: Vec<AgentSpawnEntry>,
     pub burn_window: Vec<BurnEntry>,
+    // ── Nudges (auto-curation, item 1) ─────────────────────────────────
+    /// Per-session recurrence counters keyed by error fingerprint.
+    /// Parallel to `error_count_n`; persisted across sub-process invocations
+    /// within the same session via context.json.
+    pub error_count_fp: Vec<u64>,
+    pub error_count_n: Vec<u32>,
+    /// Per-session write/create counts for file paths (parallel arrays).
+    pub file_mod_path: Vec<String>,
+    pub file_mod_n: Vec<u32>,
+    /// Per-session repeat counts for expensive shell command names (parallel arrays).
+    pub cmd_repeat_name: Vec<String>,
+    pub cmd_repeat_n: Vec<u32>,
+    /// Nudge keys already emitted this session — prevents duplicate hints.
+    /// Format: `err:<hex>`, `file:<path>`, `cmd:<name>`.
+    pub nudged_keys: Vec<String>,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -172,6 +187,13 @@ impl Default for SessionContext {
             agent_estimated_tokens: 0,
             agent_spawn_log: Vec::new(),
             burn_window: Vec::new(),
+            error_count_fp: Vec::new(),
+            error_count_n: Vec::new(),
+            file_mod_path: Vec::new(),
+            file_mod_n: Vec::new(),
+            cmd_repeat_name: Vec::new(),
+            cmd_repeat_n: Vec::new(),
+            nudged_keys: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -481,6 +503,57 @@ impl SessionContext {
         }
     }
 
+    // ── Nudge counter helpers (item 1) ───────────────────────────────────
+
+    /// Bump the recurrence count for an error fingerprint. Returns the new count.
+    pub fn bump_error_count(&mut self, fp: u64) -> u32 {
+        if let Some(idx) = self.error_count_fp.iter().position(|f| *f == fp) {
+            let n = self.error_count_n[idx].saturating_add(1);
+            self.error_count_n[idx] = n;
+            n
+        } else {
+            self.error_count_fp.push(fp);
+            self.error_count_n.push(1);
+            1
+        }
+    }
+
+    /// Bump the modification count for a file path. Returns the new count.
+    pub fn bump_file_mod(&mut self, path: &str) -> u32 {
+        if let Some(idx) = self.file_mod_path.iter().position(|p| p == path) {
+            let n = self.file_mod_n[idx].saturating_add(1);
+            self.file_mod_n[idx] = n;
+            n
+        } else {
+            self.file_mod_path.push(path.to_string());
+            self.file_mod_n.push(1);
+            1
+        }
+    }
+
+    /// Bump the repeat count for a shell command name. Returns the new count.
+    pub fn bump_cmd_repeat(&mut self, cmd_name: &str) -> u32 {
+        if let Some(idx) = self.cmd_repeat_name.iter().position(|c| c == cmd_name) {
+            let n = self.cmd_repeat_n[idx].saturating_add(1);
+            self.cmd_repeat_n[idx] = n;
+            n
+        } else {
+            self.cmd_repeat_name.push(cmd_name.to_string());
+            self.cmd_repeat_n.push(1);
+            1
+        }
+    }
+
+    /// Mark a nudge key as already emitted. Returns true if newly inserted
+    /// (i.e. the caller should print the nudge), false if it was already there.
+    pub fn mark_nudged(&mut self, key: &str) -> bool {
+        if self.nudged_keys.iter().any(|k| k == key) {
+            return false;
+        }
+        self.nudged_keys.push(key.to_string());
+        true
+    }
+
     /// Record token usage by tool category.
     pub fn note_tool_tokens(&mut self, tool: &str, tokens: u64) {
         match tool.to_lowercase().as_str() {
@@ -636,6 +709,12 @@ impl SessionContext {
         let bw_tokens: Vec<u64> = self.burn_window.iter().map(|e| e.tokens).collect();
         let bw_ts: Vec<u64> = self.burn_window.iter().map(|e| e.ts).collect();
 
+        // Nudge counters as parallel arrays. u32 promoted to u64 for the
+        // existing array helper (lossless within u32 range).
+        let ec_n_u64: Vec<u64> = self.error_count_n.iter().map(|&n| n as u64).collect();
+        let fm_n_u64: Vec<u64> = self.file_mod_n.iter().map(|&n| n as u64).collect();
+        let cr_n_u64: Vec<u64> = self.cmd_repeat_n.iter().map(|&n| n as u64).collect();
+
         format!(
             "{{\"session_file\":\"{}\",\"call_counter\":{},\
 \"call_log_n\":{},\"call_log_cmd\":{},\"call_log_hash\":{},\"call_log_len\":{},\"call_log_short\":{},\
@@ -647,7 +726,11 @@ impl SessionContext {
 \"exact_dedup_hits\":{},\"fuzzy_dedup_hits\":{},\"summarize_triggers\":{},\"intensity_ultra_calls\":{},\
 \"agent_spawns\":{},\"agent_estimated_tokens\":{},\
 \"agent_spawn_log_call_n\":{},\"agent_spawn_log_tool\":{},\"agent_spawn_log_tokens\":{},\"agent_spawn_log_ts\":{},\
-\"burn_window_call_n\":{},\"burn_window_tokens\":{},\"burn_window_ts\":{}}}",
+\"burn_window_call_n\":{},\"burn_window_tokens\":{},\"burn_window_ts\":{},\
+\"error_count_fp\":{},\"error_count_n\":{},\
+\"file_mod_path\":{},\"file_mod_n\":{},\
+\"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
+\"nudged_keys\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -682,6 +765,13 @@ impl SessionContext {
             json_util::u64_array(&bw_call_n),
             json_util::u64_array(&bw_tokens),
             json_util::u64_array(&bw_ts),
+            json_util::u64_array(&self.error_count_fp),
+            json_util::u64_array(&ec_n_u64),
+            json_util::str_array(&self.file_mod_path),
+            json_util::u64_array(&fm_n_u64),
+            json_util::str_array(&self.cmd_repeat_name),
+            json_util::u64_array(&cr_n_u64),
+            json_util::str_array(&self.nudged_keys),
         )
     }
 
@@ -805,6 +895,27 @@ impl SessionContext {
                 ts: bw_ts[i],
             });
         }
+
+        // Nudge counters — optional for backward compat with older context.json.
+        let ec_fp = json_util::map_u64_array(&map, "error_count_fp");
+        let ec_n = json_util::map_u64_array(&map, "error_count_n");
+        let ec_len = ec_fp.len().min(ec_n.len());
+        c.error_count_fp = ec_fp.iter().take(ec_len).copied().collect();
+        c.error_count_n = ec_n.iter().take(ec_len).map(|&n| n as u32).collect();
+
+        let fm_path = json_util::map_str_array(&map, "file_mod_path");
+        let fm_n = json_util::map_u64_array(&map, "file_mod_n");
+        let fm_len = fm_path.len().min(fm_n.len());
+        c.file_mod_path = fm_path.iter().take(fm_len).cloned().collect();
+        c.file_mod_n = fm_n.iter().take(fm_len).map(|&n| n as u32).collect();
+
+        let cr_name = json_util::map_str_array(&map, "cmd_repeat_name");
+        let cr_n = json_util::map_u64_array(&map, "cmd_repeat_n");
+        let cr_len = cr_name.len().min(cr_n.len());
+        c.cmd_repeat_name = cr_name.iter().take(cr_len).cloned().collect();
+        c.cmd_repeat_n = cr_n.iter().take(cr_len).map(|&n| n as u32).collect();
+
+        c.nudged_keys = json_util::map_str_array(&map, "nudged_keys");
 
         c
     }

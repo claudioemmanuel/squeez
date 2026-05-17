@@ -187,6 +187,11 @@ const TOOLS: &[(&str, &str, &str)] = &[
         "Current context pressure: budget used %, calls remaining, tokens_saved this session, and an actionable recommendation (ok / compact_soon / use_state_first). Call this to decide whether to /compact or save state and /clear.",
         "{\"type\":\"object\",\"properties\":{}}",
     ),
+    (
+        "squeez_handler_stats",
+        "Per-handler cumulative compression stats across sessions: calls, in/out tokens, savings %. Flags under-performers (savings <10%) and over-performers (≥90%) when a handler has ≥5 calls. Use to spot handlers that warrant tuning or broader matching.",
+        "{\"type\":\"object\",\"properties\":{}}",
+    ),
 ];
 
 fn tools_list_response(id: &str) -> String {
@@ -238,6 +243,7 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_agent_costs" => tool_agent_costs(),
         "squeez_session_efficiency" => tool_session_efficiency(),
         "squeez_context_pressure" => tool_context_pressure(),
+        "squeez_handler_stats" => tool_handler_stats(),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -757,6 +763,12 @@ fn tool_session_efficiency() -> String {
     crate::economy::efficiency::format_efficiency(&score)
 }
 
+/// Item 2: cumulative cross-session per-handler compression table.
+fn tool_handler_stats() -> String {
+    let stats = crate::economy::handler_stats::HandlerStats::load(&session::sessions_dir());
+    crate::economy::handler_stats::format_table(&stats)
+}
+
 /// Context pressure advisor: pressure %, calls remaining, tokens_saved, recommendation.
 fn tool_context_pressure() -> String {
     let ctx = load_ctx();
@@ -869,7 +881,7 @@ mod tests {
     fn handle_tools_list_returns_all_tools() {
         let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}";
         let resp = handle_request(req).expect("must respond");
-        // All fourteen tool names appear in the response.
+        // All fifteen tool names appear in the response.
         for name in [
             "squeez_recent_calls",
             "squeez_seen_files",
@@ -885,6 +897,7 @@ mod tests {
             "squeez_agent_costs",
             "squeez_session_efficiency",
             "squeez_context_pressure",
+            "squeez_handler_stats",
         ] {
             assert!(resp.contains(name), "missing tool {}", name);
         }
