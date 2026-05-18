@@ -235,10 +235,17 @@ pub fn run(cmd_str: &str) -> i32 {
         let agent_tag = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
             .map(|w| format!(" {}", w))
             .unwrap_or_default();
+        // Token economy: enterprise transport indicator
+        let enterprise_mode = crate::economy::enterprise::detect();
+        let enterprise_tag = if enterprise_mode.is_enterprise() {
+            format!(" {}", crate::economy::enterprise::header_tag(enterprise_mode))
+        } else {
+            String::new()
+        };
         println!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}",
+            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
             cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
-            intensity_tag, budget_tag, agent_tag
+            intensity_tag, budget_tag, agent_tag, enterprise_tag
         );
         if let Some(ref warning) = compact_warning {
             println!("{}", warning);
