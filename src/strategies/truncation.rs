@@ -8,10 +8,7 @@ pub fn apply(lines: Vec<String>, limit: usize, keep: Keep) -> Vec<String> {
         return lines;
     }
     let dropped = lines.len() - limit;
-    let notice = format!(
-        "[... {} lines truncated — prefix command with --no-squeez to see full output]",
-        dropped
-    );
+    let notice = format!("[... {} lines truncated]", dropped);
     match keep {
         Keep::Head => {
             let mut r: Vec<String> = lines.into_iter().take(limit).collect();

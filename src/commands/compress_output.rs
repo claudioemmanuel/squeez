@@ -5,8 +5,8 @@
 // content can be compressed. Exits 0 with no stdout when no rewrite is needed
 // (Claude Code sees the original result unchanged).
 //
-// Called from hooks/posttooluse.sh for Read / Grep / Glob tool calls.
-// Bash compression is already handled at PreToolUse via `squeez wrap`.
+// Called from hooks/posttooluse.sh for Read / Grep / Glob / Edit / Write
+// tool calls. Bash compression is handled at PreToolUse via `squeez wrap`.
 
 use std::io::Read;
 use std::path::Path;
@@ -16,6 +16,9 @@ use crate::context;
 use crate::session;
 
 const MAX_CONTENT_BYTES: usize = 256 * 1024;
+/// Minimum byte saving required before emitting an Edit/Write preamble-strip
+/// rewrite. Smaller wins aren't worth the rewrite plumbing overhead.
+const EDIT_STRIP_MIN_SAVINGS: usize = 30;
 
 pub fn run(tool: &str) -> i32 {
     let mut buf = String::new();
@@ -41,8 +44,24 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         return None;
     }
 
-    let content = extract_content(raw).filter(|c| !c.trim().is_empty())?;
-    let content: String = content.chars().take(MAX_CONTENT_BYTES).collect();
+    let raw_content = extract_content(raw).filter(|c| !c.trim().is_empty())?;
+    let raw_content: String = raw_content.chars().take(MAX_CONTENT_BYTES).collect();
+
+    // Edit/Write: strip the verbose cat -n preamble that Claude Code emits.
+    // Saves ~70-100B per call across many edits; only applied when the gain
+    // exceeds EDIT_STRIP_MIN_SAVINGS to avoid noisy rewrites for tiny results.
+    if cfg.strip_edit_preamble && (tool == "Edit" || tool == "Write") {
+        if let Some(stripped) = strip_edit_preamble(&raw_content) {
+            let saved = raw_content.len().saturating_sub(stripped.len());
+            if saved >= EDIT_STRIP_MIN_SAVINGS {
+                return Some(stripped);
+            }
+        }
+        // Edit/Write don't participate in redundancy/summarize.
+        return None;
+    }
+
+    let content = raw_content;
     let lines: Vec<String> = content.lines().map(String::from).collect();
 
     if lines.is_empty() {
@@ -72,8 +91,10 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         }
     }
 
-    // Summarize fallback for very large outputs.
-    let rewritten = if context::summarize::should_apply(&lines, cfg) {
+    // Summarize fallback for large outputs. Read tool uses a lower threshold
+    // (default 150 lines) since most code files fall in the 80-300 range and
+    // were slipping past the global default of 300.
+    let rewritten = if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
             Some(summary.join("\n"))
@@ -91,6 +112,28 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     }
 
     rewritten
+}
+
+/// Compress the Edit/Write tool preamble. Claude Code emits the boilerplate
+/// `"The file <path> has been updated successfully. Here's the result of
+/// running `cat -n` on a snippet of the edited file:"` (or similar for Write),
+/// which costs ~70-100 tokens per call. Returns `Some(shortened)` when a
+/// strip is possible, `None` if the preamble is missing.
+fn strip_edit_preamble(content: &str) -> Option<String> {
+    // Look for the verbose phrase. Multiple variants exist depending on
+    // tool/version (Edit, Write, NotebookEdit). Match on the most stable
+    // anchor: "Here's the result of running `cat -n` on".
+    let anchor = "Here's the result of running `cat -n`";
+    let idx = content.find(anchor)?;
+    // Find end of preamble line (the colon + newline that introduces the snippet).
+    let after_anchor = &content[idx..];
+    let line_end_rel = after_anchor.find(":\n")?;
+    let snippet_start = idx + line_end_rel + 2;
+    let snippet = &content[snippet_start..];
+    let prefix = content[..idx].trim_end();
+    // Keep the leading status line (e.g. "The file X has been updated.") but
+    // drop the verbose cat -n explanation.
+    Some(format!("{}\n{}", prefix, snippet))
 }
 
 fn emit_updated_output(content: &str) {
@@ -224,5 +267,103 @@ mod tests {
         // Small content: no redundancy hit, no summarize → exit 0, no stdout
         assert_eq!(run_with(json, "Read", &dir, &cfg), 0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edit_preamble_is_stripped() {
+        let dir = tmp();
+        let cfg = Config::default();
+        let content = "The file /a/b.rs has been updated successfully. Here's the result of running `cat -n` on a snippet of the edited file:\n     1\thello\n     2\tworld";
+        let json = format!(
+            r#"{{"tool_name":"Edit","tool_result":{{"content":"{}"}}}}"#,
+            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+        );
+        let rewrite = compute_rewrite(&json, "Edit", &dir, &cfg);
+        assert!(rewrite.is_some(), "Edit preamble should be stripped");
+        let out = rewrite.unwrap();
+        assert!(
+            !out.contains("Here's the result of running"),
+            "verbose preamble survived: {}",
+            out
+        );
+        assert!(out.contains("hello"), "snippet must remain");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edit_without_preamble_passes_through() {
+        let dir = tmp();
+        let cfg = Config::default();
+        let json = r#"{"tool_name":"Edit","tool_result":{"content":"File written."}}"#;
+        // No verbose preamble → no rewrite emitted.
+        assert!(compute_rewrite(json, "Edit", &dir, &cfg).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edit_strip_disabled_by_config() {
+        let dir = tmp();
+        let mut cfg = Config::default();
+        cfg.strip_edit_preamble = false;
+        let content = "The file /a.rs has been updated successfully. Here's the result of running `cat -n` on a snippet of the edited file:\n     1\thi";
+        let json = format!(
+            r#"{{"tool_name":"Edit","tool_result":{{"content":"{}"}}}}"#,
+            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+        );
+        // With strip disabled: Edit returns None (no other compression for Edit).
+        assert!(compute_rewrite(&json, "Edit", &dir, &cfg).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_uses_lower_summarize_threshold() {
+        let dir = tmp();
+        let cfg = Config::default();
+        // Build 200 benign lines: passes global 300 default but triggers
+        // Read-specific 150 default (×2 benign = 300; so we need >300 for benign).
+        // Use error markers to ensure non-benign path (threshold = base = 150).
+        let mut lines = Vec::with_capacity(200);
+        lines.push("error: synthetic".to_string());
+        for i in 1..200 {
+            lines.push(format!("line {}", i));
+        }
+        let content = lines.join("\n");
+        let json = format!(
+            r#"{{"tool_name":"Read","tool_result":{{"content":"{}"}}}}"#,
+            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+        );
+        let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
+        assert!(
+            rewrite.is_some(),
+            "Read with 200 lines + error marker should trigger summarize at threshold 150"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_threshold_zero_falls_back_to_global() {
+        let dir = tmp();
+        let mut cfg = Config::default();
+        cfg.read_summarize_threshold_lines = 0; // disable Read override
+        cfg.summarize_threshold_lines = 1000;
+        let mut lines = Vec::with_capacity(200);
+        lines.push("error: x".to_string());
+        for i in 1..200 {
+            lines.push(format!("l{}", i));
+        }
+        let content = lines.join("\n");
+        let json = format!(
+            r#"{{"tool_name":"Read","tool_result":{{"content":"{}"}}}}"#,
+            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+        );
+        // 200 lines < 1000 global threshold → no rewrite.
+        assert!(compute_rewrite(&json, "Read", &dir, &cfg).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn strip_edit_preamble_helper_handles_missing_anchor() {
+        assert!(strip_edit_preamble("just a plain message").is_none());
+        assert!(strip_edit_preamble("").is_none());
     }
 }

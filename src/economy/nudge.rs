@@ -76,7 +76,7 @@ pub fn evaluate(
                 let key = format!("cmd:{}", cmd_name);
                 if ctx.mark_nudged(&key) {
                     hints.push(format!(
-                        "[squeez: hint — `{}` run ×{} — consider a script or `--no-squeez` cached invocation]",
+                        "[squeez: hint — `{}` run ×{} — consider scripting or caching the result]",
                         cmd_name, count
                     ));
                 }
