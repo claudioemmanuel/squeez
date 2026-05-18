@@ -77,6 +77,10 @@ pub fn handle_request(line: &str) -> Option<String> {
 
 // ── Response builders ─────────────────────────────────────────────────────
 
+/// Render the `initialize` response.
+///
+/// **Cache stability (P3, issue #7):** sent once per MCP session; only the
+/// `id` may vary. Locked in by `tests/test_cache_stability.rs`.
 fn initialize_response(id: &str) -> String {
     format!(
         "{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{{\
@@ -194,6 +198,12 @@ const TOOLS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Render the `tools/list` response.
+///
+/// **Cache stability (P3, issue #7):** this response is part of the MCP
+/// tools layer that Claude caches. The tools-array section must be
+/// byte-identical across calls — the only allowed per-call variation is the
+/// `id` field. `tests/test_cache_stability.rs` enforces this.
 fn tools_list_response(id: &str) -> String {
     let mut tools_json = String::from("[");
     for (i, (name, desc, schema)) in TOOLS.iter().enumerate() {

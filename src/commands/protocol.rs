@@ -48,6 +48,12 @@ markers:
 
 /// Combined payload returned by the MCP `squeez_protocol` tool and by
 /// `squeez status --for-llm`. Single allocation, no formatting at call time.
+///
+/// **Cache stability (P3, issue #7):** this function must be byte-stable
+/// across calls — its output lives in tool-result text that is cached by
+/// Claude. Any drift would push us off the cache. The two consts above are
+/// `&'static str`, and the formatting is purely concatenative; tests in
+/// `tests/test_cache_stability.rs` lock the invariant in.
 pub fn full_payload() -> String {
     let mut s = String::with_capacity(SQUEEZ_PROTOCOL.len() + SQUEEZ_MARKERS_SPEC.len() + 2);
     s.push_str(SQUEEZ_PROTOCOL);
