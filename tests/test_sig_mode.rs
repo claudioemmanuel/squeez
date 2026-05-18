@@ -217,3 +217,106 @@ fn bat_on_json_file_no_sig_mode() {
         );
     }
 }
+
+// ── P4 (issue #130): single-slot attribute preservation above signatures ──
+
+/// Build a Rust file with `#[…]` attribute lines immediately above each
+/// top-level signature.
+fn make_rust_with_attrs(n: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::with_capacity(n);
+    lines.push("//! Module-level docs.".to_string());
+    lines.push("use std::collections::HashMap;".to_string());
+    lines.push("".to_string());
+    let mut i = 0usize;
+    while lines.len() + 12 <= n {
+        lines.push(format!("#[inline]"));
+        lines.push(format!("pub fn helper_{}(x: u32) -> u32 {{", i));
+        for j in 0..9 {
+            lines.push(format!("    let v{} = x * {};", j, i + j));
+        }
+        lines.push("}".to_string());
+        lines.push("".to_string());
+        i += 1;
+    }
+    while lines.len() < n {
+        lines.push(format!("// pad {}", lines.len()));
+    }
+    lines.truncate(n);
+    lines
+}
+
+#[test]
+fn rust_attribute_above_signature_is_kept() {
+    let lines = make_rust_with_attrs(500);
+    let cfg = Config::default();
+    let result = FsHandler.compress("cat src/lib.rs", lines, &cfg);
+    let body = result.join("\n");
+    // Attribute line immediately above each kept signature must survive.
+    let kept_attrs = result
+        .iter()
+        .filter(|l| l.starts_with("#[inline]"))
+        .count();
+    assert!(
+        kept_attrs >= 5,
+        "expected ≥5 attribute lines preserved, got {}\n{}",
+        kept_attrs,
+        body,
+    );
+}
+
+#[test]
+fn doc_comment_lines_are_not_promoted_above_signatures() {
+    // Single-slot context buffer holds only attributes/decorators.
+    // Pure `///` doc-comment lines are not promoted on dense-signature files,
+    // because the cumulative bloat would push sig-mode past the pipeline's
+    // truncation budget (see comment on `compress_signatures`).
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("//! mod docs".to_string());
+    lines.push("use std::io;".to_string());
+    lines.push("".to_string());
+    for i in 0..80 {
+        lines.push(format!("/// Doc for fn {}.", i));
+        lines.push(format!("pub fn f_{}() {{", i));
+        for j in 0..5 {
+            lines.push(format!("    let _ = {} + {};", j, i));
+        }
+        lines.push("}".to_string());
+    }
+    let cfg = Config::default();
+    let result = FsHandler.compress("cat src/many.rs", lines, &cfg);
+    let kept_docs = result.iter().filter(|l| l.starts_with("/// Doc for fn")).count();
+    let kept_sigs = result.iter().filter(|l| l.starts_with("pub fn f_")).count();
+    assert!(kept_sigs >= 50, "signatures must still come through: got {}", kept_sigs);
+    assert!(
+        kept_docs <= 3,
+        "doc-comment lines must not be promoted in bulk (got {}); only anchor lines may carry them",
+        kept_docs,
+    );
+}
+
+#[test]
+fn python_decorator_above_signature_is_kept() {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("\"\"\"mod\"\"\"".to_string());
+    lines.push("import asyncio".to_string());
+    lines.push("".to_string());
+    for i in 0..40 {
+        lines.push("@staticmethod".to_string());
+        lines.push(format!("def func_{}():", i));
+        for j in 0..6 {
+            lines.push(format!("    x{} = {}", j, i));
+        }
+    }
+    while lines.len() < 500 {
+        lines.push(format!("# pad {}", lines.len()));
+    }
+    let cfg = Config::default();
+    let result = FsHandler.compress("cat service.py", lines, &cfg);
+    let kept = result.iter().filter(|l| l.starts_with("@staticmethod")).count();
+    assert!(
+        kept >= 5,
+        "decorator lines must survive above kept signatures, got {}\n{}",
+        kept,
+        result.join("\n"),
+    );
+}
