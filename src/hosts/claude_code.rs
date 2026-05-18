@@ -150,19 +150,22 @@ if not has_squeez(hooks_root["PostCompact"]):
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "postcompact.sh")}],
     })
 
+# Strip any prior squeez statusLine registration. The squeez status line
+# competes with third-party HUDs (e.g. claude-hud) and provides no critical
+# information that isn't already surfaced via memory/banner. Leave non-squeez
+# statusLine entries untouched. The `statusline_bin` arg is retained for
+# backward compatibility with older installers but is no longer consumed.
+_ = statusline_bin
+import re as _re
 existing_status = settings.get("statusLine")
-existing_cmd = existing_status.get("command", "") if isinstance(existing_status, dict) else ""
-squeez_cmd = "bash " + statusline_bin
-if "squeez" not in existing_cmd:
-    if existing_cmd:
-        new_cmd = (
-            "bash -c 'input=$(cat); echo \"$input\" | { "
-            + existing_cmd.rstrip() + "; } 2>/dev/null; echo \"$input\" | "
-            + squeez_cmd + "'"
-        )
-        settings["statusLine"] = {"type": "command", "command": new_cmd}
-    else:
-        settings["statusLine"] = {"type": "command", "command": squeez_cmd}
+if isinstance(existing_status, dict):
+    existing_cmd = str(existing_status.get("command", ""))
+    if "squeez" in existing_cmd:
+        m = _re.match(r"^bash -c 'input=\$\(cat\); echo \"\$input\" \| \{ (.+); \} 2>/dev/null; echo \"\$input\" \| bash .+/statusline\.sh'$", existing_cmd)
+        if m:
+            settings["statusLine"] = {"type": "command", "command": m.group(1)}
+        else:
+            del settings["statusLine"]
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
 if file_existed:
