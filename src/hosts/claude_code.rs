@@ -24,7 +24,6 @@ const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/posttooluse.sh");
 const SUBAGENT_STOP_SCRIPT: &str = include_str!("../../hooks/subagent-stop.sh");
 const PRECOMPACT_SCRIPT: &str = include_str!("../../hooks/precompact.sh");
 const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
-const STATUSLINE_SCRIPT: &str = include_str!("../../hooks/statusline.sh");
 
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
 /// Load-merge-write with atomic rename. Idempotent via substring match on
@@ -320,14 +319,20 @@ impl HostAdapter for ClaudeCodeAdapter {
         write_hook(&hooks, "subagent-stop.sh", SUBAGENT_STOP_SCRIPT)?;
         write_hook(&hooks, "precompact.sh", PRECOMPACT_SCRIPT)?;
         write_hook(&hooks, "postcompact.sh", POSTCOMPACT_SCRIPT)?;
-        write_hook(&bin, "statusline.sh", STATUSLINE_SCRIPT)?;
+
+        // Remove orphan statusline.sh artifacts left by earlier installs. The
+        // status line is no longer registered (see PATCH_SCRIPT) and the
+        // script file would otherwise linger across upgrades.
+        for orphan in [bin.join("statusline.sh"), hooks.join("statusline.sh")] {
+            let _ = std::fs::remove_file(&orphan);
+        }
 
         run_python(
             PATCH_SCRIPT,
             &[
                 Self::settings_path().to_str().unwrap_or(""),
                 hooks.to_str().unwrap_or(""),
-                bin.join("statusline.sh").to_str().unwrap_or(""),
+                "", // legacy positional arg (was statusline_bin); kept for compat
             ],
         )?;
         Ok(())
