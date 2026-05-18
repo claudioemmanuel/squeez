@@ -154,6 +154,24 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
         println!();
         print!("{}", persona_text);
     }
+    // Enterprise-mode hint: when running through Bedrock/Vertex/OTEL,
+    // every saved token converts directly to USD on the workspace bill.
+    let mode = crate::economy::enterprise::detect();
+    if mode.is_enterprise() {
+        let prior_saved_usd = summaries
+            .first()
+            .map(|s| {
+                crate::economy::enterprise::estimate_usd(
+                    s.tokens_saved,
+                    crate::economy::enterprise::PricingModel::Sonnet46,
+                )
+            })
+            .unwrap_or(0.0);
+        let line = crate::economy::enterprise::init_banner_line(mode, prior_saved_usd);
+        if !line.is_empty() {
+            println!("{}", line);
+        }
+    }
     println!("────────────────────────────────────────────────────────────");
 
     // 5. Auto-compress known memory files (idempotent — backup is never clobbered)
