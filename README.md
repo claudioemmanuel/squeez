@@ -111,6 +111,23 @@ squeez update --insecure  # skip checksum (not recommended)
 
 ---
 
+## How squeez compares
+
+There are now several token-reduction tools targeting AI coding CLIs. They make different bets — the right one depends on what you care about: zero deps, lossless filtering, structural reformatting, or task-conditioned ML.
+
+| Tool | Approach | Hosts | Deps | Key wins | Trade-off |
+|------|----------|-------|------|----------|-----------|
+| **squeez** (this project) | Hook + 4-stage filter pipeline + context engine (MinHash dedup, summarize, adaptive intensity) + MCP server | Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI | **Zero runtime deps** (`libc` only on Unix) | Up to 95% on bash; cross-call dedup; signature-mode for source files; TOON re-encoder for JSON outputs; 14 MCP tools; enterprise (Bedrock/Vertex) USD-saved estimate | Heuristic, not ML — no per-task understanding |
+| [rtk-ai/rtk](https://github.com/rtk-ai/rtk) | Hook proxy that **rewrites bash commands** (`git status` → `rtk git status`), then compresses 100+ command outputs | Claude Code, Cursor | Zero deps (Rust) | 60-90% on 100+ commands; `rtk read -l aggressive` for signature mode | [rtk#582](https://github.com/rtk-ai/rtk/issues/582): aggressive rewriting can **increase** total cost by 18% because Claude emits +50% more output tokens to compensate for stripped context. squeez ships [a guard](https://github.com/jhonatanjunio/squeez/issues/1) against this regime. |
+| [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez) | **Task-conditioned ML** (Qwen 2B / ModernBERT 150M) — pipe tool output + task description, get back only relevant lines | Any (CLI tool) | Python, PyTorch / vLLM server | 92% compression, F1 0.80; task-aware (same log slices kept differently per query) | Requires running an LLM locally; not zero-dep. Same project name, different design. |
+| [ojuschugh1/sqz](https://github.com/ojuschugh1/sqz) | CLI context compressor | Any | Python | Single-command compression | Lower coverage than the others. |
+| [LLMLingua-2](https://github.com/microsoft/LLMLingua) (Microsoft) | Neural prompt compressor that removes 50-80% of a prompt while preserving meaning | API / library | Python, transformers | Strong on long static prompts | Latency + model dep; not a CLI hook. |
+| [TOON](https://github.com/toon-format/toon) | Schema-aware JSON replacement (`users[100]{id,name,role}:`) — ~40% fewer tokens on arrays of uniform objects | Library, not a CLI | TypeScript SDK | Lossless on the right shape; squeez [embeds a TOON encoder](https://github.com/jhonatanjunio/squeez/pull/4) for `gh`/`kubectl`/`aws`/`gcloud`/`az` JSON outputs | Only helps on uniform JSON shapes. |
+
+If you want a CLI hook that just works, never needs a Python runtime, and never silently inflates your output tokens, squeez is the safe default. If you can run an LLM next to your shell and want task-aware filtering, KRLabsOrg/squeez is worth a look as a complement. The two squeez projects share a name but are independent.
+
+---
+
 ## Scope & Limits
 
 squeez optimizes what it can reach — the surfaces exposed by each host's hook API. It cannot fix token leaks outside those surfaces.
