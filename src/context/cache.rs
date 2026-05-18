@@ -589,7 +589,7 @@ pub fn raw_read_hint(ctx: &SessionContext, cmd: &str) -> Option<String> {
         }
         if let Some(call_n) = ctx.file_was_seen(arg) {
             return Some(format!(
-                "# squeez hint: {} already in context (Read tool, call #{}) — consider --no-squeez or skip",
+                "# squeez hint: {} already in context (Read tool, call #{}) — reuse cached content if possible",
                 arg, call_n
             ));
         }

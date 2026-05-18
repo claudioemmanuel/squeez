@@ -42,10 +42,11 @@ except Exception:
 # Feed to track-result so Read/Grep/Glob update SessionContext (files, errors).
 printf '%s' "$input" | "$SQUEEZ" track-result "$tool" 2>/dev/null || true
 
-# For Read/Grep/Glob/Monitor: attempt output rewrite via updatedToolOutput.
-# compress-output prints hookSpecificOutput JSON if content is redundant or
-# oversized; prints nothing if the original should be kept as-is.
-if [ "$tool" = "Read" ] || [ "$tool" = "Grep" ] || [ "$tool" = "Glob" ] || [ "$tool" = "Monitor" ] || [ "$tool" = "Agent" ] || [ "$tool" = "Task" ]; then
+# For Read/Grep/Glob/Monitor/Edit/Write: attempt output rewrite via
+# updatedToolOutput. compress-output prints hookSpecificOutput JSON if content
+# is redundant, oversized, or contains strippable boilerplate; prints nothing
+# if the original should be kept as-is.
+if [ "$tool" = "Read" ] || [ "$tool" = "Grep" ] || [ "$tool" = "Glob" ] || [ "$tool" = "Monitor" ] || [ "$tool" = "Agent" ] || [ "$tool" = "Task" ] || [ "$tool" = "Edit" ] || [ "$tool" = "Write" ]; then
     rewrite=$(printf '%s' "$input" | "$SQUEEZ" compress-output "$tool" 2>/dev/null || true)
     if [ -n "$rewrite" ]; then
         printf '%s\n' "$rewrite"

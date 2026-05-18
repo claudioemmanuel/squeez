@@ -65,10 +65,29 @@ pub fn is_benign(lines: &[String]) -> bool {
 /// preserves more verbatim text in the common "long but successful build"
 /// case while keeping the eager trigger for debugging output.
 pub fn should_apply(lines: &[String], cfg: &Config) -> bool {
+    apply_threshold(lines, cfg.summarize_threshold_lines)
+}
+
+/// Same as `should_apply` but lets the caller override the base threshold for
+/// specific tools. Read uses the smaller of `cfg.read_summarize_threshold_lines`
+/// and `cfg.summarize_threshold_lines` — typical code files in the 80-300 line
+/// range were slipping past the 300-line global default, but a user that
+/// lowers the global threshold should still see Read fire at least that early.
+pub fn should_apply_for_tool(lines: &[String], cfg: &Config, tool: &str) -> bool {
+    let base = match tool {
+        "Read" if cfg.read_summarize_threshold_lines > 0 => cfg
+            .read_summarize_threshold_lines
+            .min(cfg.summarize_threshold_lines),
+        _ => cfg.summarize_threshold_lines,
+    };
+    apply_threshold(lines, base)
+}
+
+fn apply_threshold(lines: &[String], base: usize) -> bool {
     let threshold = if is_benign(lines) {
-        cfg.summarize_threshold_lines.saturating_mul(BENIGN_MULTIPLIER)
+        base.saturating_mul(BENIGN_MULTIPLIER)
     } else {
-        cfg.summarize_threshold_lines
+        base
     };
     lines.len() > threshold
 }

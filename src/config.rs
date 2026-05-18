@@ -85,6 +85,15 @@ pub struct Config {
     /// Accumulate per-handler in/out token counts in handler_stats.json so
     /// `squeez_handler_stats` can surface under/over-performers. Default: true.
     pub handler_stats_enabled: bool,
+    // ── PostToolUse compression for Read/Edit/Write (gap fix) ────────────────
+    /// Override `summarize_threshold_lines` when the tool is Read. Default 150.
+    /// Many code files are 80-300 lines and never triggered the global default
+    /// of 300, leaving them uncompressed. Set to 0 to fall back to the global
+    /// `summarize_threshold_lines`.
+    pub read_summarize_threshold_lines: usize,
+    /// Strip the verbose `"Here's the result of running cat -n on a snippet of
+    /// the edited file:"` preamble from Edit/Write tool results. Default: true.
+    pub strip_edit_preamble: bool,
 }
 
 impl Default for Config {
@@ -136,6 +145,8 @@ impl Default for Config {
             nudge_file_mod_threshold: 5,
             nudge_cmd_repeat_threshold: 4,
             handler_stats_enabled: true,
+            read_summarize_threshold_lines: 150,
+            strip_edit_preamble: true,
         }
     }
 }
@@ -257,6 +268,11 @@ impl Config {
                         c.nudge_cmd_repeat_threshold =
                             v.parse().unwrap_or(c.nudge_cmd_repeat_threshold)
                     }
+                    "read_summarize_threshold_lines" => {
+                        c.read_summarize_threshold_lines =
+                            v.parse().unwrap_or(c.read_summarize_threshold_lines)
+                    }
+                    "strip_edit_preamble" => c.strip_edit_preamble = v == "true",
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
                     _ => {}
                 }

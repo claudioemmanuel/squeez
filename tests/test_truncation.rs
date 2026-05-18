@@ -7,7 +7,6 @@ fn truncates_head() {
     assert_eq!(r.len(), 21);
     assert_eq!(r[0], "0");
     assert!(r[20].contains("80 lines truncated"));
-    assert!(r[20].contains("--no-squeez"));
 }
 
 #[test]

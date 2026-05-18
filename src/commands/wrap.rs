@@ -178,11 +178,11 @@ pub fn run(cmd_str: &str) -> i32 {
         if let Some(hit) = context::redundancy::check(&ctx, &compressed) {
             compressed = vec![match hit.similarity {
                 None => format!(
-                    "[squeez: identical to {} at bash#{} — re-run with --no-squeez]",
+                    "[squeez: identical to {} at bash#{} — output omitted]",
                     hit.short_hash, hit.call_n
                 ),
                 Some(j) => format!(
-                    "[squeez: ~{}% similar to {} at bash#{} — re-run with --no-squeez]",
+                    "[squeez: ~{}% similar to {} at bash#{} — output omitted]",
                     (j * 100.0).round() as u32,
                     hit.short_hash,
                     hit.call_n
