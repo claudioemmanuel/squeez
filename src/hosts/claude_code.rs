@@ -54,9 +54,32 @@ if not isinstance(settings, dict):
     )
     sys.exit(2)
 
+# Claude Code expects hooks at settings["hooks"][event], not top-level.
+if not isinstance(settings.get("hooks"), dict):
+    settings["hooks"] = {}
+hooks_root = settings["hooks"]
+
 def ensure_list(key):
-    if not isinstance(settings.get(key), list):
-        settings[key] = []
+    if not isinstance(hooks_root.get(key), list):
+        hooks_root[key] = []
+
+# Migrate legacy top-level entries written by earlier squeez versions.
+for _legacy_evt in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact"):
+    _legacy = settings.pop(_legacy_evt, None)
+    if isinstance(_legacy, list):
+        ensure_list(_legacy_evt)
+        _existing_cmds = {
+            str(h.get("command", ""))
+            for m in hooks_root[_legacy_evt] if isinstance(m, dict)
+            for h in (m.get("hooks") or [])
+        }
+        for _m in _legacy:
+            if not isinstance(_m, dict):
+                continue
+            _cmds = [str(h.get("command", "")) for h in (_m.get("hooks") or [])]
+            if any(c in _existing_cmds for c in _cmds):
+                continue
+            hooks_root[_legacy_evt].append(_m)
 
 PRETOOLUSE_MATCHER = "Bash|Read|Grep|Glob|Agent|Task"
 PRETOOLUSE_CMD = "bash " + os.path.join(hooks_dir, "pretooluse.sh")
@@ -83,14 +106,14 @@ def find_squeez_pretooluse(arr):
     return -1
 
 ensure_list("PreToolUse")
-idx = find_squeez_pretooluse(settings["PreToolUse"])
+idx = find_squeez_pretooluse(hooks_root["PreToolUse"])
 if idx == -1:
-    settings["PreToolUse"].append({
+    hooks_root["PreToolUse"].append({
         "matcher": PRETOOLUSE_MATCHER,
         "hooks": [{"type": "command", "command": PRETOOLUSE_CMD}],
     })
 else:
-    entry = settings["PreToolUse"][idx]
+    entry = hooks_root["PreToolUse"][idx]
     if entry.get("matcher") != PRETOOLUSE_MATCHER:
         entry["matcher"] = PRETOOLUSE_MATCHER
     cmd_list = entry.get("hooks", [])
@@ -98,32 +121,32 @@ else:
         cmd_list[0]["command"] = PRETOOLUSE_CMD
 
 ensure_list("SessionStart")
-if not has_squeez(settings["SessionStart"]):
-    settings["SessionStart"].append({
+if not has_squeez(hooks_root["SessionStart"]):
+    hooks_root["SessionStart"].append({
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "session-start.sh")}],
     })
 
 ensure_list("PostToolUse")
-if not has_squeez(settings["PostToolUse"]):
-    settings["PostToolUse"].append({
+if not has_squeez(hooks_root["PostToolUse"]):
+    hooks_root["PostToolUse"].append({
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "posttooluse.sh")}],
     })
 
 ensure_list("SubagentStop")
-if not has_squeez(settings["SubagentStop"]):
-    settings["SubagentStop"].append({
+if not has_squeez(hooks_root["SubagentStop"]):
+    hooks_root["SubagentStop"].append({
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "subagent-stop.sh")}],
     })
 
 ensure_list("PreCompact")
-if not has_squeez(settings["PreCompact"]):
-    settings["PreCompact"].append({
+if not has_squeez(hooks_root["PreCompact"]):
+    hooks_root["PreCompact"].append({
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "precompact.sh")}],
     })
 
 ensure_list("PostCompact")
-if not has_squeez(settings["PostCompact"]):
-    settings["PostCompact"].append({
+if not has_squeez(hooks_root["PostCompact"]):
+    hooks_root["PostCompact"].append({
         "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "postcompact.sh")}],
     })
 
@@ -170,15 +193,30 @@ except Exception as e:
 if not isinstance(settings, dict):
     sys.exit(0)
 
+def _strip_squeez(arr):
+    return [
+        m for m in arr
+        if isinstance(m, dict)
+        and not any("squeez" in str(h.get("command", "")) for h in (m.get("hooks") or []))
+    ]
+
+hooks_root = settings.get("hooks") if isinstance(settings.get("hooks"), dict) else None
 for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact"):
+    # Current shape: settings["hooks"][event]
+    if hooks_root is not None:
+        arr = hooks_root.get(event)
+        if isinstance(arr, list):
+            hooks_root[event] = _strip_squeez(arr)
+            if not hooks_root[event]:
+                del hooks_root[event]
+    # Legacy shape: settings[event] (pre-fix installs)
     arr = settings.get(event)
     if isinstance(arr, list):
-        settings[event] = [
-            m for m in arr
-            if not any("squeez" in str(h.get("command", "")) for h in m.get("hooks", []))
-        ]
+        settings[event] = _strip_squeez(arr)
         if not settings[event]:
             del settings[event]
+if hooks_root is not None and not hooks_root:
+    del settings["hooks"]
 
 status = settings.get("statusLine")
 if isinstance(status, dict) and "squeez" in str(status.get("command", "")):

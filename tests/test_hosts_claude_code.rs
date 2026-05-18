@@ -207,6 +207,126 @@ fn claude_code_uninstall_removes_subagent_stop_precompact_postcompact() {
     });
 }
 
+// Returns (top_level_squeez_count, nested_squeez_count) by parsing settings.json
+// via python3 — keeps this crate zero-dep (no serde_json). Python indentation
+// is significant, so the script is concat!'d with explicit "\n" — Rust's
+// `\<newline>` continuation would strip the leading whitespace and break it.
+fn count_squeez(settings_path: &std::path::Path) -> (usize, usize) {
+    let script = concat!(
+        "import json, sys\n",
+        "EV=('PreToolUse','SessionStart','PostToolUse','SubagentStop','PreCompact','PostCompact')\n",
+        "s=json.load(open(sys.argv[1]))\n",
+        "def n(arr):\n",
+        "    return sum(1 for m in (arr or []) if isinstance(m, dict) and any('squeez' in str(h.get('command','')) for h in (m.get('hooks') or [])))\n",
+        "top=sum(n(s.get(e)) for e in EV if isinstance(s.get(e), list))\n",
+        "nst=sum(n((s.get('hooks') or {}).get(e)) for e in EV if isinstance((s.get('hooks') or {}).get(e), list))\n",
+        "print(f'{top}\\t{nst}')\n",
+    );
+    let out = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .arg(settings_path)
+        .output()
+        .expect("python3 probe failed");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut parts = stdout.trim().split('\t');
+    let top: usize = parts
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("probe stdout='{stdout}' stderr='{stderr}'"));
+    let nested: usize = parts
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| panic!("probe stdout='{stdout}' stderr='{stderr}'"));
+    (top, nested)
+}
+
+#[test]
+fn claude_code_install_writes_hooks_into_hooks_object_not_top_level() {
+    // Regression: earlier installs wrote hook entries at settings["PreToolUse"]
+    // etc. Claude Code only reads from settings["hooks"][event], so the hooks
+    // were silently inert. Lock down the correct shape.
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+
+        let (top, nested) = count_squeez(&home.join(".claude/settings.json"));
+        assert_eq!(top, 0, "squeez entries must not live at top-level (Claude Code ignores them there)");
+        assert_eq!(nested, 6, "expected 6 squeez entries under settings.hooks.* — got {nested}");
+    });
+}
+
+#[test]
+fn claude_code_install_migrates_legacy_top_level_hooks() {
+    // Older squeez wrote hooks at the top level. A re-install must migrate
+    // them into settings.hooks.* without duplication.
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        let claude_dir = home.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let hooks_dir = claude_dir.join("squeez/hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+        let legacy_cmd = format!("bash {}/pretooluse.sh", hooks_dir.display());
+        let seed = format!(
+            r#"{{"PreToolUse":[{{"matcher":"Bash|Read|Grep|Glob|Agent|Task","hooks":[{{"type":"command","command":"{legacy_cmd}"}}]}}]}}"#
+        );
+        let settings_path = claude_dir.join("settings.json");
+        std::fs::write(&settings_path, &seed).unwrap();
+
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+
+        let (top, nested) = count_squeez(&settings_path);
+        assert_eq!(top, 0, "legacy top-level entries should be gone after migration");
+        assert_eq!(nested, 6, "expected 6 nested squeez entries after migration");
+        let body = std::fs::read_to_string(&settings_path).unwrap();
+        assert_eq!(
+            body.matches("pretooluse.sh").count(), 1,
+            "pretooluse.sh duplicated after migration:\n{body}"
+        );
+    });
+}
+
+#[test]
+fn claude_code_uninstall_removes_legacy_top_level_hooks() {
+    // Users upgrading from broken installs may have squeez entries at the
+    // top level. uninstall() must clean both shapes.
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        let claude_dir = home.join(".claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let hooks_dir = claude_dir.join("squeez/hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+        let cmd = format!("bash {}/pretooluse.sh", hooks_dir.display());
+        let seed = format!(
+            r#"{{"PreToolUse":[{{"matcher":"Bash","hooks":[{{"type":"command","command":"{cmd}"}}]}}]}}"#
+        );
+        std::fs::write(claude_dir.join("settings.json"), &seed).unwrap();
+
+        let a = ClaudeCodeAdapter;
+        a.uninstall().expect("uninstall should succeed");
+
+        if let Ok(body) = std::fs::read_to_string(claude_dir.join("settings.json")) {
+            assert!(
+                !body.contains("pretooluse.sh"),
+                "legacy top-level squeez entry left after uninstall:\n{body}"
+            );
+        }
+    });
+}
+
 #[test]
 fn claude_code_install_is_idempotent_for_new_hooks() {
     if !python3_available() {
