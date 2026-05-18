@@ -15,6 +15,7 @@ use std::time::Instant;
 use crate::commands::compress_md::{compress_text, Mode as MdMode};
 use crate::config::Config;
 use crate::context::summarize::{apply_with_format, SummaryFormat};
+use crate::economy::preservation;
 use crate::filter;
 use crate::json_util;
 
@@ -40,6 +41,13 @@ pub struct ScenarioResult {
     pub latency_us: u64,
     pub quality_score: f64,
     pub quality_pass: bool,
+    /// Information-preservation score in [0.0, 1.0] — fraction of structural
+    /// anchors (file paths, line refs, error codes, test verdicts) from
+    /// baseline that survive compression. See `economy::preservation`.
+    pub info_preservation: f64,
+    /// True when reduction_pct >= 90% AND info_preservation < 0.70 — the
+    /// regime where rtk-ai/rtk#582 reported a net +18% cost regression.
+    pub compression_risk: bool,
     /// Extra context saved via cross-call dedup (Wrap scenarios only).
     pub context_saved_tokens: usize,
     pub iterations: usize,
@@ -66,6 +74,8 @@ pub struct BenchmarkReport {
     pub quality_pass_count: usize,
     pub quality_fail_count: usize,
     pub quality_skip_count: usize,
+    /// Number of scenarios flagged with compression risk (see `economy::preservation`).
+    pub compression_risk_count: usize,
 }
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -1376,6 +1386,7 @@ fn run_filter(scenario: &Scenario, hint: &str, iterations: usize) -> ScenarioRes
     let compressed_tokens = last_compressed.len() / 4;
     let reduction = reduction_pct(baseline_tokens, compressed_tokens);
     let qscore = quality_score(&scenario.content, &last_compressed, &scenario.required_keywords, &scenario.quality_mode);
+    let preservation_score = preservation::info_preservation(&scenario.content, &last_compressed);
 
     ScenarioResult {
         name: scenario.name.clone(),
@@ -1386,6 +1397,8 @@ fn run_filter(scenario: &Scenario, hint: &str, iterations: usize) -> ScenarioRes
         latency_us: median_us,
         quality_score: qscore,
         quality_pass: qscore >= QUALITY_PASS_THRESHOLD,
+        info_preservation: preservation_score,
+        compression_risk: preservation::is_compression_risk(reduction, preservation_score),
         context_saved_tokens: 0,
         iterations,
     }
@@ -1409,6 +1422,7 @@ fn run_markdown(scenario: &Scenario, iterations: usize) -> ScenarioResult {
     let compressed_tokens = last_output.len() / 4;
     let reduction = reduction_pct(baseline_tokens, compressed_tokens);
     let qscore = quality_score(&scenario.content, &last_output, &scenario.required_keywords, &scenario.quality_mode);
+    let preservation_score = preservation::info_preservation(&scenario.content, &last_output);
 
     ScenarioResult {
         name: scenario.name.clone(),
@@ -1419,6 +1433,8 @@ fn run_markdown(scenario: &Scenario, iterations: usize) -> ScenarioResult {
         latency_us: median_us,
         quality_score: qscore,
         quality_pass: qscore >= QUALITY_PASS_THRESHOLD,
+        info_preservation: preservation_score,
+        compression_risk: preservation::is_compression_risk(reduction, preservation_score),
         context_saved_tokens: 0,
         iterations,
     }
@@ -1437,6 +1453,8 @@ fn run_wrap(scenario: &Scenario, calls: usize, iterations: usize) -> ScenarioRes
                 latency_us: 0,
                 quality_score: 0.0,
                 quality_pass: false,
+                info_preservation: 0.0,
+                compression_risk: false,
                 context_saved_tokens: 0,
                 iterations: 0,
             };
@@ -1465,6 +1483,8 @@ fn run_wrap(scenario: &Scenario, calls: usize, iterations: usize) -> ScenarioRes
             latency_us: 0,
             quality_score: 1.0,
             quality_pass: true,
+            info_preservation: 1.0,
+            compression_risk: false,
             context_saved_tokens: 0,
             iterations: 0,
         };
@@ -1543,6 +1563,8 @@ fn run_wrap(scenario: &Scenario, calls: usize, iterations: usize) -> ScenarioRes
         &scenario.required_keywords,
         &scenario.quality_mode,
     );
+    let preservation_score =
+        preservation::info_preservation(&scenario.content, &last_output_all_calls);
 
     ScenarioResult {
         name: scenario.name.clone(),
@@ -1553,6 +1575,8 @@ fn run_wrap(scenario: &Scenario, calls: usize, iterations: usize) -> ScenarioRes
         latency_us: median_us,
         quality_score: qscore,
         quality_pass: qscore >= QUALITY_PASS_THRESHOLD,
+        info_preservation: preservation_score,
+        compression_risk: preservation::is_compression_risk(reduction, preservation_score),
         context_saved_tokens: if baseline_total > avg_compressed {
             baseline_total - avg_compressed
         } else {
@@ -1621,6 +1645,10 @@ fn build_report(results: Vec<ScenarioResult>) -> BenchmarkReport {
     let quality_pass = results.iter().filter(|r| r.quality_pass).count();
     let quality_fail = results.iter().filter(|r| !r.quality_pass && r.iterations > 0).count();
     let quality_skip = results.iter().filter(|r| r.iterations == 0).count();
+    let compression_risk_count = results
+        .iter()
+        .filter(|r| r.compression_risk && r.iterations > 0)
+        .count();
 
     BenchmarkReport {
         results,
@@ -1636,6 +1664,7 @@ fn build_report(results: Vec<ScenarioResult>) -> BenchmarkReport {
         quality_pass_count: quality_pass,
         quality_fail_count: quality_fail,
         quality_skip_count: quality_skip,
+        compression_risk_count,
     }
 }
 
@@ -1649,8 +1678,11 @@ pub fn print_human(report: &BenchmarkReport) {
     println!();
 
     // ── Per-scenario table ──────────────────────────────────────────────────
-    println!("{:<32} {:>8} {:>8} {:>10} {:>8} {:>7}  {}", "SCENARIO", "BEFORE", "AFTER", "REDUCTION", "LATENCY", "QUALITY", "STATUS");
-    println!("{}", "─".repeat(84));
+    println!(
+        "{:<32} {:>8} {:>8} {:>10} {:>8} {:>7} {:>7}  {}",
+        "SCENARIO", "BEFORE", "AFTER", "REDUCTION", "LATENCY", "QUALITY", "PRESERV", "STATUS"
+    );
+    println!("{}", "─".repeat(92));
 
     let mut last_cat = String::new();
     for r in &report.results {
@@ -1663,16 +1695,23 @@ pub fn print_human(report: &BenchmarkReport) {
             println!("  ▸ {}", r.category.replace('_', " ").to_uppercase());
             last_cat = r.category.clone();
         }
-        let status = if r.quality_pass { "✅" } else { "❌ quality" };
+        let status = if r.compression_risk {
+            "⚠️  risk"
+        } else if !r.quality_pass {
+            "❌ quality"
+        } else {
+            "✅"
+        };
         let latency_str = format_latency(r.latency_us);
         println!(
-            "  {:<30} {:>6}tk {:>6}tk {:>8.1}%  {:>8}  {:>5.0}%   {}",
+            "  {:<30} {:>6}tk {:>6}tk {:>8.1}%  {:>8}  {:>5.0}%  {:>5.0}%   {}",
             r.name,
             r.baseline_tokens,
             r.compressed_tokens,
             r.reduction_pct,
             latency_str,
             r.quality_score * 100.0,
+            r.info_preservation * 100.0,
             status
         );
     }
@@ -1740,6 +1779,34 @@ pub fn print_human(report: &BenchmarkReport) {
 
     println!();
 
+    // ── Compression risk ─────────────────────────────────────────────────────
+    println!(
+        "COMPRESSION RISK  (reduction ≥{:.0}% AND preservation <{:.0}%)",
+        preservation::RISK_REDUCTION_THRESHOLD,
+        preservation::RISK_PRESERVATION_FLOOR * 100.0,
+    );
+    let total_scored = report.quality_pass_count + report.quality_fail_count;
+    println!(
+        "  flagged  {}/{}  (rtk-ai/rtk#582 regime — Claude may inflate output tokens)",
+        report.compression_risk_count, total_scored,
+    );
+    if report.compression_risk_count > 0 {
+        for r in report
+            .results
+            .iter()
+            .filter(|r| r.compression_risk && r.iterations > 0)
+        {
+            println!(
+                "    ⚠  {}  reduction={:.0}%  preservation={:.0}%",
+                r.name,
+                r.reduction_pct,
+                r.info_preservation * 100.0,
+            );
+        }
+    }
+
+    println!();
+
     // ── Interpretation ────────────────────────────────────────────────────────
     println!("INTERPRETATION");
     println!("  Best gains:   high-volume/noisy outputs (ps aux, logs, repetitive lines)");
@@ -1793,6 +1860,7 @@ pub fn to_json(report: &BenchmarkReport) -> String {
     out.push_str(&format!("  \"quality_pass_count\": {},\n", report.quality_pass_count));
     out.push_str(&format!("  \"quality_fail_count\": {},\n", report.quality_fail_count));
     out.push_str(&format!("  \"quality_skip_count\": {},\n", report.quality_skip_count));
+    out.push_str(&format!("  \"compression_risk_count\": {},\n", report.compression_risk_count));
     out.push_str("  \"scenarios\": [\n");
     for (i, r) in report.results.iter().enumerate() {
         let comma = if i + 1 < report.results.len() { "," } else { "" };
@@ -1805,6 +1873,8 @@ pub fn to_json(report: &BenchmarkReport) -> String {
         out.push_str(&format!("      \"latency_us\": {},\n", r.latency_us));
         out.push_str(&format!("      \"quality_score\": {:.4},\n", r.quality_score));
         out.push_str(&format!("      \"quality_pass\": {},\n", r.quality_pass));
+        out.push_str(&format!("      \"info_preservation\": {:.4},\n", r.info_preservation));
+        out.push_str(&format!("      \"compression_risk\": {},\n", r.compression_risk));
         out.push_str(&format!("      \"context_saved_tokens\": {},\n", r.context_saved_tokens));
         out.push_str(&format!("      \"iterations\": {}\n", r.iterations));
         out.push_str(&format!("    }}{}\n", comma));
