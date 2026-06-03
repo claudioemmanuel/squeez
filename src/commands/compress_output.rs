@@ -70,6 +70,30 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
 
     let mut ctx = context::cache::SessionContext::load(sessions_dir);
 
+    // Skill bodies (SKILL.md injected when Claude invokes the Skill tool) are
+    // large, structured, and EXACTLY repeatable: the same skill re-injected
+    // later in a session is byte-identical. The real win is dropping that
+    // duplicate, not lexically abbreviating prose (skill bodies are checklists
+    // and code, not prose — lexical compression nets ~1%). Re-injections recur
+    // at arbitrary distance, so the windowed `redundancy::check` (last 16 calls)
+    // misses them; use the session-long skill-injection store instead.
+    if tool == "Skill" {
+        if cfg.redundancy_cache_enabled {
+            let fp = crate::context::hash::fnv1a_64(content.as_bytes());
+            if let Some(call_n) = ctx.skill_dedup_lookup(fp) {
+                ctx.exact_dedup_hits += 1;
+                ctx.save(sessions_dir);
+                return Some(format!(
+                    "[squeez: identical to Skill #{call_n} — body omitted]"
+                ));
+            }
+            ctx.skill_dedup_record(fp);
+            ctx.save(sessions_dir);
+        }
+        // First injection: recorded, kept full-size.
+        return None;
+    }
+
     // Redundancy check: if we've seen this content before, replace with a note.
     if cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
@@ -91,25 +115,9 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         }
     }
 
-    // Skill bodies (SKILL.md injected when Claude invokes the Skill tool) are
-    // prose-heavy and often large. Shrink them losslessly via the markdown
-    // compressor — front-matter, code blocks, URLs and headings are preserved —
-    // rather than the lossy summarizer, since the user wants the skill's actual
-    // instructions, just denser. Original lines are still recorded below so a
-    // later identical injection dedups to a note.
-    let rewritten = if tool == "Skill" {
-        let joined = lines.join("\n");
-        let compressed = crate::commands::compress_md::compress_text_with_locale(
-            &joined,
-            crate::commands::compress_md::Mode::Ultra,
-            crate::commands::compress_md::Locale::from_code(&cfg.lang),
-        );
-        if compressed.safe && compressed.stats.new_bytes + 64 < compressed.stats.orig_bytes {
-            Some(compressed.output)
-        } else {
-            None
-        }
-    } else if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
+    // Large benign outputs get summarized (Skill is handled earlier via the
+    // session-long dedup store and never reaches here).
+    let rewritten = if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
             Some(summary.join("\n"))

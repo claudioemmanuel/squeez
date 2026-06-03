@@ -124,10 +124,7 @@ pub fn run(args: &[String]) -> i32 {
 pub fn run_all_quietly() -> i32 {
     let cfg = crate::config::Config::load();
     let locale = Locale::from_code(&cfg.lang);
-    let mut files = all_targets();
-    if cfg.compress_skills {
-        files.extend(skill_targets());
-    }
+    let files = all_targets();
     for f in &files {
         if !f.exists() {
             continue;
@@ -135,38 +132,6 @@ pub fn run_all_quietly() -> i32 {
         let _ = process_file(f, Mode::Ultra, false, true, locale);
     }
     0
-}
-
-/// Recursively collect every `*.md` under `~/.claude/skills/` — skill bodies
-/// (`SKILL.md`) and their reference files. Zero-dep manual recursion (no
-/// walkdir). Skips our own `*.original.md` backups.
-fn skill_targets() -> Vec<PathBuf> {
-    let home = home_dir();
-    let root = PathBuf::from(format!("{}/.claude/skills", home));
-    let mut out = Vec::new();
-    collect_md(&root, &mut out, 0);
-    out
-}
-
-fn collect_md(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
-    if depth > 6 {
-        return;
-    }
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_md(&path, out, depth + 1);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !name.ends_with(".original.md") {
-                out.push(path);
-            }
-        }
-    }
 }
 
 fn print_help() {

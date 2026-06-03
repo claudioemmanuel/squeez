@@ -21,9 +21,6 @@ pub struct Config {
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
     pub auto_compress_md: bool,
-    /// Also compress skill bodies under ~/.claude/skills/**/*.md when
-    /// auto_compress_md runs at SessionStart (front-matter preserved). Default true.
-    pub compress_skills: bool,
     pub lang: String,
     // ── Token economy (phase 7) ───────────────────────────────────────────
     /// Fraction of budget at which sub-agent cost triggers a warning (default 0.50).
@@ -124,7 +121,6 @@ impl Default for Config {
             summarize_threshold_lines: 300,
             persona: Persona::Ultra,
             auto_compress_md: true,
-            compress_skills: true,
             lang: "en".to_string(),
             agent_warn_threshold_pct: 0.50,
             burn_rate_warn_calls: 30,
@@ -198,7 +194,6 @@ impl Config {
                     }
                     "persona" => c.persona = crate::commands::persona::from_str(v),
                     "auto_compress_md" => c.auto_compress_md = v == "true",
-                    "compress_skills" => c.compress_skills = v == "true",
                     "lang" => c.lang = v.to_string(),
                     "agent_warn_threshold_pct" => {
                         c.agent_warn_threshold_pct =
