@@ -46,12 +46,29 @@ verified from inside a running turn.
 
 7. **Unregister** the hook from `settings.json` when done.
 
-## Result
+## Result — RESOLVED (run headless via `claude -p "/spike-probe" --settings ...`)
 
-Record the outcome here, then delete the `spike/` directory:
+**`UserPromptExpansion` fires, but the body cannot be rewritten.**
+
+Verified input schema (no body is passed — only the command name + raw prompt):
+```json
+{"session_id":"…","transcript_path":"…","cwd":"…","permission_mode":"auto",
+ "hook_event_name":"UserPromptExpansion","expansion_type":"slash_command",
+ "command_name":"spike-probe","command_args":"","command_source":"projectSettings",
+ "prompt":"/spike-probe"}
+```
+
+- Rewrite sentinel reached the model: **0 times** (every candidate field ignored).
+- The model received the **original** command body verbatim.
 
 ```
-DATE:
-WINNING FIELD (if any):
-DECISION: [ build Layer 3 | skip Layer 3 + file feature request ]
+WINNING FIELD: none — rewrite is not supported, and the body is not even in the hook input
+DECISION: skip Layer 3 (no runtime hook)
 ```
+
+**Why this is fine:** a user-typed `/skill` is expanded by reading the body
+**from the on-disk SKILL.md** — which Layer 1 pre-compresses at SessionStart.
+Confirmed end-to-end: after `squeez compress-md` shrank a command body on disk,
+`/spike-probe` delivered the **compressed** text to the model. Layer 1 closes the
+user-typed-skill gap at the source; Layer 2 covers the Skill-tool path. No
+`UserPromptExpansion` hook is needed.
