@@ -13,4 +13,20 @@ fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
 export SQUEEZ_DIR="$HOME/.codex/squeez"
-"$SQUEEZ" init --host=codex 2>/dev/null || true
+
+# `init` finalizes the previous session and prints the banner + memory block.
+# Codex expects SessionStart context wrapped under hookSpecificOutput with
+# `additionalContext`; raw stdout is accepted today but not the documented shape.
+SQUEEZ_CONTEXT="$("$SQUEEZ" init --host=codex 2>/dev/null || true)"
+
+if [ -n "$SQUEEZ_CONTEXT" ]; then
+    SQUEEZ_CONTEXT="$SQUEEZ_CONTEXT" python3 -c '
+import json, os
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": os.environ["SQUEEZ_CONTEXT"],
+    }
+}))
+'
+fi
