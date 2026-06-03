@@ -157,6 +157,16 @@ pub struct SessionContext {
     /// Nudge keys already emitted this session — prevents duplicate hints.
     /// Format: `err:<hex>`, `file:<path>`, `cmd:<name>`.
     pub nudged_keys: Vec<String>,
+    // ── Skill-injection dedup (session-long) ───────────────────────────────
+    /// FNV-1a-64 fingerprints of skill bodies injected this session. Unlike
+    /// `call_log` (capped at `max_call_log`, searched within `recent_window`),
+    /// this store is unbounded and never windowed — skill re-injections recur
+    /// at arbitrary distance and must dedup across the whole session.
+    /// Parallel to `skill_inject_call`.
+    pub skill_inject_fp: Vec<u64>,
+    /// `call_n` of the FIRST injection for each fingerprint (parallel to
+    /// `skill_inject_fp`). Referenced in the `identical to Skill #N` note.
+    pub skill_inject_call: Vec<u64>,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -194,6 +204,8 @@ impl Default for SessionContext {
             cmd_repeat_name: Vec::new(),
             cmd_repeat_n: Vec::new(),
             nudged_keys: Vec::new(),
+            skill_inject_fp: Vec::new(),
+            skill_inject_call: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -264,6 +276,27 @@ impl SessionContext {
     pub fn next_call_n(&mut self) -> u64 {
         self.call_counter = self.call_counter.saturating_add(1);
         self.call_counter
+    }
+
+    /// Session-long lookup for a previously-injected skill body, keyed by its
+    /// FNV-1a-64 fingerprint. Returns the `call_n` of the first injection on an
+    /// exact hit. Unlike `lookup_recent`, this scans the entire session (no
+    /// `recent_window` bound) because skill re-injections recur far apart.
+    pub fn skill_dedup_lookup(&self, fp: u64) -> Option<u64> {
+        self.skill_inject_fp
+            .iter()
+            .position(|&f| f == fp)
+            .map(|i| self.skill_inject_call[i])
+    }
+
+    /// Record a skill body fingerprint as injected this session and return the
+    /// assigned `call_n`. Caller should only invoke after `skill_dedup_lookup`
+    /// returned `None` (first injection).
+    pub fn skill_dedup_record(&mut self, fp: u64) -> u64 {
+        let call_n = self.next_call_n();
+        self.skill_inject_fp.push(fp);
+        self.skill_inject_call.push(call_n);
+        call_n
     }
 
     pub fn record_call(
@@ -730,7 +763,8 @@ impl SessionContext {
 \"error_count_fp\":{},\"error_count_n\":{},\
 \"file_mod_path\":{},\"file_mod_n\":{},\
 \"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
-\"nudged_keys\":{}}}",
+\"nudged_keys\":{},\
+\"skill_inject_fp\":{},\"skill_inject_call\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -772,6 +806,8 @@ impl SessionContext {
             json_util::str_array(&self.cmd_repeat_name),
             json_util::u64_array(&cr_n_u64),
             json_util::str_array(&self.nudged_keys),
+            json_util::u64_array(&self.skill_inject_fp),
+            json_util::u64_array(&self.skill_inject_call),
         )
     }
 
@@ -917,6 +953,13 @@ impl SessionContext {
 
         c.nudged_keys = json_util::map_str_array(&map, "nudged_keys");
 
+        // Skill-injection dedup store — optional for backward compat.
+        let si_fp = json_util::map_u64_array(&map, "skill_inject_fp");
+        let si_call = json_util::map_u64_array(&map, "skill_inject_call");
+        let si_len = si_fp.len().min(si_call.len());
+        c.skill_inject_fp = si_fp.iter().take(si_len).copied().collect();
+        c.skill_inject_call = si_call.iter().take(si_len).copied().collect();
+
         c
     }
 }
@@ -924,6 +967,24 @@ impl SessionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skill_dedup_lookup_and_record() {
+        let mut c = SessionContext::default();
+        assert_eq!(c.skill_dedup_lookup(0xABCD), None);
+        let call_n = c.skill_dedup_record(0xABCD);
+        assert_eq!(c.skill_dedup_lookup(0xABCD), Some(call_n));
+        // A different fingerprint is independent.
+        assert_eq!(c.skill_dedup_lookup(0x1234), None);
+    }
+
+    #[test]
+    fn skill_dedup_survives_json_roundtrip() {
+        let mut c = SessionContext::default();
+        let call_n = c.skill_dedup_record(0xDEADBEEF);
+        let restored = SessionContext::from_json(&c.to_json());
+        assert_eq!(restored.skill_dedup_lookup(0xDEADBEEF), Some(call_n));
+    }
 
     #[test]
     fn normalize_replaces_digits_paths_hex() {

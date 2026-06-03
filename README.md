@@ -158,6 +158,7 @@ squeez optimizes what it can reach — the surfaces exposed by each host's hook 
 ### Secondary wins (not compression, but token-saving)
 
 - **Cross-call redundancy dedup** — exact-hash and fuzzy-trigram collapsing across 16 recent calls (see [Context engine](#what-it-does))
+- **Skill re-injection dedup** — when the same skill body is injected by the Skill tool more than once in a session, the repeat collapses to `[squeez: identical to Skill #N]`. Keyed by body hash in a session-long store (not the 16-call window), so it fires even when injections recur far apart
 - **File-access cache** — subsequent Bash commands trimmed when re-reading a file squeez has already fingerprinted
 - **Burn-rate warnings** — `[budget: ~N calls left]` nudges so the user changes behavior before context pressure spikes
 

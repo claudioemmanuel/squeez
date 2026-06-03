@@ -283,6 +283,21 @@ pub fn compress_text_with_locale(
 
     let lines: Vec<&str> = input.split('\n').collect();
     let mut i = 0;
+
+    // Preserve a leading YAML front-matter block verbatim. Skill SKILL.md files
+    // open with `---` … `---` carrying `name:`/`description:`; abbreviating those
+    // would corrupt skill identity and activation matching.
+    if lines.first().map(|l| l.trim_end()) == Some("---") {
+        if let Some(close) = lines.iter().skip(1).position(|l| l.trim_end() == "---") {
+            let end = close + 1; // index of the closing `---`
+            for line in &lines[..=end] {
+                out.push_str(line);
+                out.push('\n');
+            }
+            i = end + 1;
+        }
+    }
+
     while i < lines.len() {
         let line = lines[i];
         match state {

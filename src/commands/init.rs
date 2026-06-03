@@ -19,6 +19,12 @@ pub fn run() -> i32 {
     if let Some(adapter) = crate::hosts::find("claude-code") {
         let _ = adapter.inject_memory(&cfg, &[]);
     }
+    // Auto-compress known memory files + skill bodies (idempotent — backups are
+    // never clobbered). Runs only on the real binary entry, after memory
+    // injection has rewritten CLAUDE.md.
+    if cfg.auto_compress_md {
+        let _ = compress_md::run_all_quietly();
+    }
     // Warn if CLAUDE.md is larger than ~1K tokens (research recommendation).
     check_claude_md_size();
     code
@@ -174,10 +180,11 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     }
     println!("────────────────────────────────────────────────────────────");
 
-    // 5. Auto-compress known memory files (idempotent — backup is never clobbered)
-    if config.auto_compress_md {
-        let _ = compress_md::run_all_quietly();
-    }
+    // Note: auto-compression of memory files / skill bodies is a global
+    // filesystem side-effect and lives in the binary entry points (run /
+    // run_copilot / run_for_host), NOT here — this keeps run_with_dirs a pure
+    // session-init function so tests don't rewrite the developer's real
+    // ~/.claude/CLAUDE.md or ~/.claude/skills/.
 
     0
 }

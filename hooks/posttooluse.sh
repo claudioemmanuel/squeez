@@ -46,7 +46,7 @@ printf '%s' "$input" | "$SQUEEZ" track-result "$tool" 2>/dev/null || true
 # updatedToolOutput. compress-output prints hookSpecificOutput JSON if content
 # is redundant, oversized, or contains strippable boilerplate; prints nothing
 # if the original should be kept as-is.
-if [ "$tool" = "Read" ] || [ "$tool" = "Grep" ] || [ "$tool" = "Glob" ] || [ "$tool" = "Monitor" ] || [ "$tool" = "Agent" ] || [ "$tool" = "Task" ] || [ "$tool" = "Edit" ] || [ "$tool" = "Write" ]; then
+if [ "$tool" = "Read" ] || [ "$tool" = "Grep" ] || [ "$tool" = "Glob" ] || [ "$tool" = "Monitor" ] || [ "$tool" = "Agent" ] || [ "$tool" = "Task" ] || [ "$tool" = "Edit" ] || [ "$tool" = "Write" ] || [ "$tool" = "Skill" ]; then
     rewrite=$(printf '%s' "$input" | "$SQUEEZ" compress-output "$tool" 2>/dev/null || true)
     if [ -n "$rewrite" ]; then
         printf '%s\n' "$rewrite"
