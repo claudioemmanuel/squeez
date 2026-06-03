@@ -173,6 +173,112 @@ fn codex_install_idempotent_no_dup_entries() {
     });
 }
 
+/// Create a fake executable `squeez` under <home>/.claude/squeez/bin so the
+/// hook scripts resolve `$SQUEEZ` to a real path. PreToolUse never executes it
+/// (it only string-builds the rewritten command), so a stub is enough.
+fn fake_squeez(home: &PathBuf) -> PathBuf {
+    let bin = home.join(".claude/squeez/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let p = bin.join("squeez");
+    std::fs::write(&p, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    p
+}
+
+fn run_hook(script: &str, home: &PathBuf, stdin: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("bash")
+        .arg(format!("hooks/{script}"))
+        .env("HOME", home)
+        .env_remove("USERPROFILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn hook");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn codex_pretooluse_emits_current_hookspecificoutput_shape() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"}}"#;
+        let out = run_hook("codex-pretooluse.sh", home, payload);
+        assert!(out.status.success(), "hook should exit 0");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // Current Codex schema: nested hookSpecificOutput / permissionDecision.
+        assert!(stdout.contains("hookSpecificOutput"), "got: {stdout}");
+        assert!(stdout.contains("\"hookEventName\": \"PreToolUse\"") || stdout.contains("\"hookEventName\":\"PreToolUse\""), "got: {stdout}");
+        assert!(stdout.contains("\"permissionDecision\": \"allow\"") || stdout.contains("\"permissionDecision\":\"allow\""), "got: {stdout}");
+        assert!(stdout.contains("updatedInput"), "got: {stdout}");
+        assert!(stdout.contains("wrap"), "command should be wrapped, got: {stdout}");
+        // Must NOT use the stale top-level decision shape.
+        assert!(!stdout.contains("\"decision\""), "stale shape leaked: {stdout}");
+    });
+}
+
+#[test]
+fn codex_pretooluse_ignores_non_shell_tool() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"read_file","tool_input":{"path":"/etc/hosts"}}"#;
+        let out = run_hook("codex-pretooluse.sh", home, payload);
+        assert!(out.status.success());
+        assert!(out.stdout.is_empty(), "non-shell tool must produce no rewrite");
+    });
+}
+
+#[test]
+fn codex_posttooluse_is_silent_on_success() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"tool_name":"Bash","tool_result":{"content":"ok"}}"#;
+        let out = run_hook("codex-posttooluse.sh", home, payload);
+        assert!(out.status.success(), "tracking hook should exit 0");
+        assert!(out.stdout.is_empty(), "tracking hook must emit no stdout, got: {:?}", String::from_utf8_lossy(&out.stdout));
+    });
+}
+
+#[test]
+fn codex_session_start_wraps_context_when_present() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let out = run_hook("codex-session-start.sh", home, "");
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // The stub squeez emits no init output, so the hook stays silent.
+        // If anything is emitted it must be the documented SessionStart shape.
+        if !stdout.trim().is_empty() {
+            assert!(stdout.contains("hookSpecificOutput"), "got: {stdout}");
+            assert!(stdout.contains("additionalContext"), "got: {stdout}");
+        }
+    });
+}
+
 #[test]
 fn codex_uninstall_removes_hooks_and_strips_memory_block() {
     if python3_missing() {

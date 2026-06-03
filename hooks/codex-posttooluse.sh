@@ -12,6 +12,7 @@ fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
 export SQUEEZ_DIR="$HOME/.codex/squeez"
+export SQUEEZ_BIN="$SQUEEZ"
 
 python3 -c "
 import json, sys, subprocess, os
@@ -25,12 +26,16 @@ except json.JSONDecodeError:
     sys.exit(0)
 
 tool = d.get('tool_name') or d.get('tool') or 'unknown'
+# Tracking-only hook: record state, emit nothing. Codex treats exit 0 with no
+# stdout as success, so suppress any subprocess output to keep the channel clean.
 try:
     subprocess.run(
-        [os.environ.get('SQUEEZ') or '$SQUEEZ', 'track-result', tool],
+        [os.environ['SQUEEZ_BIN'], 'track-result', tool],
         input=data,
         timeout=3,
         check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 except Exception:
     pass

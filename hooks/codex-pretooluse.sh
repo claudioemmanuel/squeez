@@ -30,7 +30,8 @@ except json.JSONDecodeError:
     sys.exit(0)
 
 tool = d.get('tool_name') or d.get('tool') or ''
-if tool not in ('bash', 'Bash', 'shell', 'run_shell_command'):
+if tool not in ('bash', 'Bash', 'shell', 'Shell', 'run_shell_command',
+                'exec_command', 'local_shell', 'shell_command'):
     sys.exit(0)
 
 inp = d.get('tool_input') or {}
@@ -43,7 +44,15 @@ if cmd.startswith(squeez) or 'squeez wrap' in cmd or cmd.startswith('--no-squeez
     sys.exit(0)
 
 inp['command'] = squeez + ' wrap ' + shlex.quote(cmd)
-# Codex runtime explicitly rejects updatedInput for non-Bash PreToolUse
-# (openai/codex#18491). For Bash/shell it still applies the rewrite.
-print(json.dumps({'decision': 'allow', 'updatedInput': inp}))
+# Current Codex requires the rewrite nested under hookSpecificOutput with
+# permissionDecision 'allow'; the older top-level {'decision','updatedInput'}
+# shape is rejected ('hook returned invalid pre-tool-use JSON output').
+# updatedInput for non-Bash tools is still unsupported (openai/codex#18491).
+print(json.dumps({
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'allow',
+        'updatedInput': inp,
+    }
+}))
 "

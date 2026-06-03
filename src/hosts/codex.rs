@@ -10,13 +10,15 @@
 //! Partial hook surface as of Codex 0.123.0 (2026-04-23):
 //! - `apply_patch` now emits `PreToolUse`/`PostToolUse` (PR openai/codex#18391)
 //! - `read_file` and `grep` still have no hook surface
-//! - `updatedInput` in `PreToolUse` responses is explicitly rejected by the
-//!   Codex runtime (`output_parser.rs`: "PreToolUse hook returned unsupported
-//!   updatedInput") — tracked in openai/codex#18491
+//! - `PreToolUse` command rewrites for Bash/shell ARE applied, but only when
+//!   returned in the current shape: `hookSpecificOutput` with
+//!   `permissionDecision: "allow"` + `updatedInput`. The older top-level
+//!   `{"decision":"allow","updatedInput":…}` shape is rejected by the runtime.
+//!   Extending `updatedInput` to non-Bash tools is tracked in openai/codex#18491.
 //!
-//! Until `updatedInput` + `read_file`/`grep` hooks land upstream,
-//! Read/Grep budget enforcement ships as **soft** via a prose hint in the
-//! AGENTS.md block written by `inject_memory`.
+//! `read_file`/`grep` have no hook surface, so Read/Grep budget enforcement
+//! ships as **soft** via a prose hint in the AGENTS.md block written by
+//! `inject_memory`.
 //!
 //! JSON patching of `hooks.json` uses a python3 subprocess, consistent
 //! with every other adapter in this crate.
