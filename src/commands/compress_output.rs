@@ -91,10 +91,25 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         }
     }
 
-    // Summarize fallback for large outputs. Read tool uses a lower threshold
-    // (default 150 lines) since most code files fall in the 80-300 range and
-    // were slipping past the global default of 300.
-    let rewritten = if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
+    // Skill bodies (SKILL.md injected when Claude invokes the Skill tool) are
+    // prose-heavy and often large. Shrink them losslessly via the markdown
+    // compressor — front-matter, code blocks, URLs and headings are preserved —
+    // rather than the lossy summarizer, since the user wants the skill's actual
+    // instructions, just denser. Original lines are still recorded below so a
+    // later identical injection dedups to a note.
+    let rewritten = if tool == "Skill" {
+        let joined = lines.join("\n");
+        let compressed = crate::commands::compress_md::compress_text_with_locale(
+            &joined,
+            crate::commands::compress_md::Mode::Ultra,
+            crate::commands::compress_md::Locale::from_code(&cfg.lang),
+        );
+        if compressed.safe && compressed.stats.new_bytes + 64 < compressed.stats.orig_bytes {
+            Some(compressed.output)
+        } else {
+            None
+        }
+    } else if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
             Some(summary.join("\n"))
