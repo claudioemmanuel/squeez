@@ -156,12 +156,24 @@ jobs:
   publish-npm:
     needs: release
     runs-on: ubuntu-latest
+    # Non-blocking: a stale/missing NPM_TOKEN must not prevent the GitHub
+    # Release (binaries + checksums) from being marked as successful.
+    # If this step fails, check NPM_TOKEN in repo secrets → Settings →
+    # Secrets → Actions. Generate a new Publish token on npmjs.com and
+    # re-run this job manually via "Re-run failed jobs".
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+      - name: Verify npm auth
+        run: |
+          echo "Checking npm auth..."
+          npm whoami || echo "::warning::npm whoami failed — NPM_TOKEN may be expired or invalid. Re-generate a Publish token at npmjs.com and update the NPM_TOKEN repo secret."
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Sync version from git tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
