@@ -3,6 +3,7 @@ pub mod hash;
 pub mod intensity;
 pub mod redundancy;
 pub mod summarize;
+pub mod transcript;
 
 pub use cache::SessionContext;
 pub use intensity::Intensity;
@@ -24,7 +25,12 @@ pub fn pre_pass(
     };
     // Phase 5: apply configurable tunables so all methods use user's values.
     ctx.init_tunables_from_config(cfg);
-    let level = intensity::derive(used_tokens, cfg);
+    // Real-context tracking (CF-1): squeez's own accounting only counts bytes
+    // it processed; the transcript-measured context (when observed via hooks)
+    // is authoritative. Use whichever signal is larger so intensity escalates
+    // in MCP/image-heavy sessions squeez's byte counters never see.
+    let effective_used = used_tokens.max(ctx.real_ctx_tokens);
+    let level = intensity::derive(effective_used, cfg);
     let scaled = intensity::scale(cfg, level);
     (ctx, level, scaled)
 }

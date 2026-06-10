@@ -203,6 +203,7 @@ pub fn run(cmd_str: &str) -> i32 {
 
     let compact_warning = record_bash_event(
         cmd_str, input_tokens, output_tokens, &files, &errors, &git_events, &test_sum, &config,
+        ctx.real_ctx_tokens,
     );
 
     let reduction = if input_tokens > 0 {
@@ -251,6 +252,12 @@ pub fn run(cmd_str: &str) -> i32 {
             println!("{}", warning);
         }
     }
+    // Warnings queued by observer paths with no stdout channel of their own
+    // (track-result quota escalation, SubagentStop size guard) drain here —
+    // the next bash output is the first surface the model actually reads.
+    for w in ctx.drain_warnings() {
+        println!("{}", w);
+    }
     if !output_str.is_empty() {
         println!("{}", output_str);
     }
@@ -280,6 +287,9 @@ pub fn run(cmd_str: &str) -> i32 {
         for n in &nudges {
             println!("{}", n);
         }
+        // Quota/plan-limit escalation (CF-3) for bash output (curl 429s etc.).
+        // Queued warnings print on the next wrap call.
+        crate::economy::nudge::note_quota_errors(&mut ctx, "Bash", &combined, &config);
 
         ctx.save(&sessions_dir_pp);
     }
@@ -430,6 +440,7 @@ fn record_bash_event(
     git: &[String],
     test_summary: &str,
     config: &Config,
+    real_ctx_tokens: u64,
 ) -> Option<String> {
     let dir = session::sessions_dir();
     let mut current = session::CurrentSession::load(&dir)?;
@@ -452,18 +463,26 @@ fn record_bash_event(
     );
     session::append_event(&dir, &current.session_file, &event);
 
-    let budget = config.compact_threshold_tokens * 5 / 4;
-    let pct = current.total_tokens * 100 / budget.max(1);
+    // Real measured context (CF-1) is authoritative over squeez's own byte
+    // counters when available; budget honors `context_window_tokens` (CF-2).
+    let effective_used = current.total_tokens.max(real_ctx_tokens);
+    let budget = crate::context::intensity::budget(config);
+    let pct = effective_used * 100 / budget.max(1);
 
-    let warning = if !current.compact_warned
-        && current.total_tokens >= config.compact_threshold_tokens
-    {
+    let compact_trigger = if config.context_window_tokens > 0 {
+        // Window-relative trigger: warn at the same fraction of the window
+        // that compact_threshold represents of the legacy budget (4/5).
+        budget.saturating_mul(4) / 5
+    } else {
+        config.compact_threshold_tokens
+    };
+    let warning = if !current.compact_warned && effective_used >= compact_trigger {
         current.compact_warned = true;
         // Load context for per-tool breakdown
         let ctx = crate::context::cache::SessionContext::load(&dir);
         Some(format!(
             "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Grep {}K | Other {}K",
-            current.total_tokens / 1000,
+            effective_used / 1000,
             pct,
             ctx.tokens_bash / 1000,
             ctx.tokens_read / 1000,

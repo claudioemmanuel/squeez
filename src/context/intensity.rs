@@ -17,14 +17,22 @@ impl Intensity {
     }
 }
 
-/// Budget = compact_threshold_tokens * 5 / 4 (matches existing wrap.rs math).
+/// Token budget for intensity/burn-rate math.
+///
+/// When `context_window_tokens` is configured (> 0), the budget IS the real
+/// host window — adaptive intensity then keys off measured context against
+/// the actual window (e.g. 200000, or 1000000 for a `[1m]` model). Otherwise
+/// falls back to the legacy `compact_threshold_tokens * 5 / 4` formula.
 pub fn budget(cfg: &Config) -> u64 {
+    if cfg.context_window_tokens > 0 {
+        return cfg.context_window_tokens;
+    }
     cfg.compact_threshold_tokens.saturating_mul(5) / 4
 }
 
-/// Fraction of budget at which Full graduates to Ultra. Default 80%.
-/// Overridable via `ultra_trigger_pct` in config.ini. Kept as pub constants
-/// for any callers that imported them by name before phase 5.
+/// Legacy constants kept for any callers that imported them by name before phase 5.
+/// The actual default trigger is 65% (`ultra_trigger_pct: 0.65` in Config).
+/// These values (80/100) were the original hardcoded threshold; prefer `cfg.ultra_trigger_pct`.
 pub const ULTRA_TRIGGER_NUM: u64 = 80;
 pub const ULTRA_TRIGGER_DEN: u64 = 100;
 
@@ -122,7 +130,7 @@ mod tests {
     #[test]
     fn adaptive_enabled_at_threshold_is_ultra() {
         let c = cfg();
-        // Exactly 80% — graduates to Ultra
+        // 80% of budget — past the 65% default threshold → Ultra
         let used = budget(&c) * 80 / 100;
         assert_eq!(derive(used, &c), Intensity::Ultra);
     }
@@ -145,6 +153,26 @@ mod tests {
         c.adaptive_intensity = false;
         assert_eq!(derive(0, &c), Intensity::Lite);
         assert_eq!(derive(budget(&c) * 5, &c), Intensity::Lite);
+    }
+
+    #[test]
+    fn window_override_replaces_budget_formula() {
+        let mut c = cfg();
+        c.context_window_tokens = 1_000_000;
+        assert_eq!(budget(&c), 1_000_000);
+        // 286K used on a 1M window: well below the 65% trigger → Full.
+        assert_eq!(derive(286_000, &c), Intensity::Full);
+        // 700K used (70%) → Ultra.
+        assert_eq!(derive(700_000, &c), Intensity::Ultra);
+    }
+
+    #[test]
+    fn real_context_beyond_legacy_budget_is_ultra() {
+        // Audit CF-1 regression: 286K measured context vs the default 112.5K
+        // budget must escalate to Ultra (the audited session never did,
+        // because squeez only saw its own ~5.7K of bash bytes).
+        let c = cfg();
+        assert_eq!(derive(286_000, &c), Intensity::Ultra);
     }
 
     #[test]

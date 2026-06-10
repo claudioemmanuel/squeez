@@ -49,6 +49,11 @@ fn line_has_error_marker(line: &str) -> bool {
         || line.contains("traceback")
         || line.contains("Exception")
         || line.contains("exception")
+        // Quota/plan-limit errors carry no error: prefix (e.g. "You've reached
+        // the tool call limit on the Starter plan") but must never classify
+        // the output as benign — they are DO-NOT-COMPRESS content the model
+        // needs verbatim to change strategy (transcript audit item 7).
+        || crate::context::cache::is_quota_error(line)
 }
 
 /// True iff the output contains zero error / failure / traceback markers.
@@ -261,6 +266,20 @@ mod tests {
 
         let with_failure: Vec<String> = vec!["test foo ... FAILED".into()];
         assert!(!is_benign(&with_failure));
+    }
+
+    #[test]
+    fn quota_limit_output_is_not_benign() {
+        // DO-NOT-COMPRESS (audit item 7): quota errors carry no error: prefix
+        // but must keep the eager threshold so they are never relaxed away.
+        let with_quota: Vec<String> = vec![
+            "fetching node 3109:86".into(),
+            "You've reached the Figma MCP tool call limit on the Starter plan.".into(),
+        ];
+        assert!(!is_benign(&with_quota));
+
+        let with_429: Vec<String> = vec!["HTTP 429 Too Many Requests".into()];
+        assert!(!is_benign(&with_429));
     }
 
     #[test]
