@@ -139,11 +139,21 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     }
 
     // 4. Print banner to stdout (SessionStart hook captures this as context)
-    let budget_k = config.compact_threshold_tokens * 5 / 4 / 1000;
+    // Window-aware budget (transcript audit CF-2): the audited session showed
+    // "~112K tokens" while running on a 1M-window model that reached 286K —
+    // when the user configures the real window, report it instead of the
+    // legacy compact-threshold formula.
+    let budget_k = crate::context::intensity::budget(&config) / 1000;
+    let budget_label = if config.context_window_tokens > 0 {
+        "Context window"
+    } else {
+        "Context budget"
+    };
     let summaries = memory::read_last_n(memory_dir, 3);
     println!("─── squeez active ─────────────────────────────────────────");
     println!(
-        "Context budget: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}",
+        "{}: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}",
+        budget_label,
         budget_k,
         persona::as_str(config.persona)
     );

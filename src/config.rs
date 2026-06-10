@@ -46,7 +46,7 @@ pub struct Config {
     pub mcp_prior_summaries_default: usize,
     /// Default `n` for `squeez_recent_calls` MCP tool (default 10).
     pub mcp_recent_calls_default: usize,
-    /// Calls remaining threshold for State-First Pattern warning (default 5).
+    /// Calls remaining threshold for State-First Pattern warning (default 10).
     pub state_warn_calls: u64,
     // ── Signature-mode (US-001) ─────────────────────────────────────────────
     /// Enable signature-mode compression for large code files (default true).
@@ -94,6 +94,22 @@ pub struct Config {
     /// Strip the verbose `"Here's the result of running cat -n on a snippet of
     /// the edited file:"` preamble from Edit/Write tool results. Default: true.
     pub strip_edit_preamble: bool,
+    // ── Real-context tracking (transcript audit CF-1/CF-2) ──────────────────
+    /// Host context window in tokens. When > 0 this replaces the
+    /// `compact_threshold_tokens * 5/4` budget formula so adaptive intensity
+    /// and burn-rate math are keyed to the real window (e.g. 200000, or
+    /// 1000000 for a `[1m]` model). 0 = keep the legacy formula. Default: 0.
+    pub context_window_tokens: u64,
+    /// Token threshold above which a sub-agent's returned result triggers a
+    /// warning suggesting the file + short-summary return pattern. A 24K-token
+    /// plan riding in the prefix for 100 turns costs ~2.4M cache-read tokens.
+    /// 0 = disabled. Default: 3000.
+    pub subagent_result_warn_tokens: usize,
+    /// Occurrence count at which a repeated quota/plan-limit error (e.g.
+    /// "rate limit", "upgrade your plan") triggers a stop-retrying warning.
+    /// Lower than `nudge_error_threshold` because quota errors are never
+    /// transient. 0 = disabled. Default: 2.
+    pub quota_error_threshold: u32,
 }
 
 impl Default for Config {
@@ -147,6 +163,9 @@ impl Default for Config {
             handler_stats_enabled: true,
             read_summarize_threshold_lines: 150,
             strip_edit_preamble: true,
+            context_window_tokens: 0,
+            subagent_result_warn_tokens: 3000,
+            quota_error_threshold: 2,
         }
     }
 }
@@ -274,6 +293,17 @@ impl Config {
                     }
                     "strip_edit_preamble" => c.strip_edit_preamble = v == "true",
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
+                    "context_window_tokens" => {
+                        c.context_window_tokens = v.parse().unwrap_or(c.context_window_tokens)
+                    }
+                    "subagent_result_warn_tokens" => {
+                        c.subagent_result_warn_tokens =
+                            v.parse().unwrap_or(c.subagent_result_warn_tokens)
+                    }
+                    "quota_error_threshold" => {
+                        c.quota_error_threshold =
+                            v.parse().unwrap_or(c.quota_error_threshold)
+                    }
                     _ => {}
                 }
             }

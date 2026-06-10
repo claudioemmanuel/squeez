@@ -7,6 +7,7 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::commands::wrap;
+use crate::config::Config;
 use crate::context::cache::SessionContext;
 use crate::session;
 
@@ -22,6 +23,10 @@ pub fn run(tool: &str) -> i32 {
 }
 
 pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
+    run_with_dir_cfg(tool, raw, sessions_dir, &Config::load())
+}
+
+pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config) -> i32 {
     if raw.trim().is_empty() {
         return 0;
     }
@@ -38,17 +43,43 @@ pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
 
     let mut ctx = SessionContext::load(sessions_dir);
 
+    // Real-context sync (transcript audit CF-1): the hook payload carries the
+    // session transcript path; its last assistant record's usage block is the
+    // measured context size. This is what lets adaptive intensity fire in
+    // MCP/image-heavy sessions whose tokens never pass through squeez.
+    if let Some(tp) = extract_string_field(raw, "transcript_path") {
+        let tp = unescape(&tp);
+        if let Some(tokens) = crate::context::transcript::last_context_tokens(Path::new(&tp)) {
+            ctx.real_ctx_tokens = tokens;
+        }
+    }
+
     // Bump the call counter for context tracking; tool calls advance state too.
     ctx.next_call_n();
 
-    // Files: from explicit fields + extracted from content
-    let mut files: Vec<String> = Vec::new();
+    // Explicit tool targets carry the tool's access semantics: an Edit/Write
+    // target is a WRITE. This powers the A2 stale-state guard in
+    // compress_output — a file flagged Write must never have its next re-read
+    // fuzzy-dropped (audit item 7).
+    let explicit_access = match tool {
+        "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => {
+            crate::context::cache::FileAccess::Write
+        }
+        _ => crate::context::cache::FileAccess::Read,
+    };
+    let mut explicit_paths: Vec<String> = Vec::new();
     if let Some(p) = file_path {
-        files.push(p);
+        explicit_paths.push(p);
     }
     if let Some(p) = path_arg {
-        files.push(p);
+        explicit_paths.push(p);
     }
+    for p in &explicit_paths {
+        ctx.note_file(p, explicit_access.clone());
+    }
+
+    // Files extracted from content body are reads.
+    let mut files: Vec<String> = Vec::new();
     if let Some(content) = content.as_deref() {
         let trimmed: String = content.chars().take(MAX_CONTENT_BYTES).collect();
         let mut paths = wrap::extract_file_paths(&trimmed);
@@ -57,12 +88,20 @@ pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
         if !errors.is_empty() {
             ctx.note_errors(&errors);
         }
+        // Quota/plan-limit escalation (CF-3): these errors rarely match the
+        // `error:`-prefix heuristics above (e.g. Figma's "You've reached the
+        // tool call limit on the Starter plan"), and they are never transient
+        // — retrying the same tool is guaranteed waste. Scan content directly.
+        crate::economy::nudge::note_quota_errors(&mut ctx, tool, &trimmed, cfg);
     }
     if let Some(_p) = pattern {
         // No-op: pattern alone isn't a file fingerprint, but we may want
         // to log it as a tool_artifacts event in the session log.
     }
 
+    // Content often re-mentions the explicit target (Edit preamble echoes the
+    // path); don't let a content-derived Read downgrade its Write flag.
+    files.retain(|p| !explicit_paths.contains(p));
     if !files.is_empty() {
         ctx.note_files(&files);
     }
@@ -72,6 +111,20 @@ pub fn run_with_dir(tool: &str, raw: &str, sessions_dir: &Path) -> i32 {
         let tokens = (c.len() / 4) as u64;
         if tokens > 0 {
             ctx.note_tool_tokens(tool, tokens);
+        }
+        // Sub-agent oversized-result guard (transcript audit OF-1): a large
+        // result returned into the parent rides in the prefix for every
+        // remaining turn. Audit case: one 24.5K-token plan ≈ 9% of all
+        // cache-read tokens for the session.
+        if tool == "SubagentStop"
+            && cfg.subagent_result_warn_tokens > 0
+            && tokens as usize > cfg.subagent_result_warn_tokens
+        {
+            ctx.queue_warning(&format!(
+                "sub-agent returned ~{}K tokens into the parent context — \
+                 prefer writing detail to a file and returning a ≤2K summary + path",
+                (tokens / 1000).max(1)
+            ));
         }
     }
 
@@ -202,6 +255,67 @@ mod tests {
         run_with_dir("Bash", json, &dir);
         let ctx = SessionContext::load(&dir);
         assert!(ctx.seen_files.iter().any(|f| f.path == "src/main.rs"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn transcript_path_syncs_real_context() {
+        let dir = tmp();
+        // Write a fake transcript whose last assistant turn shows 184_620 ctx.
+        let transcript = dir.join("session.jsonl");
+        std::fs::write(
+            &transcript,
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":120,"cache_read_input_tokens":180000,"cache_creation_input_tokens":4500}}}"#,
+        )
+        .unwrap();
+        let json = format!(
+            r#"{{"tool_name":"Read","transcript_path":"{}","tool_input":{{"file_path":"/tmp/foo.rs"}},"tool_result":{{"content":"x"}}}}"#,
+            transcript.display()
+        );
+        run_with_dir_cfg("Read", &json, &dir, &Config::default());
+        let ctx = SessionContext::load(&dir);
+        assert_eq!(ctx.real_ctx_tokens, 184_620);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn subagent_big_result_queues_warning() {
+        let dir = tmp();
+        let cfg = Config::default(); // subagent_result_warn_tokens = 3000
+        // ~16K chars ≈ 4K tokens > 3K threshold.
+        let big = "word ".repeat(3_300);
+        let json = format!(
+            r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
+            big.trim()
+        );
+        run_with_dir_cfg("SubagentStop", &json, &dir, &cfg);
+        let ctx = SessionContext::load(&dir);
+        assert_eq!(ctx.pending_warnings.len(), 1);
+        assert!(ctx.pending_warnings[0].contains("sub-agent returned"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn subagent_small_result_no_warning() {
+        let dir = tmp();
+        let cfg = Config::default();
+        let json = r#"{"tool_name":"SubagentStop","tool_result":{"content":"done: 3 files reviewed, no issues"}}"#;
+        run_with_dir_cfg("SubagentStop", json, &dir, &cfg);
+        let ctx = SessionContext::load(&dir);
+        assert!(ctx.pending_warnings.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_quota_error_queues_warning_on_second_hit() {
+        let dir = tmp();
+        let cfg = Config::default(); // quota_error_threshold = 2
+        let json = r#"{"tool_name":"mcp__plugin_figma_figma__get_screenshot","tool_result":{"content":"You've reached the Figma MCP tool call limit on the Starter plan."}}"#;
+        run_with_dir_cfg("mcp__plugin_figma_figma__get_screenshot", json, &dir, &cfg);
+        run_with_dir_cfg("mcp__plugin_figma_figma__get_screenshot", json, &dir, &cfg);
+        let ctx = SessionContext::load(&dir);
+        assert_eq!(ctx.pending_warnings.len(), 1);
+        assert!(ctx.pending_warnings[0].contains("stop retrying"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

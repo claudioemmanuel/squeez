@@ -167,6 +167,27 @@ pub struct SessionContext {
     /// `call_n` of the FIRST injection for each fingerprint (parallel to
     /// `skill_inject_fp`). Referenced in the `identical to Skill #N` note.
     pub skill_inject_call: Vec<u64>,
+    // ── Real-context tracking (transcript audit CF-1) ──────────────────────
+    /// Effective context tokens of the latest API turn, measured from the
+    /// host transcript's `message.usage` (input + cache_read + cache_creation).
+    /// 0 = never observed. Feeds adaptive intensity and burn-rate math so
+    /// they track the real context, not just squeez-processed bytes.
+    pub real_ctx_tokens: u64,
+    // ── Pending warnings (cross-invocation channel) ─────────────────────────
+    /// Warnings queued by observer paths that have no stdout channel into the
+    /// model's context (track-result, SubagentStop). Drained and printed as
+    /// `[squeez: …]` lines by the next `squeez wrap` invocation. Stored
+    /// bracket-free; brackets are added at drain time (the hand-rolled
+    /// str_array parser uses `]` as a terminator).
+    pub pending_warnings: Vec<String>,
+    // ── Image dedup (transcript audit item 3) ───────────────────────────────
+    /// FNV-1a-64 fingerprints of image payloads (base64 data) seen this
+    /// session. Session-long like the skill store: identical screenshots and
+    /// image re-reads recur at arbitrary distance, and the text-shingle path
+    /// cannot match base64. Parallel to `image_call`.
+    pub image_fp: Vec<u64>,
+    /// `call_n` of the FIRST sighting for each image fingerprint.
+    pub image_call: Vec<u64>,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -206,6 +227,10 @@ impl Default for SessionContext {
             nudged_keys: Vec::new(),
             skill_inject_fp: Vec::new(),
             skill_inject_call: Vec::new(),
+            real_ctx_tokens: 0,
+            pending_warnings: Vec::new(),
+            image_fp: Vec::new(),
+            image_call: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -297,6 +322,48 @@ impl SessionContext {
         self.skill_inject_fp.push(fp);
         self.skill_inject_call.push(call_n);
         call_n
+    }
+
+    /// Session-long lookup for a previously-seen image payload by fingerprint.
+    /// Returns the `call_n` of the first sighting on an exact hit.
+    pub fn image_dedup_lookup(&self, fp: u64) -> Option<u64> {
+        self.image_fp
+            .iter()
+            .position(|&f| f == fp)
+            .map(|i| self.image_call[i])
+    }
+
+    /// Record an image payload fingerprint and return the assigned `call_n`.
+    pub fn image_dedup_record(&mut self, fp: u64) -> u64 {
+        let call_n = self.next_call_n();
+        self.image_fp.push(fp);
+        self.image_call.push(call_n);
+        call_n
+    }
+
+    /// Queue a warning for the next `squeez wrap` invocation to print.
+    /// `msg` must be bracket-free (brackets are added at drain time).
+    /// Deduplicates exact repeats so a hot path can't flood the queue.
+    pub fn queue_warning(&mut self, msg: &str) {
+        let clean: String = msg
+            .chars()
+            .map(|c| match c {
+                '[' => '(',
+                ']' => ')',
+                _ => c,
+            })
+            .collect();
+        if !self.pending_warnings.iter().any(|w| w == &clean) {
+            self.pending_warnings.push(clean);
+        }
+    }
+
+    /// Drain queued warnings, formatted as `[squeez: …]` lines.
+    pub fn drain_warnings(&mut self) -> Vec<String> {
+        self.pending_warnings
+            .drain(..)
+            .map(|w| format!("[squeez: {}]", w))
+            .collect()
     }
 
     pub fn record_call(
@@ -630,6 +697,24 @@ pub fn raw_read_hint(ctx: &SessionContext, cmd: &str) -> Option<String> {
     None
 }
 
+// ── Quota / plan-limit error detection ─────────────────────────────────────
+
+/// True when an error message indicates a quota, rate, or plan limit — a
+/// class of error that is never transient, so retrying the same tool is
+/// guaranteed waste (transcript audit CF-3: three more Figma calls were
+/// issued after a hard "tool call limit on the Starter plan" error).
+pub fn is_quota_error(s: &str) -> bool {
+    let l = s.to_lowercase();
+    l.contains("rate limit")
+        || l.contains("ratelimit")
+        || l.contains("quota")
+        || l.contains("call limit")
+        || l.contains("usage limit")
+        || l.contains("upgrade your plan")
+        || l.contains("too many requests")
+        || l.contains("plan limit")
+}
+
 // ── Error normalization ────────────────────────────────────────────────────
 
 /// Normalize an error string before hashing for fingerprinting:
@@ -764,7 +849,9 @@ impl SessionContext {
 \"file_mod_path\":{},\"file_mod_n\":{},\
 \"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
 \"nudged_keys\":{},\
-\"skill_inject_fp\":{},\"skill_inject_call\":{}}}",
+\"skill_inject_fp\":{},\"skill_inject_call\":{},\
+\"real_ctx_tokens\":{},\"pending_warnings\":{},\
+\"image_fp\":{},\"image_call\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -808,6 +895,10 @@ impl SessionContext {
             json_util::str_array(&self.nudged_keys),
             json_util::u64_array(&self.skill_inject_fp),
             json_util::u64_array(&self.skill_inject_call),
+            self.real_ctx_tokens,
+            json_util::str_array(&self.pending_warnings),
+            json_util::u64_array(&self.image_fp),
+            json_util::u64_array(&self.image_call),
         )
     }
 
@@ -960,6 +1051,16 @@ impl SessionContext {
         c.skill_inject_fp = si_fp.iter().take(si_len).copied().collect();
         c.skill_inject_call = si_call.iter().take(si_len).copied().collect();
 
+        // Real-context + pending warnings + image dedup — optional for
+        // backward compat with older context.json files.
+        c.real_ctx_tokens = json_util::map_u64(&map, "real_ctx_tokens").unwrap_or(0);
+        c.pending_warnings = json_util::map_str_array(&map, "pending_warnings");
+        let im_fp = json_util::map_u64_array(&map, "image_fp");
+        let im_call = json_util::map_u64_array(&map, "image_call");
+        let im_len = im_fp.len().min(im_call.len());
+        c.image_fp = im_fp.iter().take(im_len).copied().collect();
+        c.image_call = im_call.iter().take(im_len).copied().collect();
+
         c
     }
 }
@@ -984,6 +1085,52 @@ mod tests {
         let call_n = c.skill_dedup_record(0xDEADBEEF);
         let restored = SessionContext::from_json(&c.to_json());
         assert_eq!(restored.skill_dedup_lookup(0xDEADBEEF), Some(call_n));
+    }
+
+    #[test]
+    fn image_dedup_lookup_and_roundtrip() {
+        let mut c = SessionContext::default();
+        assert_eq!(c.image_dedup_lookup(0x1111), None);
+        let call_n = c.image_dedup_record(0x1111);
+        assert_eq!(c.image_dedup_lookup(0x1111), Some(call_n));
+        let restored = SessionContext::from_json(&c.to_json());
+        assert_eq!(restored.image_dedup_lookup(0x1111), Some(call_n));
+    }
+
+    #[test]
+    fn real_ctx_tokens_survives_roundtrip() {
+        let mut c = SessionContext::default();
+        c.real_ctx_tokens = 286_129;
+        let restored = SessionContext::from_json(&c.to_json());
+        assert_eq!(restored.real_ctx_tokens, 286_129);
+    }
+
+    #[test]
+    fn queue_warning_sanitizes_dedups_and_drains() {
+        let mut c = SessionContext::default();
+        c.queue_warning("limit hit [tool] retry");
+        c.queue_warning("limit hit [tool] retry"); // exact repeat → dropped
+        c.queue_warning("other warning");
+        // Brackets sanitized so the str_array parser round-trips safely.
+        let restored = SessionContext::from_json(&c.to_json());
+        assert_eq!(restored.pending_warnings.len(), 2);
+        let mut r = restored;
+        let drained = r.drain_warnings();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0], "[squeez: limit hit (tool) retry]");
+        assert!(r.pending_warnings.is_empty());
+    }
+
+    #[test]
+    fn quota_error_detection() {
+        assert!(is_quota_error(
+            "You've reached the Figma MCP tool call limit on the Starter plan. Upgrade your plan for more."
+        ));
+        assert!(is_quota_error("429 Too Many Requests"));
+        assert!(is_quota_error("API rate limit exceeded"));
+        assert!(is_quota_error("monthly quota exhausted"));
+        assert!(!is_quota_error("error: cannot find symbol"));
+        assert!(!is_quota_error("test result: ok. 5 passed"));
     }
 
     #[test]

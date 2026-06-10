@@ -17,17 +17,26 @@ pub fn calls_remaining(ctx: &SessionContext, cfg: &Config) -> Option<u64> {
     if ctx.burn_window.len() < MIN_WINDOW_FOR_PREDICTION {
         return None;
     }
-    let total: u64 = ctx.burn_window.iter().map(|e| e.tokens).sum();
-    let avg = total / ctx.burn_window.len() as u64;
-    if avg == 0 {
+    // Median per-call cost rather than mean: a window mixing 0-token calls
+    // with one large output makes the mean estimate swing wildly between
+    // invocations (transcript audit CF-2 observed 688 → 2245 → 2807 within
+    // minutes). The median is stable against those outliers.
+    let mut sizes: Vec<u64> = ctx.burn_window.iter().map(|e| e.tokens).collect();
+    sizes.sort_unstable();
+    let per_call = sizes[sizes.len() / 2];
+    if per_call == 0 {
+        // Mostly-empty window — no reliable estimate (mirrors the old avg==0 guard).
         return None;
     }
-    let budget = cfg.compact_threshold_tokens * 5 / 4;
-    let used = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
+    let budget = crate::context::intensity::budget(cfg);
+    // Real measured context (when observed) is authoritative over squeez's
+    // own byte counters, which miss MCP/image traffic entirely (CF-1).
+    let counted = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_grep + ctx.tokens_other;
+    let used = counted.max(ctx.real_ctx_tokens);
     if used >= budget {
         return Some(0);
     }
-    Some((budget - used) / avg)
+    Some((budget - used) / per_call)
 }
 
 /// Returns a warning string when calls_remaining drops below the configured
@@ -126,5 +135,57 @@ mod tests {
     #[test]
     fn format_header() {
         assert_eq!(format_pressure_header(42), "[budget: ~42 calls left]");
+    }
+
+    #[test]
+    fn median_is_stable_against_outliers() {
+        // Audit CF-2 regression: a window of tiny calls plus one huge output
+        // made the mean-based estimate swing wildly (688 → 2245 → 2807).
+        // Median per-call cost must not move when one outlier joins.
+        let mut ctx = SessionContext::default();
+        let cfg = Config::default();
+        for i in 1..=5 {
+            ctx.burn_window.push(BurnEntry { call_n: i, tokens: 100, ts: 0 });
+        }
+        let before = calls_remaining(&ctx, &cfg).unwrap();
+        ctx.burn_window.push(BurnEntry { call_n: 6, tokens: 50_000, ts: 0 });
+        let after = calls_remaining(&ctx, &cfg).unwrap();
+        // Median stays 100 → estimate unchanged (mean would have ~89×'d the cost).
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn real_context_overrides_squeez_counters() {
+        // CF-1: measured context (286K) beyond budget → 0 calls left, even
+        // when squeez's own counters saw almost nothing.
+        let mut ctx = SessionContext::default();
+        let cfg = Config::default(); // budget 112_500
+        ctx.tokens_bash = 5_000;
+        ctx.real_ctx_tokens = 286_000;
+        for i in 1..=3 {
+            ctx.burn_window.push(BurnEntry { call_n: i, tokens: 1000, ts: 0 });
+        }
+        assert_eq!(calls_remaining(&ctx, &cfg).unwrap(), 0);
+    }
+
+    #[test]
+    fn grep_tokens_count_toward_used() {
+        let mut ctx = SessionContext::default();
+        let cfg = Config::default();
+        ctx.tokens_grep = 112_500; // entire budget consumed via Grep
+        for i in 1..=3 {
+            ctx.burn_window.push(BurnEntry { call_n: i, tokens: 1000, ts: 0 });
+        }
+        assert_eq!(calls_remaining(&ctx, &cfg).unwrap(), 0);
+    }
+
+    #[test]
+    fn all_zero_window_returns_none() {
+        let mut ctx = SessionContext::default();
+        let cfg = Config::default();
+        for i in 1..=5 {
+            ctx.burn_window.push(BurnEntry { call_n: i, tokens: 0, ts: 0 });
+        }
+        assert!(calls_remaining(&ctx, &cfg).is_none());
     }
 }

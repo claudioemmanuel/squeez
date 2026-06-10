@@ -44,6 +44,15 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         return None;
     }
 
+    // Image payloads (Read of an image file, MCP screenshots) carry base64 in
+    // a "data" field and no text content, so the text paths below never see
+    // them — the audited session emitted zero dedup markers across repeated
+    // identical screenshots. Byte-identical images already in context are safe
+    // to omit (transcript audit item 3); near-identical ones are not.
+    if let Some(rewrite) = image_dedup(raw, sessions_dir, cfg) {
+        return Some(rewrite);
+    }
+
     let raw_content = extract_content(raw).filter(|c| !c.trim().is_empty())?;
     let raw_content: String = raw_content.chars().take(MAX_CONTENT_BYTES).collect();
 
@@ -94,30 +103,58 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         return None;
     }
 
+    // A2 stale-state guard (audit item 7): the latest read of a file that was
+    // edited since squeez last saw it must reach the model intact. A fuzzy
+    // (~similar) match against the PRE-edit read would drop exactly the new
+    // content the model needs. Byte-identical matches stay safe — identical
+    // bytes mean nothing changed. Requires posttooluse.sh to run
+    // compress-output BEFORE track-result, so the Write flag set by the Edit
+    // is still visible here.
+    let edited_since_seen = extract_string_field(raw, "file_path")
+        .map(|p| unescape(&p))
+        .map(|p| {
+            ctx.seen_files.iter().any(|f| {
+                f.path == p
+                    && matches!(
+                        f.access,
+                        context::cache::FileAccess::Write | context::cache::FileAccess::Created
+                    )
+            })
+        })
+        .unwrap_or(false);
+
     // Redundancy check: if we've seen this content before, replace with a note.
     if cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
-            let note = match hit.similarity {
-                None => format!(
-                    "[squeez: identical to {} #{} — output omitted]",
-                    tool, hit.call_n
-                ),
-                Some(j) => format!(
-                    "[squeez: ~{}% similar to {} #{} — re-read if needed]",
-                    (j * 100.0).round() as u32,
-                    tool,
-                    hit.call_n
-                ),
-            };
-            ctx.exact_dedup_hits += 1;
-            ctx.save(sessions_dir);
-            return Some(note);
+            let fuzzy_blocked = hit.similarity.is_some() && edited_since_seen;
+            if !fuzzy_blocked {
+                let note = match hit.similarity {
+                    None => format!(
+                        "[squeez: identical to {} #{} — output omitted]",
+                        tool, hit.call_n
+                    ),
+                    Some(j) => format!(
+                        "[squeez: ~{}% similar to {} #{} — re-read if needed]",
+                        (j * 100.0).round() as u32,
+                        tool,
+                        hit.call_n
+                    ),
+                };
+                ctx.exact_dedup_hits += 1;
+                ctx.save(sessions_dir);
+                return Some(note);
+            }
         }
     }
 
     // Large benign outputs get summarized (Skill is handled earlier via the
-    // session-long dedup store and never reaches here).
-    let rewritten = if context::summarize::should_apply_for_tool(&lines, cfg, tool) {
+    // session-long dedup store and never reaches here). MCP results are
+    // dedup-only: they are structured payloads (JSON, DOM snapshots) that the
+    // log-oriented summarizer would corrupt, so they participate in the
+    // redundancy check above but are never summarized (audit item 2 — track
+    // and dedupe MCP traffic, leave first-sight content intact).
+    let is_mcp = tool.starts_with("mcp__");
+    let rewritten = if !is_mcp && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
             Some(summary.join("\n"))
@@ -135,6 +172,49 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     }
 
     rewritten
+}
+
+/// Session-long exact-hash dedup for image payloads. Returns the replacement
+/// note when this exact image (by base64 fingerprint) was already seen this
+/// session; records it otherwise. Only byte-identical payloads are replaced —
+/// a re-render that differs by one pixel hashes differently and passes through.
+fn image_dedup(raw: &str, sessions_dir: &Path, cfg: &Config) -> Option<String> {
+    if !cfg.redundancy_cache_enabled {
+        return None;
+    }
+    let data = extract_image_data(raw)?;
+    let fp = crate::context::hash::fnv1a_64(data.as_bytes());
+    let mut ctx = context::cache::SessionContext::load(sessions_dir);
+    if let Some(call_n) = ctx.image_dedup_lookup(fp) {
+        ctx.exact_dedup_hits += 1;
+        ctx.save(sessions_dir);
+        return Some(format!(
+            "[squeez: identical image to result #{call_n} (already in context) — omitted]"
+        ));
+    }
+    ctx.image_dedup_record(fp);
+    ctx.save(sessions_dir);
+    None
+}
+
+/// Extract a base64 image payload from an image content block
+/// (`{"type":"image","source":{"type":"base64","data":"…"}}`). Requires a
+/// plausibly-image-sized base64 run (≥1 KB) of strict base64 charset so that
+/// ordinary short "data" string fields never match.
+fn extract_image_data(raw: &str) -> Option<&str> {
+    let idx = raw.find("\"data\":")?;
+    let after = raw[idx + 7..].trim_start();
+    let stripped = after.strip_prefix('"')?;
+    let end = stripped.find('"')?;
+    let data = &stripped[..end];
+    let is_b64 = data
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=');
+    if data.len() >= 1024 && is_b64 {
+        Some(data)
+    } else {
+        None
+    }
 }
 
 /// Compress the Edit/Write tool preamble. Claude Code emits the boilerplate
@@ -289,6 +369,130 @@ mod tests {
         let json = r#"{"tool_name":"Read","tool_result":{"content":"hello world"}}"#;
         // Small content: no redundancy hit, no summarize → exit 0, no stdout
         assert_eq!(run_with(json, "Read", &dir, &cfg), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn image_json(seed: char) -> String {
+        // ≥1KB strict-base64 payload inside an image content block.
+        let data: String = std::iter::repeat(seed).take(2048).collect();
+        format!(
+            r#"{{"tool_name":"mcp__chrome-devtools__take_screenshot","tool_result":{{"content":[{{"type":"image","source":{{"type":"base64","media_type":"image/jpeg","data":"{}"}}}}]}}}}"#,
+            data
+        )
+    }
+
+    #[test]
+    fn identical_image_deduped_on_second_sight() {
+        let dir = tmp();
+        let cfg = Config::default();
+        let json = image_json('A');
+        // First sight: recorded, passed through unchanged.
+        assert_eq!(compute_rewrite(&json, "mcp__chrome-devtools__take_screenshot", &dir, &cfg), None);
+        // Second identical payload: replaced with the dedup note.
+        let rewrite = compute_rewrite(&json, "mcp__chrome-devtools__take_screenshot", &dir, &cfg);
+        let note = rewrite.expect("identical image should dedup");
+        assert!(note.contains("identical image"), "note: {}", note);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn different_images_never_dedup() {
+        let dir = tmp();
+        let cfg = Config::default();
+        assert_eq!(compute_rewrite(&image_json('A'), "Read", &dir, &cfg), None);
+        // One-char class difference → different fingerprint → pass through.
+        assert_eq!(compute_rewrite(&image_json('B'), "Read", &dir, &cfg), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn short_data_field_is_not_an_image() {
+        // Ordinary "data" string fields must never trigger the image path.
+        let raw = r#"{"tool_result":{"content":"x"},"data":"abc123"}"#;
+        assert!(extract_image_data(raw).is_none());
+    }
+
+    #[test]
+    fn fuzzy_dedup_blocked_for_edited_file() {
+        use crate::context::cache::{FileAccess, SessionContext};
+        let dir = tmp();
+        let cfg = Config::default();
+
+        // 40 lines of content, recorded as a prior Read.
+        let original: Vec<String> = (0..40).map(|i| format!("line {} alpha beta gamma", i)).collect();
+        let mut ctx = SessionContext::load(&dir);
+        ctx.init_tunables_from_config(&cfg);
+        crate::context::redundancy::record(&mut ctx, "Read", &original);
+        // The file was then edited → Write flag.
+        ctx.note_file("/tmp/a2/edited.rs", FileAccess::Write);
+        ctx.save(&dir);
+
+        // Re-read after the edit: one line changed → fuzzy-similar, not identical.
+        let mut edited = original.clone();
+        edited[20] = "line 20 CHANGED delta".to_string();
+        let json = format!(
+            r#"{{"tool_name":"Read","tool_input":{{"file_path":"/tmp/a2/edited.rs"}},"tool_result":{{"content":"{}"}}}}"#,
+            edited.join("\\n")
+        );
+        let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
+        // A2 guard: the post-edit read must reach the model intact.
+        assert!(
+            rewrite.is_none() || !rewrite.as_deref().unwrap_or("").contains("similar"),
+            "fuzzy dedup must not drop the latest read of an edited file: {:?}",
+            rewrite
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fuzzy_dedup_allowed_for_unedited_file() {
+        use crate::context::cache::SessionContext;
+        let dir = tmp();
+        let cfg = Config::default();
+
+        let original: Vec<String> = (0..40).map(|i| format!("line {} alpha beta gamma", i)).collect();
+        let mut ctx = SessionContext::load(&dir);
+        ctx.init_tunables_from_config(&cfg);
+        crate::context::redundancy::record(&mut ctx, "Read", &original);
+        ctx.save(&dir);
+
+        // Same near-identical re-read, but the file was never edited →
+        // fuzzy dedup stays active (this is the waste case it exists for).
+        let mut similar = original.clone();
+        similar[20] = "line 20 CHANGED delta".to_string();
+        let json = format!(
+            r#"{{"tool_name":"Read","tool_input":{{"file_path":"/tmp/a2/unedited.rs"}},"tool_result":{{"content":"{}"}}}}"#,
+            similar.join("\\n")
+        );
+        let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
+        assert!(
+            rewrite.as_deref().map(|r| r.contains("similar")).unwrap_or(false),
+            "fuzzy dedup should fire for unedited files: {:?}",
+            rewrite
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_results_are_never_summarized() {
+        let dir = tmp();
+        let mut cfg = Config::default();
+        cfg.summarize_threshold_lines = 10;
+        cfg.read_summarize_threshold_lines = 10;
+        // 400 distinct benign lines — far past any summarize threshold.
+        let body: String = (0..400)
+            .map(|i| format!("row {} value {}", i, i * 7))
+            .collect::<Vec<_>>()
+            .join("\\n");
+        let json = format!(
+            r#"{{"tool_name":"mcp__db__query","tool_result":{{"content":"{}"}}}}"#,
+            body
+        );
+        // MCP: dedup-only — first sight must pass through unsummarized.
+        assert_eq!(compute_rewrite(&json, "mcp__db__query", &dir, &cfg), None);
+        // Identical second result still dedups via the redundancy store.
+        let second = compute_rewrite(&json, "mcp__db__query", &dir, &cfg);
+        assert!(second.is_some(), "identical MCP result should dedup");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

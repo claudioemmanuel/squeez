@@ -87,6 +87,45 @@ pub fn evaluate(
     hints
 }
 
+/// Detect quota/plan-limit error lines in tool output, bump the recurrence
+/// counter, and queue a stop-retrying warning once `quota_error_threshold`
+/// is reached (transcript audit CF-3). Unlike the generic error nudge above,
+/// this scans raw content — quota errors rarely carry an `error:` prefix
+/// (e.g. Figma's "You've reached the tool call limit on the Starter plan") —
+/// and fires at a lower threshold because the error class is never transient.
+/// The warning is queued on `ctx` and printed by the next `squeez wrap`.
+/// Fires at most once per error fingerprint per session.
+pub fn note_quota_errors(
+    ctx: &mut SessionContext,
+    tool: &str,
+    content: &str,
+    cfg: &Config,
+) {
+    if cfg.quota_error_threshold == 0 {
+        return;
+    }
+    let Some(line) = content
+        .lines()
+        .find(|l| crate::context::cache::is_quota_error(l))
+    else {
+        return;
+    };
+    let normalized = crate::context::cache::normalize_error(line);
+    let fp = fnv1a_64(normalized.as_bytes());
+    let count = ctx.bump_error_count(fp);
+    if count >= cfg.quota_error_threshold {
+        let key = format!("quota:{:016x}", fp);
+        if ctx.mark_nudged(&key) {
+            let snippet: String = line.trim().chars().take(80).collect();
+            ctx.queue_warning(&format!(
+                "quota/plan-limit error seen ×{} via {}: \"{}\" — this error is not \
+                 transient; stop retrying this tool and switch strategy",
+                count, tool, snippet
+            ));
+        }
+    }
+}
+
 /// Strip path prefix and return the first whitespace-separated token of `cmd`.
 /// `/usr/local/bin/cargo test` → `cargo`. Returns None for empty input.
 fn first_token(cmd: &str) -> Option<&str> {
@@ -229,6 +268,55 @@ mod tests {
         assert_eq!(first_token("/usr/local/bin/cargo test"), Some("cargo"));
         assert_eq!(first_token("cargo"), Some("cargo"));
         assert_eq!(first_token(""), None);
+    }
+
+    #[test]
+    fn quota_error_warns_at_threshold_once() {
+        let mut c = ctx();
+        let cfg = cfg(); // quota_error_threshold = 2
+        let content = "You've reached the Figma MCP tool call limit on the Starter plan.";
+        // 1st sighting: counted, no warning.
+        note_quota_errors(&mut c, "mcp__figma__get_screenshot", content, &cfg);
+        assert!(c.pending_warnings.is_empty());
+        // 2nd sighting: warning queued.
+        note_quota_errors(&mut c, "mcp__figma__get_screenshot", content, &cfg);
+        assert_eq!(c.pending_warnings.len(), 1);
+        assert!(c.pending_warnings[0].contains("stop retrying"));
+        assert!(c.pending_warnings[0].contains("×2"));
+        // 3rd+: never repeats.
+        note_quota_errors(&mut c, "mcp__figma__get_screenshot", content, &cfg);
+        assert_eq!(c.pending_warnings.len(), 1);
+    }
+
+    #[test]
+    fn quota_warning_collapses_variant_messages() {
+        // Same limit error with different digits/paths → one fingerprint.
+        let mut c = ctx();
+        let cfg = cfg();
+        note_quota_errors(&mut c, "Bash", "rate limit: retry after 30s", &cfg);
+        note_quota_errors(&mut c, "Bash", "rate limit: retry after 60s", &cfg);
+        assert_eq!(c.pending_warnings.len(), 1);
+    }
+
+    #[test]
+    fn non_quota_content_never_warns() {
+        let mut c = ctx();
+        let cfg = cfg();
+        for _ in 0..5 {
+            note_quota_errors(&mut c, "Bash", "error: type mismatch in main.rs", &cfg);
+        }
+        assert!(c.pending_warnings.is_empty());
+    }
+
+    #[test]
+    fn quota_disabled_via_zero_threshold() {
+        let mut c = ctx();
+        let mut cfg = cfg();
+        cfg.quota_error_threshold = 0;
+        for _ in 0..5 {
+            note_quota_errors(&mut c, "Bash", "rate limit exceeded", &cfg);
+        }
+        assert!(c.pending_warnings.is_empty());
     }
 
     #[test]
