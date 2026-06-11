@@ -110,6 +110,22 @@ pub struct Config {
     /// Lower than `nudge_error_threshold` because quota errors are never
     /// transient. 0 = disabled. Default: 2.
     pub quota_error_threshold: u32,
+    // ── Workflow abuse prevention (audit findings) ───────────────────────────
+    /// Seconds of inactivity before warning that the 5-min ephemeral cache may
+    /// have expired. Warn at 4.5 min so the user can act before the rebuild hits.
+    /// 0 = disabled. Default: 270.
+    pub cache_idle_warn_secs: u64,
+    /// Time window (seconds) for detecting parallel-agent bursts. Default: 120.
+    pub parallel_agent_burst_window_secs: u64,
+    /// Number of agents spawned within `parallel_agent_burst_window_secs` that
+    /// triggers a budget warning. Default: 5.
+    pub parallel_agent_burst_threshold: usize,
+    /// Cumulative subagent output tokens at which a total-cost warning fires
+    /// for the session. 0 = disabled. Default: 50_000.
+    pub subagent_total_warn_tokens: u64,
+    /// Tool calls per 60-second window that triggers a high-call-rate warning.
+    /// Detects runaway agent loops. 0 = disabled. Default: 20.
+    pub call_rate_warn_per_min: u32,
 }
 
 impl Default for Config {
@@ -166,6 +182,11 @@ impl Default for Config {
             context_window_tokens: 0,
             subagent_result_warn_tokens: 3000,
             quota_error_threshold: 2,
+            cache_idle_warn_secs: 270,
+            parallel_agent_burst_window_secs: 120,
+            parallel_agent_burst_threshold: 5,
+            subagent_total_warn_tokens: 50_000,
+            call_rate_warn_per_min: 20,
         }
     }
 }
@@ -303,6 +324,26 @@ impl Config {
                     "quota_error_threshold" => {
                         c.quota_error_threshold =
                             v.parse().unwrap_or(c.quota_error_threshold)
+                    }
+                    "cache_idle_warn_secs" => {
+                        c.cache_idle_warn_secs =
+                            v.parse().unwrap_or(c.cache_idle_warn_secs)
+                    }
+                    "parallel_agent_burst_window_secs" => {
+                        c.parallel_agent_burst_window_secs =
+                            v.parse().unwrap_or(c.parallel_agent_burst_window_secs)
+                    }
+                    "parallel_agent_burst_threshold" => {
+                        c.parallel_agent_burst_threshold =
+                            v.parse().unwrap_or(c.parallel_agent_burst_threshold)
+                    }
+                    "subagent_total_warn_tokens" => {
+                        c.subagent_total_warn_tokens =
+                            v.parse().unwrap_or(c.subagent_total_warn_tokens)
+                    }
+                    "call_rate_warn_per_min" => {
+                        c.call_rate_warn_per_min =
+                            v.parse().unwrap_or(c.call_rate_warn_per_min)
                     }
                     _ => {}
                 }

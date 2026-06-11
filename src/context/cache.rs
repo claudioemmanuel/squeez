@@ -173,6 +173,15 @@ pub struct SessionContext {
     /// 0 = never observed. Feeds adaptive intensity and burn-rate math so
     /// they track the real context, not just squeez-processed bytes.
     pub real_ctx_tokens: u64,
+    /// `cache_read_input_tokens` of the latest measured API turn. Used to
+    /// compute the cache-read:I/O ratio for context-leak detection (G1).
+    /// 0 = not yet measured.
+    pub real_cache_read_tokens: u64,
+    // ── Call-rate spike detection (G2) ──────────────────────────────────────
+    /// How many track_result calls have been observed in the current 60s window.
+    pub calls_this_minute: u32,
+    /// Unix timestamp of the start of the current 60-second measurement window.
+    pub calls_minute_ts: u64,
     // ── Pending warnings (cross-invocation channel) ─────────────────────────
     /// Warnings queued by observer paths that have no stdout channel into the
     /// model's context (track-result, SubagentStop). Drained and printed as
@@ -188,6 +197,17 @@ pub struct SessionContext {
     pub image_fp: Vec<u64>,
     /// `call_n` of the FIRST sighting for each image fingerprint.
     pub image_call: Vec<u64>,
+    // ── Workflow abuse prevention ────────────────────────────────────────────
+    /// Unix timestamp of the last track_result call. Used to detect idle
+    /// periods where the 5-min ephemeral cache may have expired. 0 = no
+    /// activity recorded yet (skip warning on fresh session).
+    pub last_activity_ts: u64,
+    /// Files seen per sub-agent: parallel arrays of agent_id and `;`-joined
+    /// file-path lists. Bounded at MAX_AGENT_SPAWN_LOG (16) entries; oldest
+    /// entry is evicted when the cap is reached. Used to detect cross-agent
+    /// duplicate reads across sibling agents in the same workflow.
+    pub subagent_file_map_ids: Vec<String>,
+    pub subagent_file_map_paths: Vec<String>, // `;`-joined paths per entry
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -228,9 +248,15 @@ impl Default for SessionContext {
             skill_inject_fp: Vec::new(),
             skill_inject_call: Vec::new(),
             real_ctx_tokens: 0,
+            real_cache_read_tokens: 0,
+            calls_this_minute: 0,
+            calls_minute_ts: 0,
             pending_warnings: Vec::new(),
             image_fp: Vec::new(),
             image_call: Vec::new(),
+            last_activity_ts: 0,
+            subagent_file_map_ids: Vec::new(),
+            subagent_file_map_paths: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -644,6 +670,19 @@ impl SessionContext {
         }
     }
 
+    /// Update the 60-second rolling call counter and return the current calls/min.
+    /// Resets the window when >60s have elapsed since `calls_minute_ts`.
+    pub fn tick_call_rate(&mut self) -> u32 {
+        let now = crate::session::unix_now();
+        if self.calls_minute_ts == 0 || now.saturating_sub(self.calls_minute_ts) >= 60 {
+            self.calls_minute_ts = now;
+            self.calls_this_minute = 1;
+        } else {
+            self.calls_this_minute = self.calls_this_minute.saturating_add(1);
+        }
+        self.calls_this_minute
+    }
+
     /// Mark a nudge key as already emitted. Returns true if newly inserted
     /// (i.e. the caller should print the nudge), false if it was already there.
     pub fn mark_nudged(&mut self, key: &str) -> bool {
@@ -669,6 +708,52 @@ impl SessionContext {
             .iter()
             .find(|f| f.path == path)
             .map(|f| f.last_seen_call)
+    }
+
+    /// Record files read by `agent_id` and return any paths that were already
+    /// seen by a **different** agent in this session (cross-agent dup reads).
+    /// The map is bounded at `MAX_AGENT_SPAWN_LOG` entries; the oldest is evicted
+    /// when full. Empty `agent_id` is a no-op (returns empty).
+    pub fn note_subagent_files(&mut self, agent_id: &str, paths: &[String]) -> Vec<String> {
+        if agent_id.is_empty() || paths.is_empty() {
+            return Vec::new();
+        }
+        // Collect dups: paths already recorded by any different agent.
+        let dups: Vec<String> = paths
+            .iter()
+            .filter(|p| {
+                self.subagent_file_map_ids
+                    .iter()
+                    .zip(self.subagent_file_map_paths.iter())
+                    .any(|(id, joined)| {
+                        id != agent_id
+                            && joined.split(';').any(|f| f == p.as_str())
+                    })
+            })
+            .cloned()
+            .collect();
+
+        // Merge into existing entry or create a new one.
+        if let Some(idx) = self.subagent_file_map_ids.iter().position(|id| id == agent_id) {
+            let existing = &mut self.subagent_file_map_paths[idx];
+            for p in paths {
+                let already = existing.split(';').any(|f| f == p.as_str());
+                if !already {
+                    if !existing.is_empty() {
+                        existing.push(';');
+                    }
+                    existing.push_str(p);
+                }
+            }
+        } else {
+            if self.subagent_file_map_ids.len() >= MAX_AGENT_SPAWN_LOG {
+                self.subagent_file_map_ids.remove(0);
+                self.subagent_file_map_paths.remove(0);
+            }
+            self.subagent_file_map_ids.push(agent_id.to_string());
+            self.subagent_file_map_paths.push(paths.join(";"));
+        }
+        dups
     }
 }
 
@@ -850,8 +935,9 @@ impl SessionContext {
 \"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
 \"nudged_keys\":{},\
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
-\"real_ctx_tokens\":{},\"pending_warnings\":{},\
-\"image_fp\":{},\"image_call\":{}}}",
+\"real_ctx_tokens\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
+\"image_fp\":{},\"image_call\":{},\
+\"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -896,9 +982,15 @@ impl SessionContext {
             json_util::u64_array(&self.skill_inject_fp),
             json_util::u64_array(&self.skill_inject_call),
             self.real_ctx_tokens,
+            self.real_cache_read_tokens,
+            self.calls_this_minute,
+            self.calls_minute_ts,
             json_util::str_array(&self.pending_warnings),
             json_util::u64_array(&self.image_fp),
             json_util::u64_array(&self.image_call),
+            self.last_activity_ts,
+            json_util::str_array(&self.subagent_file_map_ids),
+            json_util::str_array(&self.subagent_file_map_paths),
         )
     }
 
@@ -1054,12 +1146,23 @@ impl SessionContext {
         // Real-context + pending warnings + image dedup — optional for
         // backward compat with older context.json files.
         c.real_ctx_tokens = json_util::map_u64(&map, "real_ctx_tokens").unwrap_or(0);
+        c.real_cache_read_tokens = json_util::map_u64(&map, "real_cache_read_tokens").unwrap_or(0);
+        c.calls_this_minute = json_util::map_u64(&map, "calls_this_minute").unwrap_or(0) as u32;
+        c.calls_minute_ts = json_util::map_u64(&map, "calls_minute_ts").unwrap_or(0);
         c.pending_warnings = json_util::map_str_array(&map, "pending_warnings");
         let im_fp = json_util::map_u64_array(&map, "image_fp");
         let im_call = json_util::map_u64_array(&map, "image_call");
         let im_len = im_fp.len().min(im_call.len());
         c.image_fp = im_fp.iter().take(im_len).copied().collect();
         c.image_call = im_call.iter().take(im_len).copied().collect();
+
+        // Workflow abuse prevention — optional for backward compat.
+        c.last_activity_ts = json_util::map_u64(&map, "last_activity_ts").unwrap_or(0);
+        let saf_ids = json_util::map_str_array(&map, "subagent_file_map_ids");
+        let saf_paths = json_util::map_str_array(&map, "subagent_file_map_paths");
+        let saf_len = saf_ids.len().min(saf_paths.len());
+        c.subagent_file_map_ids = saf_ids.iter().take(saf_len).cloned().collect();
+        c.subagent_file_map_paths = saf_paths.iter().take(saf_len).cloned().collect();
 
         c
     }

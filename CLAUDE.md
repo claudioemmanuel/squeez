@@ -58,11 +58,11 @@ Cross-call awareness across 16 recent invocations:
 - **cache.rs** — tracks seen outputs, file paths, errors from Read/Glob/Grep/Bash results
 - **redundancy.rs** — two-path dedup: exact FNV-1a hash (fast), then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 (whitespace/timestamp changes don't break match). Emits `[squeez: identical to ...]`  `[squeez: ~P% similar to ...]`
 - **summarize.rs** — triggered at >500 lines; benign outputs (no error markers) get 2× threshold (1000 lines). Produces ≤40-line dense summary (errors, files, test status, verbatim tail)
-- **intensity.rs** — truly adaptive: **Full** (×0.6) when used < 65% of budget, **Ultra** (×0.3) when ≥65% (`ultra_trigger_pct`, default 0.65). `[adaptive: Full]`  `[adaptive: Ultra]` in header. Budget honors `context_window_tokens` when set; "used" is `max(squeez counters, real_ctx_tokens)`
+- **intensity.rs** — truly adaptive: **Full** (×0.6) when used < 65% of budget, **Ultra** (×0.3) when ≥65% (`ultra_trigger_pct`default 0.65). `[adaptive: Full]`  `[adaptive: Ultra]` in header. Budget honors `context_window_tokens` when set; "used" is `max(squeez counters, real_ctx_tokens)`
 - **transcript.rs** — real-context tracking: tail-reads host transcript (`transcript_path` from PostToolUse payload) and extracts last assistant turn's `usage` (input + cache_read + cache_creation) → `SessionContext.real_ctx_tokens`. Lets intensity/burn-rate fire in MCP/image-heavy sessions whose tokens never pass through squeez
 - **hash.rs** — FNV-1a-64 + `shingle_minhash()` (bottom-k=96, whitespace-token trigrams) + `jaccard()` (sorted-merge O(n+m))
 
-Guards: byte-identical image payloads dedup session-long (`image_fp`); MCP results are dedup-only (never summarized); fuzzy dedup is suppressed for first re-read of file flagged Write since last seen (A2 stale-state guard — requires compress-output to run before track-result in posttooluse.sh); repeated quota/plan-limit errors (≥`quota_error_threshold`, default 2) and oversized sub-agent returns (>`subagent_result_warn_tokens`, default 3000) queue `[squeez: …]` warnings drained by next `squeez wrap`.
+Guards: byte-identical image payloads dedup session-long (`image_fp`); MCP results are dedup-only (never summarized); fuzzy dedup is suppressed for first re-read of file flagged Write since last seen (A2 stale-state guard — requires compress-output to run before track-result in posttooluse.sh); repeated quota/plan-limit errors (≥`quota_error_threshold`default 2) and oversized sub-agent returns (>`subagent_result_warn_tokens`default 3000) queue `[squeez: …]` warnings drained by next `squeez wrap`.
 
 ### Key files
 
