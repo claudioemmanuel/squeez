@@ -28,14 +28,24 @@ const TAIL_BYTES: u64 = 512 * 1024;
 /// assistant record with a usage block. Returns `None` when the file is
 /// missing, unreadable, or contains no parsable usage.
 pub fn last_context_tokens(path: &Path) -> Option<u64> {
+    tail_read(path).and_then(|t| last_context_tokens_in(&t))
+}
+
+/// Returns `(cache_read, io_tokens)` for the most recent non-sidechain
+/// assistant record in the transcript, where `io_tokens` = input + output.
+/// Used to compute the cache-read:I/O ratio for context-leak detection.
+pub fn last_context_cache_ratio(path: &Path) -> Option<(u64, u64)> {
+    tail_read(path).and_then(|t| last_cache_ratio_in(&t))
+}
+
+fn tail_read(path: &Path) -> Option<String> {
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
     let start = len.saturating_sub(TAIL_BYTES);
     f.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::with_capacity((len - start) as usize);
     f.read_to_end(&mut buf).ok()?;
-    let tail = String::from_utf8_lossy(&buf);
-    last_context_tokens_in(&tail)
+    Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// Scan transcript text (newest record last) for the most recent assistant
@@ -61,6 +71,30 @@ pub fn last_context_tokens_in(text: &str) -> Option<u64> {
         return Some(
             input.unwrap_or(0) + cache_read.unwrap_or(0) + cache_creation.unwrap_or(0),
         );
+    }
+    None
+}
+
+/// Scan transcript text for the most recent non-sidechain assistant record
+/// and return `(cache_read_input_tokens, input_tokens + output_tokens)`.
+/// Returns `None` if no parsable record is found.
+pub fn last_cache_ratio_in(text: &str) -> Option<(u64, u64)> {
+    for line in text.lines().rev() {
+        if !line.contains("\"type\":\"assistant\"") || !line.contains("\"usage\"") {
+            continue;
+        }
+        if line.contains("\"isSidechain\":true") {
+            continue;
+        }
+        let input = extract_u64(line, "input_tokens");
+        let cache_read = extract_u64(line, "cache_read_input_tokens");
+        let output = extract_u64(line, "output_tokens");
+        if input.is_none() && cache_read.is_none() && output.is_none() {
+            continue;
+        }
+        let cr = cache_read.unwrap_or(0);
+        let io = input.unwrap_or(0) + output.unwrap_or(0);
+        return Some((cr, io));
     }
     None
 }
@@ -129,6 +163,27 @@ mod tests {
             last_context_tokens(Path::new("/nonexistent/squeez/transcript.jsonl")),
             None
         );
+    }
+
+    #[test]
+    fn cache_ratio_extracts_cache_read_and_io() {
+        // TURN: input=120, cache_read=180000, output=900 → (180000, 1020)
+        let (cr, io) = last_cache_ratio_in(TURN).expect("should parse");
+        assert_eq!(cr, 180_000);
+        assert_eq!(io, 1_020); // 120 input + 900 output
+    }
+
+    #[test]
+    fn cache_ratio_skips_sidechain() {
+        let side = r#"{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":1,"cache_read_input_tokens":999999,"output_tokens":1}}}"#;
+        let text = format!("{}\n{}", TURN, side);
+        let (cr, _) = last_cache_ratio_in(&text).expect("should parse non-sidechain");
+        assert_eq!(cr, 180_000);
+    }
+
+    #[test]
+    fn cache_ratio_returns_none_when_no_data() {
+        assert_eq!(last_cache_ratio_in(""), None);
     }
 
     #[test]

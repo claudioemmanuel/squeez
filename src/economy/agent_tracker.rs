@@ -39,6 +39,33 @@ pub fn agent_cost_warning(ctx: &SessionContext, cfg: &Config) -> Option<String> 
     }
 }
 
+/// Returns a warning string when N or more agents were spawned within the
+/// configured burst window. Fires once the count hits the threshold — callers
+/// should print this as a separate line after the header.
+pub fn burst_warning(ctx: &SessionContext, cfg: &Config) -> Option<String> {
+    let threshold = cfg.parallel_agent_burst_threshold;
+    if threshold == 0 || ctx.agent_spawn_log.is_empty() {
+        return None;
+    }
+    let now = crate::session::unix_now();
+    let window = cfg.parallel_agent_burst_window_secs;
+    let burst_count = ctx
+        .agent_spawn_log
+        .iter()
+        .filter(|e| now.saturating_sub(e.ts) <= window)
+        .count();
+    if burst_count >= threshold {
+        let est_k = burst_count as u64 * cfg.agent_spawn_cost / 1000;
+        Some(format!(
+            "[squeez: WORKFLOW BURST — {} agents within {}s (~{}K tokens est.) \
+             — reduce parallelism to stay within usage budget]",
+            burst_count, window, est_k
+        ))
+    } else {
+        None
+    }
+}
+
 // ── MCP formatting ────────────────────────────────────────────────────────────
 
 /// Format agent cost data for the MCP tool response.

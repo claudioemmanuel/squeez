@@ -81,6 +81,35 @@ pub fn evaluate(
                     ));
                 }
             }
+            // G3: Loop pattern — when the same command is run at 2× the repeat
+            // threshold, the pattern shifts from "inefficiency" to "possible loop".
+            let loop_threshold = cfg.nudge_cmd_repeat_threshold.saturating_mul(2);
+            if count >= loop_threshold {
+                let key = format!("loop:{}", cmd_name);
+                if ctx.mark_nudged(&key) {
+                    hints.push(format!(
+                        "[squeez: LOOP PATTERN — `{}` run ×{} — check for agent loop; \
+                         if polling, replace with /monitor]",
+                        cmd_name, count
+                    ));
+                }
+            }
+        }
+    }
+
+    // G4: /loop sleep-based polling nudge — if the command contains `sleep`
+    // and has been repeated, it's likely a busy-poll; suggest /monitor.
+    if cmd.contains("sleep") {
+        let count = ctx.bump_cmd_repeat("__sleep_poll__");
+        if count >= 2 {
+            let key = "sleep_poll_nudge";
+            if ctx.mark_nudged(key) {
+                hints.push(
+                    "[squeez: POLLING DETECTED — sleep-based loop burns tokens during idle waits; \
+                     use /monitor to watch files/logs w/o token cost]"
+                        .to_string(),
+                );
+            }
         }
     }
 

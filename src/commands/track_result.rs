@@ -49,13 +49,35 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
     // MCP/image-heavy sessions whose tokens never pass through squeez.
     if let Some(tp) = extract_string_field(raw, "transcript_path") {
         let tp = unescape(&tp);
-        if let Some(tokens) = crate::context::transcript::last_context_tokens(Path::new(&tp)) {
+        let path = Path::new(&tp);
+        if let Some(tokens) = crate::context::transcript::last_context_tokens(path) {
             ctx.real_ctx_tokens = tokens;
+        }
+        if let Some((cr, _io)) = crate::context::transcript::last_context_cache_ratio(path) {
+            ctx.real_cache_read_tokens = cr;
         }
     }
 
     // Bump the call counter for context tracking; tool calls advance state too.
     ctx.next_call_n();
+    // Update idle-cache timestamp on every track_result invocation so the
+    // 5-min ephemeral cache guard in wrap.rs has an accurate last-activity ts.
+    ctx.last_activity_ts = crate::session::unix_now();
+    // G2: Call-rate spike detection — warn once if ≥ call_rate_warn_per_min
+    // calls fire within a 60-second window (indicates agent loop or runaway workflow).
+    if cfg.call_rate_warn_per_min > 0 {
+        let rate = ctx.tick_call_rate();
+        if rate >= cfg.call_rate_warn_per_min
+            && !ctx.nudged_keys.iter().any(|k| k == "call_rate_warn")
+        {
+            ctx.nudged_keys.push("call_rate_warn".to_string());
+            ctx.queue_warning(&format!(
+                "HIGH CALL RATE — {} tool calls in 60s — possible agent loop; \
+                 check workflow stop conditions",
+                rate
+            ));
+        }
+    }
 
     // Explicit tool targets carry the tool's access semantics: an Edit/Write
     // target is a WRITE. This powers the A2 stale-state guard in
@@ -125,6 +147,60 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
                  prefer writing detail to a file and returning a ≤2K summary + path",
                 (tokens / 1000).max(1)
             ));
+        }
+        // Cross-agent duplicate file reads (audit finding E1 / C2): when
+        // multiple parallel agents independently read the same codebase files,
+        // each re-creates context for content already available. Detect via
+        // the per-agent file map, keyed by agent_id from the hook payload.
+        if tool == "SubagentStop" {
+            let agent_id = extract_string_field(raw, "agent_id").unwrap_or_default();
+            if !agent_id.is_empty() && !files.is_empty() {
+                let all_paths: Vec<String> = explicit_paths
+                    .iter()
+                    .chain(files.iter())
+                    .cloned()
+                    .collect();
+                let dups = ctx.note_subagent_files(&agent_id, &all_paths);
+                if !dups.is_empty() {
+                    let preview: Vec<&str> = dups.iter().take(3)
+                        .map(|p| p.rsplit('/').next().unwrap_or(p.as_str()))
+                        .collect();
+                    let extra = if dups.len() > 3 {
+                        format!(" +{} more", dups.len() - 3)
+                    } else {
+                        String::new()
+                    };
+                    ctx.queue_warning(&format!(
+                        "cross-agent dup — {} file(s) already read by a sibling agent \
+                         ({}{}) — pass pre-read content via args to avoid redundant reads",
+                        dups.len(),
+                        preview.join(", "),
+                        extra
+                    ));
+                }
+            }
+            // Cumulative subagent output warning (audit finding E1/D1): fires
+            // once per session when the total subagent token volume is high.
+            if cfg.subagent_total_warn_tokens > 0 {
+                let cumulative: u64 = ctx.agent_spawn_log
+                    .iter()
+                    .map(|e| e.estimated_tokens)
+                    .sum::<u64>()
+                    .saturating_add(tokens);
+                if cumulative > cfg.subagent_total_warn_tokens
+                    && !ctx.pending_warnings.iter()
+                        .any(|w| w.contains("cumulative sub-agent output"))
+                    && !ctx.nudged_keys.iter()
+                        .any(|k| k == "subagent_total_warn")
+                {
+                    ctx.nudged_keys.push("subagent_total_warn".to_string());
+                    ctx.queue_warning(&format!(
+                        "cumulative sub-agent output ~{}K tokens this session — \
+                         consider reducing parallelism or passing shared context via args",
+                        cumulative / 1000
+                    ));
+                }
+            }
         }
     }
 

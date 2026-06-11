@@ -251,6 +251,41 @@ pub fn run(cmd_str: &str) -> i32 {
         if let Some(ref warning) = compact_warning {
             println!("{}", warning);
         }
+        // Workflow burst warning: N agents within burst_window_secs.
+        if let Some(w) = crate::economy::agent_tracker::burst_warning(&ctx, &config) {
+            println!("{}", w);
+        }
+        // Cache idle expiry warning: 5-min ephemeral cache may have expired
+        // if the agent was stalled waiting for sub-subagents or user input.
+        if config.cache_idle_warn_secs > 0 && ctx.last_activity_ts > 0 {
+            let idle = crate::session::unix_now().saturating_sub(ctx.last_activity_ts);
+            if idle >= config.cache_idle_warn_secs {
+                println!(
+                    "[squeez: cache idle {}s — 5-min ephemeral cache may have expired; \
+                     next turn will re-create context at full write cost]",
+                    idle
+                );
+            }
+        }
+        // Cache-read:I/O ratio warning (G1): when cache_read >> actual I/O
+        // tokens the context has grown very large (long CLAUDE.md, many files
+        // loaded). Threshold 50× — the openwatch Wave 3 session hit 49×.
+        // Fire once per session via nudged_keys; skip when data is absent.
+        if ctx.real_cache_read_tokens > 10_000
+            && !ctx.nudged_keys.iter().any(|k| k == "cache_ratio_warn")
+        {
+            let io = ctx.real_ctx_tokens.saturating_sub(ctx.real_cache_read_tokens).max(1);
+            if ctx.real_cache_read_tokens / io >= 50 {
+                ctx.nudged_keys.push("cache_ratio_warn".to_string());
+                println!(
+                    "[squeez: HIGH CACHE RATIO — cache_read {}K vs I/O {}K (~{}×) — \
+                     context is very large; consider /compact or trimming CLAUDE.md]",
+                    ctx.real_cache_read_tokens / 1000,
+                    io / 1000,
+                    ctx.real_cache_read_tokens / io,
+                );
+            }
+        }
     }
     // Warnings queued by observer paths with no stdout channel of their own
     // (track-result quota escalation, SubagentStop size guard) drain here —
