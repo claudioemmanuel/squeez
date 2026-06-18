@@ -38,7 +38,11 @@ if tool in ('bash', 'Bash', 'run_shell_command'):
     cmd = inp.get('command') or inp.get('cmd')
     if not cmd or not isinstance(cmd, str):
         sys.exit(0)
-    if cmd.startswith(squeez) or 'squeez wrap' in cmd or cmd.startswith('--no-squeez'):
+    if cmd.startswith(squeez) or 'squeez wrap' in cmd:
+        sys.exit(0)
+    if cmd.startswith('--no-squeez'):
+        inp['command'] = cmd[len('--no-squeez'):].lstrip()
+        print(json.dumps({'decision': 'allow', 'updatedInput': inp}))
         sys.exit(0)
     inp['command'] = squeez + ' wrap ' + shlex.quote(cmd)
     print(json.dumps({'decision': 'allow', 'updatedInput': inp}))

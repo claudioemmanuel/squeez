@@ -279,6 +279,45 @@ fn codex_session_start_wraps_context_when_present() {
     });
 }
 
+// ── #144/#145: --no-squeez opt-out must strip marker, not leak it ─────────
+
+#[test]
+fn codex_pretooluse_strips_no_squeez_marker() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"--no-squeez cargo test"}}"#;
+        let out = run_hook("codex-pretooluse.sh", home, payload);
+        assert!(out.status.success(), "hook must exit 0");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        // Must emit updatedInput with the marker stripped.
+        assert!(stdout.contains("updatedInput"), "must emit updatedInput: {stdout}");
+        assert!(stdout.contains("cargo test"), "stripped command must appear: {stdout}");
+        assert!(!stdout.contains("--no-squeez"), "marker must be stripped: {stdout}");
+        // Must not wrap the command with squeez wrap.
+        assert!(!stdout.contains("squeez wrap"), "bypass must not wrap: {stdout}");
+    });
+}
+
+#[test]
+fn codex_pretooluse_strips_no_squeez_with_extra_space() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Shell","tool_input":{"command":"--no-squeez  sqlite3 db.sqlite 'SELECT 1'"}}"#;
+        let out = run_hook("codex-pretooluse.sh", home, payload);
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("updatedInput"), "must emit updatedInput: {stdout}");
+        assert!(!stdout.contains("--no-squeez"), "marker must be stripped: {stdout}");
+        assert!(stdout.contains("sqlite3"), "real command must survive: {stdout}");
+    });
+}
+
 #[test]
 fn codex_uninstall_removes_hooks_and_strips_memory_block() {
     if python3_missing() {

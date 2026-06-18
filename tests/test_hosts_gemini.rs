@@ -214,3 +214,84 @@ fn gemini_uninstall_removes_hooks_and_strips_memory_block() {
         assert!(!md.contains("<!-- squeez:start -->"));
     });
 }
+
+// ── helpers for hook script invocation ────────────────────────────────────
+
+fn fake_squeez(home: &std::path::Path) -> std::path::PathBuf {
+    let bin = home.join(".claude/squeez/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let p = bin.join("squeez");
+    std::fs::write(&p, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    p
+}
+
+fn run_hook(script: &str, home: &std::path::Path, stdin: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("bash")
+        .arg(format!("hooks/{script}"))
+        .env("HOME", home)
+        .env_remove("USERPROFILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn hook");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn python3_missing() -> bool {
+    std::process::Command::new("python3")
+        .arg("--version")
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(true)
+}
+
+// ── #145: gemini-before-tool.sh must strip --no-squeez, not leak it ───────
+
+#[test]
+fn gemini_before_tool_strips_no_squeez_marker() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"tool_name":"bash","tool_input":{"command":"--no-squeez cargo test"}}"#;
+        let out = run_hook("gemini-before-tool.sh", home, payload);
+        assert!(out.status.success(), "hook must exit 0");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("updatedInput"), "must emit updatedInput: {stdout}");
+        assert!(stdout.contains("cargo test"), "stripped command must appear: {stdout}");
+        assert!(!stdout.contains("--no-squeez"), "marker must be stripped: {stdout}");
+        assert!(!stdout.contains("squeez wrap"), "bypass must not wrap: {stdout}");
+    });
+}
+
+#[test]
+fn gemini_before_tool_strips_no_squeez_with_extra_space() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        fake_squeez(home);
+        let payload = r#"{"tool_name":"run_shell_command","tool_input":{"command":"--no-squeez  echo hi"}}"#;
+        let out = run_hook("gemini-before-tool.sh", home, payload);
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("updatedInput"), "must emit updatedInput: {stdout}");
+        assert!(!stdout.contains("--no-squeez"), "marker must be stripped: {stdout}");
+        assert!(stdout.contains("echo hi"), "real command must survive: {stdout}");
+    });
+}
