@@ -53,6 +53,8 @@ pub struct Config {
     pub sig_mode_enabled: bool,
     /// Minimum line count to trigger signature-mode (default 400).
     pub sig_mode_threshold_lines: usize,
+    /// Also capture indented method signatures inside impl/class blocks (default false).
+    pub sig_mode_include_indented: bool,
     // ── Memory-file size warning (US-002) ───────────────────────────────────
     /// Token threshold above which inject_memory emits a size warning banner
     /// inside the squeez block. Set to 0 to disable. Default: 1000.
@@ -168,6 +170,7 @@ impl Default for Config {
             state_warn_calls: 10,
             sig_mode_enabled: true,
             sig_mode_threshold_lines: 400,
+            sig_mode_include_indented: false,
             memory_file_warn_tokens: 1000,
             summary_format: "auto".to_string(),
             agent_prompt_max_tokens: 2000,
@@ -279,6 +282,9 @@ impl Config {
                     "sig_mode_threshold_lines" => {
                         c.sig_mode_threshold_lines =
                             v.parse().unwrap_or(c.sig_mode_threshold_lines)
+                    }
+                    "sig_mode_include_indented" => {
+                        c.sig_mode_include_indented = v == "true"
                     }
                     "memory_file_warn_tokens" => {
                         c.memory_file_warn_tokens =

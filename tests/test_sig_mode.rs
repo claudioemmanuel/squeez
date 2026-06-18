@@ -320,3 +320,145 @@ fn python_decorator_above_signature_is_kept() {
         result.join("\n"),
     );
 }
+
+// ── #139: sig_mode_include_indented — capture methods inside impl/class ───
+
+/// Rust impl block: methods are indented and currently invisible to sig-mode.
+fn make_rust_impl_heavy(n: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push("//! Library with impl-heavy structure.".to_string());
+    lines.push("use std::fmt;".to_string());
+    lines.push("".to_string());
+    let mut i = 0usize;
+    while lines.len() + 25 <= n {
+        lines.push(format!("pub struct Widget{} {{", i));
+        lines.push(format!("    pub id: u64,"));
+        lines.push("}".to_string());
+        lines.push("".to_string());
+        lines.push(format!("impl Widget{} {{", i));
+        for j in 0..4usize {
+            lines.push(format!("    pub fn method_{}_{}(&self) -> u64 {{", i, j));
+            for k in 0..3usize {
+                lines.push(format!("        let x{} = self.id + {};", k, k));
+            }
+            lines.push("    }".to_string());
+        }
+        lines.push("}".to_string());
+        lines.push("".to_string());
+        i += 1;
+    }
+    while lines.len() < n {
+        lines.push(format!("// padding {}", lines.len()));
+    }
+    lines.truncate(n);
+    lines
+}
+
+/// TypeScript class: methods are indented.
+fn make_ts_class_heavy(n: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push("// TypeScript class fixture".to_string());
+    lines.push("import { Injectable } from '@angular/core';".to_string());
+    lines.push("".to_string());
+    let mut i = 0usize;
+    while lines.len() + 20 <= n {
+        lines.push(format!("export class Service{} {{", i));
+        for j in 0..3usize {
+            lines.push(format!("  public method_{}_{}(x: number): string {{", i, j));
+            for k in 0..4usize {
+                lines.push(format!("    const v{} = x + {};", k, k));
+            }
+            lines.push("  }".to_string());
+        }
+        lines.push("}".to_string());
+        lines.push("".to_string());
+        i += 1;
+    }
+    while lines.len() < n {
+        lines.push(format!("// pad {}", lines.len()));
+    }
+    lines.truncate(n);
+    lines
+}
+
+#[test]
+fn indented_sig_mode_off_by_default_no_impl_methods() {
+    let lines = make_rust_impl_heavy(500);
+    let cfg = Config::default(); // sig_mode_include_indented defaults to false
+    let result = FsHandler.compress("cat src/lib.rs", lines, &cfg);
+    // Sig-mode fires (file >400 lines) but indented methods are NOT captured.
+    assert!(
+        result[0].starts_with("[squeez: sig-mode"),
+        "sig-mode must fire: {:?}",
+        result[0]
+    );
+    let body = result[1..].join("\n");
+    // Top-level impl declarations ARE captured (they're at column 0).
+    // Indented method sigs (pub fn method_0_0) are NOT in default mode.
+    assert!(
+        !body.contains("pub fn method_0_0"),
+        "indented methods must NOT appear without flag: {body}",
+    );
+}
+
+#[test]
+fn rust_impl_methods_captured_when_include_indented_enabled() {
+    let lines = make_rust_impl_heavy(500);
+    let mut cfg = Config::default();
+    cfg.sig_mode_include_indented = true;
+    let result = FsHandler.compress("cat src/lib.rs", lines, &cfg);
+    assert!(
+        result[0].starts_with("[squeez: sig-mode"),
+        "sig-mode must fire: {:?}",
+        result[0]
+    );
+    let body = result[1..].join("\n");
+    assert!(
+        body.contains("pub fn method_0_0"),
+        "indented Rust methods must be captured: {body}",
+    );
+    assert!(
+        body.contains("pub fn method_0_1"),
+        "multiple indented methods must be captured: {body}",
+    );
+}
+
+#[test]
+fn ts_class_methods_captured_when_include_indented_enabled() {
+    let lines = make_ts_class_heavy(500);
+    let mut cfg = Config::default();
+    cfg.sig_mode_include_indented = true;
+    let result = FsHandler.compress("cat src/service.ts", lines, &cfg);
+    assert!(
+        result[0].starts_with("[squeez: sig-mode"),
+        "sig-mode must fire: {:?}",
+        result[0]
+    );
+    let body = result[1..].join("\n");
+    assert!(
+        body.contains("public method_0_0"),
+        "indented TS class methods must be captured: {body}",
+    );
+}
+
+#[test]
+fn indented_sig_cap_limits_indented_count() {
+    // The cap on indented sigs is (find_max_results - 6) to guard against runaway
+    // growth on dense impl-heavy files. Top-level sigs remain uncapped.
+    let lines = make_rust_impl_heavy(500);
+    let mut cfg = Config::default();
+    cfg.sig_mode_include_indented = true;
+    let result = FsHandler.compress("cat src/lib.rs", lines, &cfg);
+    assert!(
+        result[0].starts_with("[squeez: sig-mode"),
+        "sig-mode must fire: {:?}",
+        result[0]
+    );
+    // Count captured indented method lines (they contain "pub fn method_").
+    let indented_captured = result.iter().filter(|l| l.contains("pub fn method_")).count();
+    let cap = cfg.find_max_results.saturating_sub(6);
+    assert!(
+        indented_captured <= cap,
+        "indented sigs captured ({indented_captured}) must not exceed cap ({cap})",
+    );
+}

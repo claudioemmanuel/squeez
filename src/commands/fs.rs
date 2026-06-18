@@ -227,10 +227,46 @@ fn is_signature(line: &str, lang: &str) -> bool {
     }
 }
 
+/// Returns true if `line` starts with whitespace and after trimming looks like
+/// a signature — i.e., a method/function inside an impl block or class.
+/// Only called when `sig_mode_include_indented` is enabled.
+///
+/// TypeScript extra rules: positively match class-member access modifiers
+/// (`public`/`private`/…); veto `const`/`let`/`var`/`type`/`interface`/`enum`
+/// when indented so they are not mistaken for method signatures.
+fn is_indented_signature(line: &str, lang: &str) -> bool {
+    if !line.starts_with(|c: char| c.is_whitespace()) {
+        return false;
+    }
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match lang {
+        "ts" => {
+            const BODY_VETOES: &[&str] = &[
+                "const ", "let ", "var ", "type ", "interface ", "enum ",
+            ];
+            if BODY_VETOES.iter().any(|v| trimmed.starts_with(v)) {
+                return false;
+            }
+            const CLASS_MODIFIERS: &[&str] = &[
+                "public ", "private ", "protected ", "static ", "async ",
+                "get ", "set ", "readonly ", "abstract ", "override ",
+            ];
+            if CLASS_MODIFIERS.iter().any(|m| trimmed.starts_with(m)) {
+                return true;
+            }
+            is_signature(trimmed, lang)
+        }
+        _ => is_signature(trimmed, lang),
+    }
+}
+
 /// Compress to signature lines, preserving first-3 and last-3 verbatim,
-/// plus indented method signatures inside `impl`/`class` blocks, plus any
-/// **single** attribute / decorator line that immediately precedes a kept
-/// signature.
+/// plus (optionally) indented method signatures inside `impl`/`class` blocks,
+/// plus any **single** attribute / decorator line that immediately precedes a
+/// kept signature.
 ///
 /// Why single-slot instead of a full doc-block buffer: dense-signature files
 /// (10 structs × 5 methods × 1 doc each) would double the kept-line count
@@ -238,7 +274,15 @@ fn is_signature(line: &str, lang: &str) -> bool {
 /// then *cost* tokens instead of saving them. Attributes (`#[inline]`,
 /// `@staticmethod`) carry the highest-density semantic information per byte,
 /// so they're the cell we keep.
-fn compress_signatures(lines: Vec<String>, lang: &str) -> Vec<String> {
+///
+/// Indented-sig cap: total middle lines are capped at `max_total_middle` to
+/// keep sig-mode output under the pipeline's `find_max_results` budget.
+fn compress_signatures(
+    lines: Vec<String>,
+    lang: &str,
+    include_indented: bool,
+    max_total_middle: usize,
+) -> Vec<String> {
     let total = lines.len();
     let anchor_count = 3.min(total / 2); // don't overlap on tiny files
 
@@ -250,6 +294,7 @@ fn compress_signatures(lines: Vec<String>, lang: &str) -> Vec<String> {
 
     let mut middle: Vec<String> = Vec::new();
     let mut pending: Option<String> = None;
+    let mut indented_count: usize = 0;
     for (i, line) in lines.iter().enumerate() {
         if i < head_end || i >= tail_start {
             pending = None;
@@ -260,7 +305,15 @@ fn compress_signatures(lines: Vec<String>, lang: &str) -> Vec<String> {
             pending = Some(line.clone());
             continue;
         }
-        if is_signature(s, lang) {
+        let is_top_level = is_signature(s, lang);
+        let is_indented = !is_top_level
+            && include_indented
+            && indented_count < max_total_middle
+            && is_indented_signature(s, lang);
+        if is_top_level || is_indented {
+            if is_indented {
+                indented_count += 1;
+            }
             if let Some(ctx) = pending.take() {
                 middle.push(ctx);
             }
@@ -288,7 +341,13 @@ impl Handler for FsHandler {
                 let k = lines.len();
                 if k >= config.sig_mode_threshold_lines {
                     let filtered = smart_filter::apply(lines);
-                    let compressed = compress_signatures(filtered, lang);
+                    let max_middle = config.find_max_results.saturating_sub(6);
+                    let compressed = compress_signatures(
+                        filtered,
+                        lang,
+                        config.sig_mode_include_indented,
+                        max_middle,
+                    );
                     let n_sigs = compressed.len();
                     let marker = format!(
                         "[squeez: sig-mode {} signatures from {} lines — use `sed -n A,Bp {}` for a range]",
