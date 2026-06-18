@@ -40,7 +40,17 @@ if not cmd or not isinstance(cmd, str):
     sys.exit(0)
 
 squeez = os.environ['SQUEEZ_BIN']
-if cmd.startswith(squeez) or 'squeez wrap' in cmd or cmd.startswith('--no-squeez'):
+if cmd.startswith(squeez) or 'squeez wrap' in cmd:
+    sys.exit(0)
+if cmd.startswith('--no-squeez'):
+    inp['command'] = cmd[len('--no-squeez'):].lstrip()
+    print(json.dumps({
+        'hookSpecificOutput': {
+            'hookEventName': 'PreToolUse',
+            'permissionDecision': 'allow',
+            'updatedInput': inp,
+        }
+    }))
     sys.exit(0)
 
 inp['command'] = squeez + ' wrap ' + shlex.quote(cmd)
