@@ -1,6 +1,6 @@
 use crate::commands::Handler;
 use crate::config::Config;
-use crate::strategies::{grouping, smart_filter, truncation};
+use crate::strategies::{smart_filter, truncation};
 
 pub struct FsHandler;
 
@@ -402,15 +402,13 @@ impl Handler for FsHandler {
             return truncation::apply(filtered, 80, truncation::Keep::Head);
         }
 
-        // Viewer commands (cat/head/tail/less/more/bat) emit file CONTENT,
-        // not file LISTS — grouping by parent-dir would collapse every line
-        // into a single "./ N modified" summary. Skip grouping for those.
-        let is_viewer = base_cmd(cmd).map(|b| VIEWER_CMDS.contains(&b)).unwrap_or(false);
-        let lines = if is_viewer {
-            lines
-        } else {
-            grouping::group_files_by_dir(lines, 5)
-        };
+        // Do NOT collapse listings to a per-dir count. For `ls`/`find`/`du`
+        // (and viewer content) the lines ARE the payload — they are exactly
+        // what the caller asked for. `group_files_by_dir` was designed for
+        // git-status output, where the path list is incidental context; using
+        // it here discards every name and mislabels a plain listing as a
+        // change-set ("N modified"). Bound size with truncation instead, which
+        // keeps the names visible (head) + a `[... N truncated]` marker. See #148.
         let keep = if should_keep_tail(cmd) {
             truncation::Keep::Tail
         } else {
