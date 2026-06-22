@@ -18,7 +18,7 @@ fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
 SQUEEZ_BIN="$SQUEEZ" python3 -c "
-import json, os, shlex, sys
+import json, os, shlex, subprocess, sys
 
 data = sys.stdin.read()
 if not data.strip():
@@ -43,6 +43,13 @@ if tool in ('bash', 'Bash', 'run_shell_command'):
     if cmd.startswith('--no-squeez'):
         inp['command'] = cmd[len('--no-squeez'):].lstrip()
         print(json.dumps({'decision': 'allow', 'updatedInput': inp}))
+        sys.exit(0)
+    # Security gate (#150): leave risky/bypassed/wrap-disabled commands untouched
+    # so the host's native permission flow applies to the original command.
+    try:
+        if subprocess.run([squeez, 'should-wrap', cmd], timeout=2).returncode != 0:
+            sys.exit(0)
+    except Exception:
         sys.exit(0)
     inp['command'] = squeez + ' wrap ' + shlex.quote(cmd)
     print(json.dumps({'decision': 'allow', 'updatedInput': inp}))
