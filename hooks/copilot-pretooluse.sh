@@ -44,6 +44,14 @@ if tool == 'Bash':
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
         sys.exit(0)
 
+    # Security gate (#150): leave risky/bypassed/wrap-disabled commands untouched
+    # so the host's native deny/ask rules apply to the original command.
+    try:
+        if subprocess.run([squeez, 'should-wrap', cmd], timeout=2).returncode != 0:
+            sys.exit(0)
+    except Exception:
+        sys.exit(0)
+
     d['tool_input']['command'] = squeez + ' wrap ' + shlex.quote(cmd)
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
     sys.exit(0)

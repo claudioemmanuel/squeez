@@ -40,6 +40,14 @@ fn main() {
             // so it survives /compact. See commands/compact.rs.
             std::process::exit(squeez::commands::compact::run());
         }
+        Some("should-wrap") => {
+            // PreToolUse hook gate (#150): exit 0 → safe to rewrite to
+            // `squeez wrap '…'`; exit 1 → leave the command alone so the host's
+            // native permission flow evaluates the original (risky/bypassed/off).
+            let cmd = args[2..].join(" ");
+            let ok = squeez::config::Config::load().should_wrap_bash(&cmd);
+            std::process::exit(if ok { 0 } else { 1 });
+        }
         Some("compress-md") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::compress_md::run(&rest));

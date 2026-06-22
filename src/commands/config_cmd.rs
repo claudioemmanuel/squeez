@@ -107,6 +107,8 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("log_template_enabled", Kind::Bool),
     ("log_template_min", Kind::Usize),
     ("relevance_truncation_enabled", Kind::Bool),
+    ("wrap_bash", Kind::Bool),
+    ("bash_risk_patterns", Kind::List),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -182,6 +184,8 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "log_template_enabled" => c.log_template_enabled.to_string(),
         "log_template_min" => c.log_template_min.to_string(),
         "relevance_truncation_enabled" => c.relevance_truncation_enabled.to_string(),
+        "wrap_bash" => c.wrap_bash.to_string(),
+        "bash_risk_patterns" => c.bash_risk_patterns.join(","),
         _ => return None,
     };
     Some(v)
