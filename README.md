@@ -180,40 +180,40 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 57.7 ms |
-| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 236 µs |
-| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 58 µs |
-| `high_context_adaptive` | 4,418 tk | 61 tk | **-99%** | 1.0 ms |
-| `agent_directory_output` | 3,348 tk | 167 tk | **-95%** | 618 µs |
-| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 943 µs |
-| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 220 µs |
+| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 57.5 ms |
+| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 227 µs |
+| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 62 µs |
+| `high_context_adaptive` | 4,418 tk | 61 tk | **-99%** | 969 µs |
+| `agent_directory_output` | 3,348 tk | 167 tk | **-95%** | 613 µs |
+| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 874 µs |
+| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 210 µs |
 | `tsc_errors` | 731 tk | 101 tk | **-86%** | 22 µs |
-| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 270 µs |
-| `docker_logs` | 665 tk | 186 tk | **-72%** | 71 µs |
-| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 47 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 15 µs |
-| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 320 µs |
-| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 601 µs |
-| `npm_install` | 524 tk | 218 tk | **-58%** | 49 µs |
-| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.8 ms |
-| `ls_la` | 1,782 tk | 872 tk | **-51%** | 45 µs |
+| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 263 µs |
+| `docker_logs` | 665 tk | 186 tk | **-72%** | 64 µs |
+| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 46 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 14 µs |
+| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 301 µs |
+| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 602 µs |
+| `npm_install` | 524 tk | 218 tk | **-58%** | 50 µs |
+| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.7 ms |
+| `ls_la` | 1,782 tk | 872 tk | **-51%** | 43 µs |
 | `env_dump` | 441 tk | 287 tk | **-35%** | 25 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 104 µs |
-| `find_deep` | 424 tk | 279 tk | **-34%** | 22 µs |
-| `agent_heavy` | 2,306 tk | 1,551 tk | **-33%** | 504 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 846 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 99 µs |
+| `find_deep` | 424 tk | 279 tk | **-34%** | 23 µs |
+| `agent_heavy` | 2,306 tk | 1,565 tk | **-32%** | 654 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 850 µs |
 | `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.0 ms |
-| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 21 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 46 µs |
-| `jest_failures` | 451 tk | 448 tk | **-1%** | 56 µs |
+| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 24 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 52 µs |
+| `jest_failures` | 451 tk | 448 tk | **-1%** | 54 µs |
 | `state_first_simulation` | 182 tk | 181 tk | **-1%** | 5 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 42 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 32 µs |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **90.6%** — 164,224 tk → 15,385 tk |
+| **Total token reduction** | **90.6%** — 164,224 tk → 15,399 tk |
 | Bash output | **-83.8%** |
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
@@ -226,8 +226,8 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Usage | Baseline / month | Saved / month |
 |-------|-----------------|---------------|
 | 100 calls / day | $18.00 | **$16.31 (91%)** |
-| 1,000 calls / day | $180.00 | **$163.13 (91%)** |
-| 10,000 calls / day | $1800.00 | **$1631.34 (91%)** |
+| 1,000 calls / day | $180.00 | **$163.12 (91%)** |
+| 10,000 calls / day | $1800.00 | **$1631.16 (91%)** |
 <!-- BENCHMARK:END -->
 
 ---
