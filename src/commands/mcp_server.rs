@@ -201,6 +201,11 @@ const TOOLS: &[(&str, &str, &str)] = &[
         "Enterprise-transport mode (Bedrock/Vertex/OTEL) plus USD-saved estimate for the current session at Anthropic's public Sonnet 4.6 rate. Use this to quantify the dollar value of compression on usage-based enterprise workspaces.",
         "{\"type\":\"object\",\"properties\":{}}",
     ),
+    (
+        "squeez_retrieve",
+        "Expand a compressed output back to its verbatim original. When squeez compresses a large bash output it prints a marker like `[squeez: full N-line output stored — call squeez_retrieve with key=\\\"<id>\\\" to expand]`. Pass that id as `key` to get the full original text back. Use only when the compressed view dropped something you actually need.",
+        "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\",\"description\":\"the 16-hex blob id from a squeez retrieve marker\"}},\"required\":[\"key\"]}",
+    ),
 ];
 
 /// Render the `tools/list` response.
@@ -241,6 +246,7 @@ fn tools_call_response(id: &str, line: &str) -> String {
     let query = crate::json_util::extract_str(line, "query").unwrap_or_default();
     let path_arg = crate::json_util::extract_str(line, "path").unwrap_or_default();
     let date_arg = crate::json_util::extract_str(line, "date").unwrap_or_default();
+    let key_arg = crate::json_util::extract_str(line, "key").unwrap_or_default();
 
     let cfg = crate::config::Config::load();
     let text = match name.as_str() {
@@ -260,6 +266,7 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_context_pressure" => tool_context_pressure(),
         "squeez_handler_stats" => tool_handler_stats(),
         "squeez_enterprise_savings" => tool_enterprise_savings(),
+        "squeez_retrieve" => tool_retrieve(&key_arg),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -809,6 +816,21 @@ fn tool_enterprise_savings() -> String {
     )
 }
 
+/// Expand a stashed original by blob id. Returns the verbatim text, or a clear
+/// not-found message when the id is malformed / expired / missing.
+fn tool_retrieve(key: &str) -> String {
+    if key.is_empty() {
+        return "squeez_retrieve: missing 'key' — pass the id from a [squeez: ... key=\"<id>\"] marker.".to_string();
+    }
+    match crate::context::retrieve::retrieve(key) {
+        Some(original) => original,
+        None => format!(
+            "squeez_retrieve: no stored output for key '{}'. It may be malformed, expired (past retrieve_ttl_days), or never stored.",
+            key
+        ),
+    }
+}
+
 /// Context pressure advisor: pressure %, calls remaining, tokens_saved, recommendation.
 fn tool_context_pressure() -> String {
     let ctx = load_ctx();
@@ -939,9 +961,19 @@ mod tests {
             "squeez_context_pressure",
             "squeez_handler_stats",
             "squeez_enterprise_savings",
+            "squeez_retrieve",
         ] {
             assert!(resp.contains(name), "missing tool {}", name);
         }
+    }
+
+    #[test]
+    fn tool_retrieve_handles_missing_and_bad_keys() {
+        // Round-trip through the real store is covered in context::retrieve.
+        // Here we lock down the dispatcher's safety branches (no global env).
+        assert!(tool_retrieve("").contains("missing 'key'"));
+        assert!(tool_retrieve("../etc/passwd").contains("no stored output"));
+        assert!(tool_retrieve("ZZZZ").contains("no stored output"));
     }
 
     #[test]

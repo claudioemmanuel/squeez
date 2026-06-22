@@ -101,6 +101,9 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("parallel_agent_burst_threshold", Kind::Usize),
     ("subagent_total_warn_tokens", Kind::U64),
     ("call_rate_warn_per_min", Kind::U32),
+    ("retrieve_enabled", Kind::Bool),
+    ("retrieve_ttl_days", Kind::U64),
+    ("retrieve_min_lines", Kind::Usize),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -170,6 +173,9 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "parallel_agent_burst_threshold" => c.parallel_agent_burst_threshold.to_string(),
         "subagent_total_warn_tokens" => c.subagent_total_warn_tokens.to_string(),
         "call_rate_warn_per_min" => c.call_rate_warn_per_min.to_string(),
+        "retrieve_enabled" => c.retrieve_enabled.to_string(),
+        "retrieve_ttl_days" => c.retrieve_ttl_days.to_string(),
+        "retrieve_min_lines" => c.retrieve_min_lines.to_string(),
         _ => return None,
     };
     Some(v)

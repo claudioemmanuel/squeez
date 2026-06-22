@@ -128,6 +128,15 @@ pub struct Config {
     /// Tool calls per 60-second window that triggers a high-call-rate warning.
     /// Detects runaway agent loops. 0 = disabled. Default: 20.
     pub call_rate_warn_per_min: u32,
+    // ── Reversible compression (P1, headroom CCR-style) ──────────────────────
+    /// Stash the verbatim original when a large output is compressed so the
+    /// model can recover it via the `squeez_retrieve` MCP tool. Default: true.
+    pub retrieve_enabled: bool,
+    /// Days a stashed blob lives before pruning. 0 = never prune. Default: 7.
+    pub retrieve_ttl_days: u64,
+    /// Minimum original line count before squeez bothers stashing a blob.
+    /// Default: 40.
+    pub retrieve_min_lines: usize,
 }
 
 impl Default for Config {
@@ -190,6 +199,9 @@ impl Default for Config {
             parallel_agent_burst_threshold: 5,
             subagent_total_warn_tokens: 50_000,
             call_rate_warn_per_min: 20,
+            retrieve_enabled: true,
+            retrieve_ttl_days: 7,
+            retrieve_min_lines: 40,
         }
     }
 }
@@ -350,6 +362,13 @@ impl Config {
                     "call_rate_warn_per_min" => {
                         c.call_rate_warn_per_min =
                             v.parse().unwrap_or(c.call_rate_warn_per_min)
+                    }
+                    "retrieve_enabled" => c.retrieve_enabled = v == "true",
+                    "retrieve_ttl_days" => {
+                        c.retrieve_ttl_days = v.parse().unwrap_or(c.retrieve_ttl_days)
+                    }
+                    "retrieve_min_lines" => {
+                        c.retrieve_min_lines = v.parse().unwrap_or(c.retrieve_min_lines)
                     }
                     _ => {}
                 }
