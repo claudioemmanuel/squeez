@@ -24,6 +24,8 @@ const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/posttooluse.sh");
 const SUBAGENT_STOP_SCRIPT: &str = include_str!("../../hooks/subagent-stop.sh");
 const PRECOMPACT_SCRIPT: &str = include_str!("../../hooks/precompact.sh");
 const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
+/// `/squeez` slash command — drives `squeez config` in natural language.
+const SQUEEZ_COMMAND: &str = include_str!("../../assets/squeez-command.md");
 
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
 /// Load-merge-write with atomic rename. Idempotent via substring match on
@@ -248,6 +250,11 @@ impl ClaudeCodeAdapter {
     fn claude_md_path() -> PathBuf {
         Self::claude_dir().join("CLAUDE.md")
     }
+
+    /// `~/.claude/commands/squeez.md` — the user-defined `/squeez` slash command.
+    fn command_path() -> PathBuf {
+        Self::claude_dir().join("commands").join("squeez.md")
+    }
 }
 
 fn hooks_dir_for(data_dir: &Path) -> PathBuf {
@@ -335,6 +342,13 @@ impl HostAdapter for ClaudeCodeAdapter {
                 "", // legacy positional arg (was statusline_bin); kept for compat
             ],
         )?;
+
+        // Install the `/squeez` slash command.
+        let cmd_path = Self::command_path();
+        if let Some(parent) = cmd_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&cmd_path, SQUEEZ_COMMAND)?;
         Ok(())
     }
 
@@ -349,6 +363,8 @@ impl HostAdapter for ClaudeCodeAdapter {
             let cleaned = strip_squeez_block(&existing);
             let _ = std::fs::write(&claude_md, cleaned);
         }
+        // Remove the `/squeez` slash command we installed.
+        let _ = std::fs::remove_file(Self::command_path());
         Ok(())
     }
 
