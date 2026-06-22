@@ -180,54 +180,54 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 57.0 ms |
-| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 201 µs |
-| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 56 µs |
-| `high_context_adaptive` | 4,418 tk | 52 tk | **-99%** | 807 µs |
-| `agent_directory_output` | 3,348 tk | 167 tk | **-95%** | 330 µs |
-| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 2.7 ms |
+| `summarize_huge` | 82,257 tk | 420 tk | **-99%** | 56.8 ms |
+| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 203 µs |
+| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 57 µs |
+| `high_context_adaptive` | 4,418 tk | 52 tk | **-99%** | 811 µs |
+| `agent_directory_output` | 3,348 tk | 167 tk | **-95%** | 325 µs |
+| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 889 µs |
 | `git_log_200` | 2,692 tk | 275 tk | **-90%** | 206 µs |
-| `tsc_errors` | 731 tk | 101 tk | **-86%** | 21 µs |
-| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 262 µs |
-| `docker_logs` | 665 tk | 186 tk | **-72%** | 47 µs |
-| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 47 µs |
-| `find_deep` | 424 tk | 134 tk | **-68%** | 83 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 14 µs |
-| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 293 µs |
-| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 288 µs |
-| `npm_install` | 524 tk | 218 tk | **-58%** | 48 µs |
-| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.7 ms |
-| `ls_la` | 1,782 tk | 872 tk | **-51%** | 195 µs |
-| `env_dump` | 441 tk | 287 tk | **-35%** | 26 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 102 µs |
-| `agent_heavy` | 2,306 tk | 1,551 tk | **-33%** | 328 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 862 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 24 µs |
+| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 250 µs |
+| `docker_logs` | 665 tk | 186 tk | **-72%** | 49 µs |
+| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 46 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 15 µs |
+| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 303 µs |
+| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 298 µs |
+| `npm_install` | 524 tk | 218 tk | **-58%** | 47 µs |
+| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.9 ms |
+| `ls_la` | 1,782 tk | 872 tk | **-51%** | 43 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 24 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 100 µs |
+| `find_deep` | 424 tk | 279 tk | **-34%** | 23 µs |
+| `agent_heavy` | 2,306 tk | 1,551 tk | **-33%** | 334 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 831 µs |
 | `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.1 ms |
 | `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 22 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 41 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 47 µs |
 | `jest_failures` | 451 tk | 448 tk | **-1%** | 49 µs |
-| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 5 µs |
+| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 6 µs |
 | `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 32 µs |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **90.7%** — 164,224 tk → 15,206 tk |
-| Bash output | **-84.0%** |
+| **Total token reduction** | **90.7%** — 164,224 tk → 15,351 tk |
+| Bash output | **-83.8%** |
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **28 / 28 pass** |
-| Latency p50 (filter mode) | **4.2 ms** |
+| Latency p50 (filter mode) | **4.1 ms** |
 | Latency p95 (incl. wrap/summarize) | **52 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
 | Usage | Baseline / month | Saved / month |
 |-------|-----------------|---------------|
-| 100 calls / day | $18.00 | **$16.33 (91%)** |
-| 1,000 calls / day | $180.00 | **$163.33 (91%)** |
-| 10,000 calls / day | $1800.00 | **$1633.32 (91%)** |
+| 100 calls / day | $18.00 | **$16.32 (91%)** |
+| 1,000 calls / day | $180.00 | **$163.17 (91%)** |
+| 10,000 calls / day | $1800.00 | **$1631.70 (91%)** |
 <!-- BENCHMARK:END -->
 
 ---
