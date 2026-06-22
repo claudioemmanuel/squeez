@@ -68,6 +68,9 @@ enum Value<'a> {
     Num(&'a str),
     Bool(bool),
     Null,
+    /// A nested object/array, kept as its raw JSON slice. Emitted minified and
+    /// CSV-quoted, so the tabular form still states top-level keys once.
+    Raw(&'a str),
 }
 
 struct Parser<'a> {
@@ -227,10 +230,49 @@ impl<'a> Parser<'a> {
                     None
                 }
             }
-            b'{' | b'[' => None, // nested — reject.
+            b'{' | b'[' => self.parse_raw_composite().map(Value::Raw), // keep raw
             c if c == b'-' || c.is_ascii_digit() => Some(Value::Num(self.parse_number()?)),
             _ => None,
         }
+    }
+
+    /// Capture a nested object/array as its raw JSON slice. Tracks brace/bracket
+    /// depth while skipping over string contents (so braces inside strings don't
+    /// throw off the balance). Returns the slice from the opener to its match.
+    fn parse_raw_composite(&mut self) -> Option<&'a str> {
+        let start = self.i;
+        let mut depth = 0usize;
+        while self.i < self.src.len() {
+            match self.src[self.i] {
+                b'"' => {
+                    // Skip the whole string, honoring escapes.
+                    self.i += 1;
+                    while self.i < self.src.len() {
+                        match self.src[self.i] {
+                            b'\\' => self.i += 2,
+                            b'"' => {
+                                self.i += 1;
+                                break;
+                            }
+                            _ => self.i += 1,
+                        }
+                    }
+                }
+                b'{' | b'[' => {
+                    depth += 1;
+                    self.i += 1;
+                }
+                b'}' | b']' => {
+                    depth -= 1;
+                    self.i += 1;
+                    if depth == 0 {
+                        return Some(&self.raw[start..self.i]);
+                    }
+                }
+                _ => self.i += 1,
+            }
+        }
+        None
     }
 
     fn starts_with(&self, kw: &[u8]) -> bool {
@@ -297,6 +339,7 @@ fn emit_toon(name: &str, keys: &[&str], rows: &[Vec<(&str, Value)>]) -> String {
                 Value::Bool(true) => out.push_str("true"),
                 Value::Bool(false) => out.push_str("false"),
                 Value::Null => out.push_str("null"),
+                Value::Raw(s) => emit_raw_cell(&mut out, s),
             }
         }
         out.push('\n');
@@ -332,6 +375,59 @@ fn emit_cell(out: &mut String, raw_escaped_json: &str, is_key: bool) {
     } else {
         out.push_str(&decoded);
     }
+}
+
+/// Emit a nested composite (object/array) as a CSV cell: minify the raw JSON
+/// (lossless — only insignificant whitespace removed) then CSV-quote it, since
+/// it always contains commas/braces.
+fn emit_raw_cell(out: &mut String, raw: &str) {
+    let min = minify_json(raw);
+    out.push('"');
+    for c in min.chars() {
+        if c == '"' {
+            out.push('"');
+            out.push('"');
+        } else {
+            out.push(c);
+        }
+    }
+    out.push('"');
+}
+
+/// Strip insignificant whitespace from a JSON slice, preserving string contents
+/// (incl. escapes) verbatim. Byte-wise copy — safe for multibyte UTF-8 because
+/// whole bytes are copied and structural whitespace is ASCII-only.
+fn minify_json(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'"' {
+            out.push(c);
+            i += 1;
+            while i < b.len() {
+                let d = b[i];
+                if d == b'\\' && i + 1 < b.len() {
+                    out.push(d);
+                    out.push(b[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                out.push(d);
+                i += 1;
+                if d == b'"' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if !matches!(c, b' ' | b'\n' | b'\r' | b'\t') {
+            out.push(c);
+        }
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
 fn is_simple_key(k: &str) -> bool {
@@ -480,15 +576,45 @@ mod tests {
     }
 
     #[test]
-    fn rejects_nested_objects() {
+    fn encodes_objects_with_nested_values() {
+        // Several flat keys repeated per row + one nested value. Stating the
+        // top-level keys once saves more than the nested cells cost.
+        let json = r#"[
+            {"id":1,"name":"alice","status":"active","meta":{"x":1}},
+            {"id":2,"name":"bob","status":"active","meta":{"x":2}},
+            {"id":3,"name":"carol","status":"inactive","meta":{"x":3}}
+        ]"#;
+        let toon = try_to_toon(json).expect("nested values should now encode");
+        assert!(toon.starts_with("items[3]{id,name,status,meta}:\n"), "{toon}");
+        // Nested object is preserved (minified, CSV-quoted): {"x":1} -> "{""x"":1}"
+        assert!(toon.contains(r#""{""x"":1}""#), "nested value must survive: {toon}");
+        assert!(toon.len() < json.len());
+    }
+
+    #[test]
+    fn nested_arrays_are_preserved_in_cells() {
+        let json = r#"[
+            {"id":1,"name":"a","role":"admin","tags":["x","y"]},
+            {"id":2,"name":"b","role":"user","tags":["z"]},
+            {"id":3,"name":"c","role":"user","tags":[]}
+        ]"#;
+        let toon = try_to_toon(json).expect("nested arrays should encode");
+        assert!(toon.contains(r#""[""x"",""y""]""#), "array value preserved: {toon}");
+        assert!(toon.contains(r#""[]""#), "empty array preserved: {toon}");
+    }
+
+    #[test]
+    fn single_trivial_nested_row_is_not_worth_encoding() {
+        // One row → no key-repetition to save → size guard rejects.
         let json = r#"[{"a":1,"meta":{"x":1}}]"#;
         assert!(try_to_toon(json).is_none());
     }
 
     #[test]
-    fn rejects_nested_arrays() {
-        let json = r#"[{"a":1,"tags":[]}]"#;
-        assert!(try_to_toon(json).is_none());
+    fn minify_preserves_string_contents() {
+        // Whitespace inside a string value must NOT be stripped.
+        assert_eq!(minify_json(r#"{ "k" : "a b" }"#), r#"{"k":"a b"}"#);
+        assert_eq!(minify_json(r#"[ 1 , 2 ]"#), "[1,2]");
     }
 
     #[test]
