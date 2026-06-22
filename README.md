@@ -180,54 +180,54 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 56.7 ms |
-| `repetitive_output` | 4,692 tk | 37 tk | **-99%** | 176 µs |
-| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 47 µs |
-| `high_context_adaptive` | 4,418 tk | 61 tk | **-99%** | 766 µs |
-| `agent_directory_output` | 3,348 tk | 167 tk | **-95%** | 470 µs |
-| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 753 µs |
-| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 168 µs |
-| `tsc_errors` | 731 tk | 101 tk | **-86%** | 16 µs |
-| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 208 µs |
-| `docker_logs` | 665 tk | 181 tk | **-73%** | 50 µs |
-| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 37 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 12 µs |
-| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 244 µs |
-| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 478 µs |
-| `npm_install` | 524 tk | 218 tk | **-58%** | 41 µs |
-| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.6 ms |
-| `ls_la` | 1,782 tk | 872 tk | **-51%** | 33 µs |
-| `env_dump` | 441 tk | 287 tk | **-35%** | 19 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 85 µs |
-| `find_deep` | 424 tk | 279 tk | **-34%** | 17 µs |
-| `agent_heavy` | 2,306 tk | 1,565 tk | **-32%** | 506 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 654 µs |
-| `md_claude_md` | 316 tk | 247 tk | **-22%** | 808 µs |
-| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 19 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 33 µs |
-| `jest_failures` | 451 tk | 448 tk | **-1%** | 43 µs |
-| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 4 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 25 µs |
+| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 58.1 ms |
+| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 65 µs |
+| `repetitive_output` | 4,692 tk | 134 tk | **-97%** | 212 µs |
+| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 934 µs |
+| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 218 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 22 µs |
+| `high_context_adaptive` | 4,418 tk | 729 tk | **-84%** | 1.3 ms |
+| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 264 µs |
+| `docker_logs` | 665 tk | 181 tk | **-73%** | 64 µs |
+| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 50 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 15 µs |
+| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 317 µs |
+| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 611 µs |
+| `npm_install` | 524 tk | 218 tk | **-58%** | 50 µs |
+| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.8 ms |
+| `ls_la` | 1,782 tk | 872 tk | **-51%** | 43 µs |
+| `agent_directory_output` | 3,348 tk | 1,937 tk | **-42%** | 757 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 25 µs |
+| `agent_heavy` | 2,306 tk | 1,514 tk | **-34%** | 451 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 104 µs |
+| `find_deep` | 424 tk | 279 tk | **-34%** | 22 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 836 µs |
+| `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.0 ms |
+| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 22 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 45 µs |
+| `jest_failures` | 451 tk | 448 tk | **-1%** | 54 µs |
+| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 5 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 33 µs |
 
 ### Aggregate
 
 | Metric | Value |
 |--------|-------|
-| **Total token reduction** | **90.6%** — 164,224 tk → 15,394 tk |
-| Bash output | **-83.8%** |
+| **Total token reduction** | **89.1%** — 164,224 tk → 17,878 tk |
+| Bash output | **-81.2%** |
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **28 / 28 pass** |
-| Latency p50 (filter mode) | **4.1 ms** |
+| Latency p50 (filter mode) | **4.2 ms** |
 | Latency p95 (incl. wrap/summarize) | **52 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
 | Usage | Baseline / month | Saved / month |
 |-------|-----------------|---------------|
-| 100 calls / day | $18.00 | **$16.31 (91%)** |
-| 1,000 calls / day | $180.00 | **$163.13 (91%)** |
-| 10,000 calls / day | $1800.00 | **$1631.34 (91%)** |
+| 100 calls / day | $18.00 | **$16.04 (89%)** |
+| 1,000 calls / day | $180.00 | **$160.40 (89%)** |
+| 10,000 calls / day | $1800.00 | **$1603.98 (89%)** |
 <!-- BENCHMARK:END -->
 
 ---
