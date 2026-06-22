@@ -137,6 +137,12 @@ pub struct Config {
     /// Minimum original line count before squeez bothers stashing a blob.
     /// Default: 40.
     pub retrieve_min_lines: usize,
+    // ── Log-template compaction (P2) ─────────────────────────────────────────
+    /// Collapse near-identical log lines (differing only by timestamps/ids/
+    /// numbers) into a single `[×N] <template>` line. Default: true.
+    pub log_template_enabled: bool,
+    /// Minimum recurrence before a template is collapsed. Default: 3.
+    pub log_template_min: usize,
 }
 
 impl Default for Config {
@@ -202,6 +208,8 @@ impl Default for Config {
             retrieve_enabled: true,
             retrieve_ttl_days: 7,
             retrieve_min_lines: 40,
+            log_template_enabled: true,
+            log_template_min: 3,
         }
     }
 }
@@ -369,6 +377,10 @@ impl Config {
                     }
                     "retrieve_min_lines" => {
                         c.retrieve_min_lines = v.parse().unwrap_or(c.retrieve_min_lines)
+                    }
+                    "log_template_enabled" => c.log_template_enabled = v == "true",
+                    "log_template_min" => {
+                        c.log_template_min = v.parse().unwrap_or(c.log_template_min)
                     }
                     _ => {}
                 }
