@@ -38,10 +38,14 @@ for f in "$FIXTURES"/*.txt; do
     # Derive handler hint from fixture name: "git_log_200.txt" → hint="git"
     hint="${name%%_*}"
 
-    # mdcompress_* fixtures use the markdown compressor instead of filter
+    # mdcompress_* fixtures use the markdown compressor instead of filter.
+    # Prose is locale-specific: a *ptbr* fixture must be compressed with the
+    # pt-BR word list, else the EN compressor barely touches it.
     if [ "$hint" = "mdcompress" ]; then
+        lang_flag=""
+        case "$name" in *ptbr*|*pt_br*|*pt-br*) lang_flag="--lang pt-BR" ;; esac
         t0=$(date +%s%N)
-        compressed=$("$SQUEEZ" compress-md --dry-run --ultra --quiet "$f" 2>/dev/null || cat "$f")
+        compressed=$("$SQUEEZ" compress-md --dry-run --ultra --quiet $lang_flag "$f" 2>/dev/null || cat "$f")
         t1=$(date +%s%N)
     else
         t0=$(date +%s%N)

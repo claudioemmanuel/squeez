@@ -17,8 +17,8 @@ fn main() {
     let en = Locale::from_code("en");
     let pt = Locale::from_code("pt-BR");
 
-    let en_input = include_str!("fixtures/en_prose.txt");
-    let pt_input = include_str!("fixtures/pt_br_prose.txt");
+    let en_input = include_str!("fixtures/mdcompress_en_prose.txt");
+    let pt_input = include_str!("fixtures/mdcompress_ptbr_prose.txt");
 
     println!("── Compression ratio ────────────────────────────────────────");
     print_ratio("EN prose  / Full",   en_input, en, Mode::Full);

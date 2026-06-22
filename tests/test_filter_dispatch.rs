@@ -75,6 +75,27 @@ fn ls_listing_is_not_collapsed_to_modified_count() {
 }
 
 #[test]
+fn generic_output_is_not_collapsed_to_modified_count() {
+    // Regression for #165: the generic handler must not collapse arbitrary
+    // non-path output (prose, logs) into a "N modified" count — that destroys
+    // the payload and can swallow error lines. An unknown command routes to
+    // GenericHandler.
+    let mut lines: Vec<String> = (0..10)
+        .map(|i| format!("the system processed batch number {i} successfully"))
+        .collect();
+    lines.push("FATAL: out of memory in batch processor".to_string());
+    let out = filter::compress("somecmd --run", lines, &cfg());
+    assert!(
+        !out.iter().any(|l| l.contains("modified") || l.contains("[squeez grouped]")),
+        "generic prose must not be grouped into a count: {out:?}"
+    );
+    assert!(
+        out.iter().any(|l| l.contains("FATAL: out of memory")),
+        "the error line must survive: {out:?}"
+    );
+}
+
+#[test]
 fn long_find_listing_is_truncated_not_grouped() {
     // A genuinely long listing is bounded by truncation (visible head + a
     // truncation marker), never collapsed to a single dir count.
