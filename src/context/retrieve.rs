@@ -45,6 +45,27 @@ pub fn prune(ttl_secs: u64) {
     prune_in(&blobs_dir(), ttl_secs)
 }
 
+/// The ids of the most recently stored blobs (newest first), up to `n`. Used
+/// by the post-compact summary to point the model at outputs it can re-expand.
+pub fn recent_ids(n: usize) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(blobs_dir()) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<(std::time::SystemTime, String)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            if !is_valid_id(&name) {
+                return None;
+            }
+            let mtime = e.metadata().ok()?.modified().ok()?;
+            Some((mtime, name))
+        })
+        .collect();
+    ids.sort_by(|a, b| b.0.cmp(&a.0));
+    ids.into_iter().take(n).map(|(_, id)| id).collect()
+}
+
 // ── Dir-injected cores (so tests don't race on the global SQUEEZ_DIR env) ────
 
 fn store_in(dir: &Path, content: &str) -> Option<String> {

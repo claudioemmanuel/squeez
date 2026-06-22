@@ -35,9 +35,10 @@ fn main() {
             };
             std::process::exit(exit_code);
         }
-        Some("compact") => {
-            eprintln!("squeez: compact not yet implemented");
-            std::process::exit(1);
+        Some("compact-summary") => {
+            // PostCompact hook: emit dense session state as additionalContext
+            // so it survives /compact. See commands/compact.rs.
+            std::process::exit(squeez::commands::compact::run());
         }
         Some("compress-md") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
@@ -107,6 +108,7 @@ fn main() {
             eprintln!("       squeez update [--check] [--insecure]");
             eprintln!("       squeez mcp                       — JSON-RPC 2.0 server over stdio");
             eprintln!("       squeez protocol                  — print the auto-teach payload");
+            eprintln!("       squeez compact-summary           — PostCompact hook: re-inject session state");
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
             eprintln!("       squeez budget-params <tool>        — output JSON budget patch for tool");
             eprintln!("       squeez --version");
