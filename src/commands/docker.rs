@@ -1,6 +1,6 @@
 use crate::commands::Handler;
 use crate::config::Config;
-use crate::strategies::{dedup, smart_filter, truncation};
+use crate::strategies::{dedup, log_template, smart_filter, truncation};
 
 pub struct DockerHandler;
 
@@ -8,6 +8,11 @@ impl Handler for DockerHandler {
     fn compress(&self, _cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
         let lines = smart_filter::apply(lines);
         let lines = dedup::apply(lines, config.dedup_min);
+        let lines = if config.log_template_enabled {
+            log_template::apply(lines, config.log_template_min)
+        } else {
+            lines
+        };
         truncation::apply(lines, config.docker_logs_max_lines, truncation::Keep::Tail)
     }
 }

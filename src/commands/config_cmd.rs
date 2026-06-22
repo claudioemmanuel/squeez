@@ -104,6 +104,8 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("retrieve_enabled", Kind::Bool),
     ("retrieve_ttl_days", Kind::U64),
     ("retrieve_min_lines", Kind::Usize),
+    ("log_template_enabled", Kind::Bool),
+    ("log_template_min", Kind::Usize),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -176,6 +178,8 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "retrieve_enabled" => c.retrieve_enabled.to_string(),
         "retrieve_ttl_days" => c.retrieve_ttl_days.to_string(),
         "retrieve_min_lines" => c.retrieve_min_lines.to_string(),
+        "log_template_enabled" => c.log_template_enabled.to_string(),
+        "log_template_min" => c.log_template_min.to_string(),
         _ => return None,
     };
     Some(v)
