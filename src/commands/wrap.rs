@@ -148,7 +148,7 @@ pub fn run(cmd_str: &str) -> i32 {
     combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
     combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
 
-    let input_tokens = combined.len() / 4;
+    let input_tokens = crate::tokens::estimate(&combined);
     let lines: Vec<String> = combined.lines().map(String::from).collect();
     let orig_line_count = lines.len();
 
@@ -194,7 +194,7 @@ pub fn run(cmd_str: &str) -> i32 {
     }
 
     let output_str = compressed.join("\n");
-    let output_tokens = output_str.len() / 4;
+    let output_tokens = crate::tokens::estimate(&output_str);
 
     // ── Reversible compression: stash the original so the model can recover it ──
     // When a large output was meaningfully compressed, save the verbatim
