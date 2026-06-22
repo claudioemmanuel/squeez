@@ -108,6 +108,11 @@ fn looks_like_id(s: &str) -> bool {
     if numeric_shaped {
         return true;
     }
+    // Number + unit: a numeric prefix followed by a short unit suffix
+    // (1ms, 200ms, 5s, 3.2KB, 50%, 1.5x). These dominate latency/size logs.
+    if is_num_unit(s) {
+        return true;
+    }
     // Hex / uuid id: long, hex-or-dash, with at least a couple of digits so we
     // don't eat ordinary lowercase words.
     let hexish = s.len() >= 8
@@ -124,6 +129,26 @@ fn looks_like_id(s: &str) -> bool {
         && s.bytes().any(|b| b == b'-' || b == b'_')
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
     compound
+}
+
+/// True for a numeric value glued to a short unit: `1ms`, `200ms`, `3.2KB`,
+/// `50%`, `1.5x`. Requires a leading digit so identifiers (`utf8`, `x86`) and
+/// versions (`v1`) are not eaten.
+fn is_num_unit(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut saw_digit = false;
+    while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+        if bytes[i].is_ascii_digit() {
+            saw_digit = true;
+        }
+        i += 1;
+    }
+    if !saw_digit || i == 0 || i == bytes.len() {
+        return false; // need digits AND a non-empty suffix
+    }
+    let suffix = &bytes[i..];
+    suffix.len() <= 4 && suffix.iter().all(|b| b.is_ascii_alphabetic() || *b == b'%')
 }
 
 /// A short, single-line example of the raw line for the collapsed marker.
@@ -191,5 +216,25 @@ ready");
         let input = v("worker 1 done\nworker 2 done");
         let out = apply(input.clone(), 3);
         assert_eq!(out, input);
+    }
+
+    #[test]
+    fn collapses_lines_differing_by_number_unit() {
+        // Latency/size values glued to a unit must be treated as variable so
+        // these lines share a template and collapse (#163).
+        let input = v("req done in 1ms\nreq done in 22ms\nreq done in 3ms\nreq done in 450ms");
+        let out = apply(input, 3);
+        assert_eq!(out.len(), 1, "number+unit lines should collapse: {out:?}");
+        assert!(out[0].contains("req done in {}"), "{:?}", out[0]);
+    }
+
+    #[test]
+    fn num_unit_recognizes_common_shapes() {
+        for t in ["1ms", "200ms", "5s", "3.2KB", "50%", "1.5x"] {
+            assert!(is_num_unit(t), "{t} should be a number+unit");
+        }
+        for t in ["utf8", "x86", "v1", "abc", "1234"] {
+            assert!(!is_num_unit(t), "{t} should NOT be a number+unit");
+        }
     }
 }
