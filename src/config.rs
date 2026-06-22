@@ -143,6 +143,11 @@ pub struct Config {
     pub log_template_enabled: bool,
     /// Minimum recurrence before a template is collapsed. Default: 3.
     pub log_template_min: usize,
+    // ── Relevance-aware truncation (P3) ──────────────────────────────────────
+    /// When the generic handler must truncate, keep the highest-relevance lines
+    /// (error/signal words + command query terms) instead of a blind head.
+    /// Default: true.
+    pub relevance_truncation_enabled: bool,
 }
 
 impl Default for Config {
@@ -210,6 +215,7 @@ impl Default for Config {
             retrieve_min_lines: 40,
             log_template_enabled: true,
             log_template_min: 3,
+            relevance_truncation_enabled: true,
         }
     }
 }
@@ -381,6 +387,9 @@ impl Config {
                     "log_template_enabled" => c.log_template_enabled = v == "true",
                     "log_template_min" => {
                         c.log_template_min = v.parse().unwrap_or(c.log_template_min)
+                    }
+                    "relevance_truncation_enabled" => {
+                        c.relevance_truncation_enabled = v == "true"
                     }
                     _ => {}
                 }
