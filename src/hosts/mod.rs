@@ -14,6 +14,7 @@ pub mod claude_code;
 pub mod codex;
 pub mod copilot;
 pub mod gemini;
+pub mod hermes;
 pub mod memory_size;
 pub mod opencode;
 pub mod pi;
@@ -21,6 +22,7 @@ pub use claude_code::ClaudeCodeAdapter;
 pub use codex::CodexCliAdapter;
 pub use copilot::CopilotCliAdapter;
 pub use gemini::GeminiCliAdapter;
+pub use hermes::HermesAdapter;
 pub use opencode::OpenCodeAdapter;
 pub use pi::PiAdapter;
 
@@ -98,6 +100,7 @@ pub fn all_hosts() -> Vec<Box<dyn HostAdapter>> {
         Box::new(GeminiCliAdapter),
         Box::new(CodexCliAdapter),
         Box::new(PiAdapter),
+        Box::new(HermesAdapter),
     ]
 }
 
@@ -127,5 +130,11 @@ mod tests {
     #[test]
     fn find_returns_none_for_unknown() {
         assert!(find("nonexistent").is_none());
+    }
+
+    #[test]
+    fn find_returns_hermes() {
+        let a = find("hermes").expect("adapter");
+        assert_eq!(a.name(), "hermes");
     }
 }

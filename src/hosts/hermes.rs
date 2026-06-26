@@ -1,0 +1,199 @@
+//! Hermes Agent adapter.
+//!
+//! [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research
+//! is a general-purpose AI agent with a plugin system at `~/.hermes/plugins/`.
+//! Each plugin is a Python package with `__init__.py` exposing `register(ctx)`.
+//!
+//! Hermes fires `pre_tool_call` and `post_tool_call` hooks for every tool
+//! invocation. The squeez plugin wraps terminal commands via `pre_tool_call`,
+//! similar to Claude Code's PreToolUse hook.
+//!
+//! Capability ceiling: `BASH_WRAP | SESSION_MEM`.
+//! Hermes does not expose programmatic Read/Grep budget injection — the
+//! `BUDGET_HARD` flag is not set. Budget hints could be injected into the
+//! system prompt via `inject_memory`, but Hermes users typically configure
+//! their SOUL.md / config.yaml system_prompt manually.
+//!
+//! Memory injection: Hermes loads its system prompt from config.yaml at
+//! session start and does not auto-load a markdown file the way Claude Code
+//! loads CLAUDE.md. The adapter writes a squeez persona block into
+//! `~/.hermes/profiles/default/SOUL.md` if it exists, which is the canonical
+//! "personality" file for the default profile.
+
+use std::path::{Path, PathBuf};
+
+use crate::commands::persona;
+use crate::config::Config;
+use crate::memory::Summary;
+use crate::session::home_dir;
+
+use super::{memory_size, HostAdapter, HostCaps};
+
+/// The Python plugin dropped into ~/.hermes/plugins/squeez-fallback/__init__.py
+const HERMES_PLUGIN: &str = include_str!("../../plugins/hermes/__init__.py");
+
+pub struct HermesAdapter;
+
+impl HermesAdapter {
+    fn hermes_dir() -> PathBuf {
+        PathBuf::from(format!("{}/.hermes", home_dir()))
+    }
+
+    fn plugins_dir() -> PathBuf {
+        Self::hermes_dir().join("plugins")
+    }
+
+    fn squeez_plugin_dir() -> PathBuf {
+        Self::plugins_dir().join("squeez-fallback")
+    }
+
+    fn soul_md_path() -> PathBuf {
+        Self::hermes_dir()
+            .join("profiles")
+            .join("default")
+            .join("SOUL.md")
+    }
+}
+
+impl HostAdapter for HermesAdapter {
+    fn name(&self) -> &'static str {
+        "hermes"
+    }
+
+    fn is_installed(&self) -> bool {
+        // Detect Hermes by checking for ~/.hermes/ with a hermes-agent subdir
+        // or a config.yaml — either indicates a real installation.
+        let dir = Self::hermes_dir();
+        if !dir.exists() {
+            return false;
+        }
+        dir.join("hermes-agent").exists() || dir.join("config.yaml").exists()
+    }
+
+    fn data_dir(&self) -> PathBuf {
+        std::env::var("SQUEEZ_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Self::hermes_dir().join("squeez"))
+    }
+
+    fn capabilities(&self) -> HostCaps {
+        // Hermes has pre_tool_call (BASH_WRAP) and session start (SESSION_MEM).
+        // No programmatic Read/Grep budget injection (BUDGET_HARD) or soft
+        // budget hints via markdown (BUDGET_SOFT).
+        HostCaps::BASH_WRAP | HostCaps::SESSION_MEM
+    }
+
+    fn install(&self, _bin_path: &Path) -> std::io::Result<()> {
+        let plugin_dir = Self::squeez_plugin_dir();
+        std::fs::create_dir_all(&plugin_dir)?;
+
+        // Write the Python plugin
+        let plugin_path = plugin_dir.join("__init__.py");
+        std::fs::write(&plugin_path, HERMES_PLUGIN)?;
+
+        // Create data directories
+        let data = self.data_dir();
+        std::fs::create_dir_all(data.join("sessions"))?;
+        std::fs::create_dir_all(data.join("memory"))?;
+
+        // Note: Hermes auto-discovers plugins in ~/.hermes/plugins/ on next
+        // session start — no config file patching needed, unlike Claude Code
+        // which requires settings.json manipulation.
+        Ok(())
+    }
+
+    fn uninstall(&self) -> std::io::Result<()> {
+        let plugin_dir = Self::squeez_plugin_dir();
+        if plugin_dir.exists() {
+            let _ = std::fs::remove_dir_all(&plugin_dir);
+        }
+
+        // Clean persona block from SOUL.md if present
+        let soul = Self::soul_md_path();
+        if soul.exists() {
+            let existing = std::fs::read_to_string(&soul).unwrap_or_default();
+            let cleaned = strip_squeez_block(&existing);
+            if cleaned != existing {
+                let _ = std::fs::write(&soul, cleaned);
+            }
+        }
+        Ok(())
+    }
+
+    fn inject_memory(&self, cfg: &Config, summaries: &[Summary]) -> std::io::Result<()> {
+        let soul = Self::soul_md_path();
+        if !soul.exists() {
+            // SOUL.md doesn't exist — skip memory injection. Hermes users
+            // configure their system prompt via config.yaml; we don't create
+            // SOUL.md to avoid overriding their setup.
+            return Ok(());
+        }
+
+        let existing = std::fs::read_to_string(&soul).unwrap_or_default();
+
+        let mut block = String::from("<!-- squeez:start -->\n");
+        if let Some(banner) =
+            memory_size::size_warning(&existing, "SOUL.md", cfg.memory_file_warn_tokens)
+        {
+            block.push_str(&banner);
+        }
+        block.push_str("## squeez — always-on compression\n\n");
+        block.push_str(&format!(
+            "Persona: {} | Bash compression: ON | Memory: ON\n\n",
+            persona::as_str(cfg.persona)
+        ));
+        let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
+        if !persona_text.is_empty() {
+            block.push_str(persona_text);
+            if !persona_text.ends_with('\n') {
+                block.push('\n');
+            }
+        }
+        for s in summaries {
+            block.push_str(&format!("- {}\n", s.display_line()));
+        }
+        block.push_str("<!-- squeez:end -->\n");
+
+        let cleaned = strip_squeez_block(&existing);
+        let contents = format!("{}\n{}", block, cleaned.trim_start());
+        std::fs::write(&soul, contents)
+    }
+}
+
+fn strip_squeez_block(s: &str) -> String {
+    if !s.contains("<!-- squeez:start -->") {
+        return s.to_string();
+    }
+    let start = s.find("<!-- squeez:start -->").unwrap_or(0);
+    let end = s
+        .find("<!-- squeez:end -->")
+        .map(|i| i + "<!-- squeez:end -->".len() + 1)
+        .unwrap_or(start);
+    format!("{}{}", &s[..start], &s[end.min(s.len())..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_squeez_block_inside_existing_soul_md() {
+        let s = "# SOUL\n<!-- squeez:start -->\nfoo\n<!-- squeez:end -->\n## after\n";
+        let out = strip_squeez_block(s);
+        assert!(!out.contains("<!-- squeez:start -->"));
+        assert!(out.contains("# SOUL"));
+        assert!(out.contains("## after"));
+    }
+
+    #[test]
+    fn strip_squeez_block_passthrough_when_absent() {
+        let s = "# SOUL\nnothing to strip\n";
+        assert_eq!(strip_squeez_block(s), s);
+    }
+
+    #[test]
+    fn name_is_hermes() {
+        let a = HermesAdapter;
+        assert_eq!(a.name(), "hermes");
+    }
+}
