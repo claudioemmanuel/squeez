@@ -128,6 +128,39 @@ pub struct Config {
     /// Tool calls per 60-second window that triggers a high-call-rate warning.
     /// Detects runaway agent loops. 0 = disabled. Default: 20.
     pub call_rate_warn_per_min: u32,
+    // ── Reversible compression (P1, headroom CCR-style) ──────────────────────
+    /// Stash the verbatim original when a large output is compressed so the
+    /// model can recover it via the `squeez_retrieve` MCP tool. Default: true.
+    pub retrieve_enabled: bool,
+    /// Days a stashed blob lives before pruning. 0 = never prune. Default: 7.
+    pub retrieve_ttl_days: u64,
+    /// Minimum original line count before squeez bothers stashing a blob.
+    /// Default: 40.
+    pub retrieve_min_lines: usize,
+    // ── Log-template compaction (P2) ─────────────────────────────────────────
+    /// Collapse near-identical log lines (differing only by timestamps/ids/
+    /// numbers) into a single `[×N] <template>` line. Default: true.
+    pub log_template_enabled: bool,
+    /// Minimum recurrence before a template is collapsed. Default: 3.
+    pub log_template_min: usize,
+    // ── Relevance-aware truncation (P3) ──────────────────────────────────────
+    /// When the generic handler must truncate, keep the highest-relevance lines
+    /// (error/signal words + command query terms) instead of a blind head.
+    /// Default: true.
+    pub relevance_truncation_enabled: bool,
+    // ── Bash-wrap safety (#150) ──────────────────────────────────────────────
+    /// Master switch for rewriting Bash commands to `squeez wrap '…'` in the
+    /// PreToolUse hook. When false, commands run unwrapped (no output
+    /// compression) and the host's native permission flow applies untouched.
+    /// Default: true.
+    pub wrap_bash: bool,
+    /// Substring patterns marking a command too risky to wrap. A matching
+    /// command is passed through UNWRAPPED with no permission decision, so the
+    /// host evaluates the user's deny/ask rules against the *original* command
+    /// (e.g. a `Bash(git push *)` deny rule keeps working). A safety net, not a
+    /// sandbox — extend it to match your own rules. Default: common destructive
+    /// operations.
+    pub bash_risk_patterns: Vec<String>,
 }
 
 impl Default for Config {
@@ -190,6 +223,27 @@ impl Default for Config {
             parallel_agent_burst_threshold: 5,
             subagent_total_warn_tokens: 50_000,
             call_rate_warn_per_min: 20,
+            retrieve_enabled: true,
+            retrieve_ttl_days: 7,
+            retrieve_min_lines: 40,
+            log_template_enabled: true,
+            log_template_min: 3,
+            relevance_truncation_enabled: true,
+            wrap_bash: true,
+            bash_risk_patterns: vec![
+                "rm -rf".to_string(),
+                "rm -fr".to_string(),
+                "rm -r -f".to_string(),
+                "git push --force".to_string(),
+                "git push -f".to_string(),
+                "git reset --hard".to_string(),
+                "npm publish".to_string(),
+                "yarn publish".to_string(),
+                "pnpm publish".to_string(),
+                "dd if=".to_string(),
+                "mkfs".to_string(),
+                "> /dev/sd".to_string(),
+            ],
         }
     }
 }
@@ -351,6 +405,25 @@ impl Config {
                         c.call_rate_warn_per_min =
                             v.parse().unwrap_or(c.call_rate_warn_per_min)
                     }
+                    "retrieve_enabled" => c.retrieve_enabled = v == "true",
+                    "retrieve_ttl_days" => {
+                        c.retrieve_ttl_days = v.parse().unwrap_or(c.retrieve_ttl_days)
+                    }
+                    "retrieve_min_lines" => {
+                        c.retrieve_min_lines = v.parse().unwrap_or(c.retrieve_min_lines)
+                    }
+                    "log_template_enabled" => c.log_template_enabled = v == "true",
+                    "log_template_min" => {
+                        c.log_template_min = v.parse().unwrap_or(c.log_template_min)
+                    }
+                    "relevance_truncation_enabled" => {
+                        c.relevance_truncation_enabled = v == "true"
+                    }
+                    "wrap_bash" => c.wrap_bash = v == "true",
+                    "bash_risk_patterns" => {
+                        c.bash_risk_patterns =
+                            v.split(',').map(|s| s.trim().to_string()).collect()
+                    }
                     _ => {}
                 }
             }
@@ -370,5 +443,63 @@ impl Config {
 
     pub fn is_bypassed(&self, cmd: &str) -> bool {
         self.bypass.iter().any(|b| cmd.starts_with(b.as_str()))
+    }
+
+    /// True if `cmd` matches a risk pattern — too dangerous to wrap, so it must
+    /// run unwrapped under the host's native permission flow (#150).
+    pub fn is_risky(&self, cmd: &str) -> bool {
+        self.bash_risk_patterns
+            .iter()
+            .any(|p| !p.is_empty() && cmd.contains(p.as_str()))
+    }
+
+    /// Whether the PreToolUse hook should rewrite `cmd` to `squeez wrap '…'`.
+    /// False when squeez is off, bash-wrap is disabled, the command is bypassed,
+    /// or it's risky — in all those cases the original command runs and the
+    /// host's native deny/ask rules apply to it unchanged.
+    pub fn should_wrap_bash(&self, cmd: &str) -> bool {
+        self.enabled && self.wrap_bash && !self.is_bypassed(cmd) && !self.is_risky(cmd)
+    }
+}
+
+#[cfg(test)]
+mod wrap_safety_tests {
+    use super::*;
+
+    #[test]
+    fn risky_commands_are_not_wrapped() {
+        let c = Config::default();
+        for cmd in [
+            "rm -rf /tmp/x",
+            "git push --force origin main",
+            "git push -f",
+            "npm publish",
+            "git reset --hard HEAD~3",
+        ] {
+            assert!(c.is_risky(cmd), "{cmd} should be risky");
+            assert!(!c.should_wrap_bash(cmd), "{cmd} must not be wrapped");
+        }
+    }
+
+    #[test]
+    fn ordinary_commands_are_wrapped() {
+        let c = Config::default();
+        for cmd in ["ls -la", "git status", "cargo test", "grep -rn TODO src/"] {
+            assert!(!c.is_risky(cmd));
+            assert!(c.should_wrap_bash(cmd), "{cmd} should be wrapped");
+        }
+    }
+
+    #[test]
+    fn disabling_wrap_bash_stops_all_wrapping() {
+        let mut c = Config::default();
+        c.wrap_bash = false;
+        assert!(!c.should_wrap_bash("ls -la"));
+    }
+
+    #[test]
+    fn bypassed_commands_are_not_wrapped() {
+        let c = Config::default(); // bypass includes ssh, psql, …
+        assert!(!c.should_wrap_bash("ssh host uptime"));
     }
 }

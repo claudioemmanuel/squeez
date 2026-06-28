@@ -207,6 +207,29 @@ fn claude_code_uninstall_removes_subagent_stop_precompact_postcompact() {
     });
 }
 
+#[test]
+fn claude_code_install_writes_squeez_slash_command() {
+    // #149: `squeez setup` installs the `/squeez` slash command, and uninstall
+    // removes it.
+    if !python3_available() {
+        eprintln!("python3 unavailable — skipping");
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let a = ClaudeCodeAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+
+        let cmd = home.join(".claude/commands/squeez.md");
+        assert!(cmd.exists(), "/squeez command not installed");
+        let body = std::fs::read_to_string(&cmd).unwrap();
+        assert!(body.contains("squeez config"), "command should drive the config CLI:\n{body}");
+
+        a.uninstall().unwrap();
+        assert!(!cmd.exists(), "/squeez command left behind after uninstall");
+    });
+}
+
 // Returns (top_level_squeez_count, nested_squeez_count) by parsing settings.json
 // via python3 — keeps this crate zero-dep (no serde_json). Python indentation
 // is significant, so the script is concat!'d with explicit "\n" — Rust's

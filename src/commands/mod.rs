@@ -7,8 +7,10 @@ pub trait Handler {
 pub mod compress_output;
 pub mod build;
 pub mod cloud;
+pub mod compact;
 pub mod compress_md;
 pub mod compress_prompt;
+pub mod config_cmd;
 pub mod data_tool;
 pub mod database;
 pub mod docker;

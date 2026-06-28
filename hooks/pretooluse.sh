@@ -37,6 +37,18 @@ if tool == 'Bash':
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
         sys.exit(0)
 
+    # Security gate (#150): only rewrite to 'squeez wrap …' when squeez deems
+    # it safe. Risky (rm -rf, git push --force, …), bypassed, or wrap-disabled
+    # commands are left UNTOUCHED — we emit no updatedInput and no
+    # permissionDecision, so the host evaluates the user's native deny/ask
+    # rules against the ORIGINAL command instead of the wrapper. Fail-safe: any
+    # error in the check means we do not wrap (and do not silently allow).
+    try:
+        if subprocess.run([squeez, 'should-wrap', cmd], timeout=2).returncode != 0:
+            sys.exit(0)
+    except Exception:
+        sys.exit(0)
+
     d['tool_input']['command'] = squeez + ' wrap ' + shlex.quote(cmd)
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'allow', 'updatedInput': d['tool_input']}}))
     sys.exit(0)

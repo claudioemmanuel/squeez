@@ -148,8 +148,9 @@ pub fn run(cmd_str: &str) -> i32 {
     combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
     combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
 
-    let input_tokens = combined.len() / 4;
+    let input_tokens = crate::tokens::estimate(&combined);
     let lines: Vec<String> = combined.lines().map(String::from).collect();
+    let orig_line_count = lines.len();
 
     // ── Summarize fallback for huge outputs (pre-handler) ──────────────
     // Decision based on raw line count so handlers can't hide huge inputs.
@@ -193,7 +194,29 @@ pub fn run(cmd_str: &str) -> i32 {
     }
 
     let output_str = compressed.join("\n");
-    let output_tokens = output_str.len() / 4;
+    let output_tokens = crate::tokens::estimate(&output_str);
+
+    // ── Reversible compression: stash the original so the model can recover it ──
+    // When a large output was meaningfully compressed, save the verbatim
+    // original to a content-addressed blob and surface a retrieve marker. This
+    // is the safety net that lets compression be aggressive: the dropped lines
+    // are one `squeez_retrieve` away instead of gone. Skipped on a redundancy
+    // hit (the prior call already holds the content).
+    let retrieve_marker = if config.retrieve_enabled
+        && !redundancy_hit
+        && orig_line_count >= config.retrieve_min_lines
+        && output_str.len() + 256 < combined.len()
+    {
+        context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
+        context::retrieve::store(&combined).map(|id| {
+            format!(
+                "[squeez: full {}-line output stored — call squeez_retrieve with key=\"{}\" to expand]",
+                orig_line_count, id
+            )
+        })
+    } else {
+        None
+    };
 
     // ── Artifact capture + session tracking ───────────────────────────────
     let files      = extract_file_paths(&combined);
@@ -292,6 +315,9 @@ pub fn run(cmd_str: &str) -> i32 {
     // the next bash output is the first surface the model actually reads.
     for w in ctx.drain_warnings() {
         println!("{}", w);
+    }
+    if let Some(ref marker) = retrieve_marker {
+        println!("{}", marker);
     }
     if !output_str.is_empty() {
         println!("{}", output_str);

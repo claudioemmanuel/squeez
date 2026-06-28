@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# squeez PostCompact hook — re-arms squeez after context compaction.
+# squeez PostCompact hook — re-injects session state after context compaction.
 #
-# PostCompact fires after Claude Code compacts the context window. The model's
-# context is now shorter; session memory injected at SessionStart may have
-# been trimmed. We log the event and emit a brief re-arm reminder so the
-# model knows compression is still active for the remainder of the session.
+# PostCompact fires after Claude Code compacts the context window. Compaction
+# can drop concrete state (files touched, errors hit, git refs). squeez already
+# tracks that, so we re-inject it as `additionalContext` — the documented,
+# reliable way to add context that survives into the compacted session — plus
+# pointers to any squeez_retrieve blobs holding dropped output.
 set -euo pipefail
 
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
@@ -16,6 +17,7 @@ fi
 
 "$SQUEEZ" track PostCompact 0 2>/dev/null || true
 
-# Emit a terse re-arm note. Claude Code may surface this to the model
-# as a system-level context injection depending on hook output handling.
-printf '[squeez] context compacted — compression still active\n'
+# Emit the PostCompact hookSpecificOutput JSON (or nothing if there's no state
+# worth restoring). This is the reliable injection path; a plain echo is not
+# guaranteed to reach the model's context.
+"$SQUEEZ" compact-summary 2>/dev/null || true
