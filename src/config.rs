@@ -102,6 +102,12 @@ pub struct Config {
     /// and burn-rate math are keyed to the real window (e.g. 200000, or
     /// 1000000 for a `[1m]` model). 0 = keep the legacy formula. Default: 0.
     pub context_window_tokens: u64,
+    /// Multiplier on the internal token estimate to track a model's tokenizer
+    /// density. 1.0 = legacy. Newer Claude tokenizers (e.g. Sonnet 5) pack
+    /// ~1.0–1.35× more tokens into the same text, so set ~1.15 there. Budget
+    /// math prefers measured context tokens when available, so this only
+    /// affects the estimate/fallback paths. Default: 1.0.
+    pub tokenizer_scale: f32,
     /// Token threshold above which a sub-agent's returned result triggers a
     /// warning suggesting the file + short-summary return pattern. A 24K-token
     /// plan riding in the prefix for 100 turns costs ~2.4M cache-read tokens.
@@ -216,6 +222,7 @@ impl Default for Config {
             read_summarize_threshold_lines: 150,
             strip_edit_preamble: true,
             context_window_tokens: 0,
+            tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
             quota_error_threshold: 2,
             cache_idle_warn_secs: 270,
@@ -376,6 +383,9 @@ impl Config {
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
                     "context_window_tokens" => {
                         c.context_window_tokens = v.parse().unwrap_or(c.context_window_tokens)
+                    }
+                    "tokenizer_scale" => {
+                        c.tokenizer_scale = v.parse().unwrap_or(c.tokenizer_scale)
                     }
                     "subagent_result_warn_tokens" => {
                         c.subagent_result_warn_tokens =
