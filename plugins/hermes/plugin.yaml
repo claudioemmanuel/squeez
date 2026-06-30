@@ -1,0 +1,6 @@
+name: squeez-fallback
+version: 1.0.0
+description: squeez fallback compression — wraps unrecognized terminal commands with `squeez wrap` so their output is compressed before the model sees it
+author: squeez
+provides_hooks:
+  - pre_tool_call
