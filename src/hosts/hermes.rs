@@ -2,7 +2,10 @@
 //!
 //! [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research
 //! is a general-purpose AI agent with a plugin system at `~/.hermes/plugins/`.
-//! Each plugin is a Python package with `__init__.py` exposing `register(ctx)`.
+//! A directory plugin is a Python package with a `plugin.yaml` manifest plus an
+//! `__init__.py` exposing `register(ctx)`; both files are required for Hermes to
+//! discover it. Discovered plugins are opt-in and must be enabled once via
+//! `hermes plugins enable squeez-fallback`.
 //!
 //! Hermes fires `pre_tool_call` and `post_tool_call` hooks for every tool
 //! invocation. The squeez plugin wraps terminal commands via `pre_tool_call`,
@@ -31,6 +34,10 @@ use super::{memory_size, HostAdapter, HostCaps};
 
 /// The Python plugin dropped into ~/.hermes/plugins/squeez-fallback/__init__.py
 const HERMES_PLUGIN: &str = include_str!("../../plugins/hermes/__init__.py");
+
+/// The manifest dropped alongside it. Hermes only discovers a directory plugin
+/// when both `plugin.yaml` and `__init__.py` are present.
+const HERMES_MANIFEST: &str = include_str!("../../plugins/hermes/plugin.yaml");
 
 pub struct HermesAdapter;
 
@@ -87,18 +94,22 @@ impl HostAdapter for HermesAdapter {
         let plugin_dir = Self::squeez_plugin_dir();
         std::fs::create_dir_all(&plugin_dir)?;
 
-        // Write the Python plugin
-        let plugin_path = plugin_dir.join("__init__.py");
-        std::fs::write(&plugin_path, HERMES_PLUGIN)?;
+        // Write the Python plugin + its manifest. Directory plugins require
+        // both files; without plugin.yaml Hermes will not discover the plugin.
+        std::fs::write(plugin_dir.join("__init__.py"), HERMES_PLUGIN)?;
+        std::fs::write(plugin_dir.join("plugin.yaml"), HERMES_MANIFEST)?;
 
         // Create data directories
         let data = self.data_dir();
         std::fs::create_dir_all(data.join("sessions"))?;
         std::fs::create_dir_all(data.join("memory"))?;
 
-        // Note: Hermes auto-discovers plugins in ~/.hermes/plugins/ on next
-        // session start — no config file patching needed, unlike Claude Code
-        // which requires settings.json manipulation.
+        // Hermes discovers the plugin from ~/.hermes/plugins/ on next session
+        // start, but directory plugins are opt-in — the user must enable it once:
+        //     hermes plugins enable squeez-fallback
+        eprintln!(
+            "squeez: Hermes plugin installed. Enable it once with:\n    hermes plugins enable squeez-fallback"
+        );
         Ok(())
     }
 
@@ -195,5 +206,14 @@ mod tests {
     fn name_is_hermes() {
         let a = HermesAdapter;
         assert_eq!(a.name(), "hermes");
+    }
+
+    #[test]
+    fn manifest_declares_required_fields() {
+        // Hermes won't discover a directory plugin without these.
+        assert!(HERMES_MANIFEST.contains("name: squeez-fallback"));
+        assert!(HERMES_MANIFEST.contains("version:"));
+        assert!(HERMES_MANIFEST.contains("description:"));
+        assert!(HERMES_MANIFEST.contains("pre_tool_call"));
     }
 }
