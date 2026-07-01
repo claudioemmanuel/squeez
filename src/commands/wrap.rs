@@ -525,9 +525,18 @@ fn record_bash_event(
     session::append_event(&dir, &current.session_file, &event);
 
     // Real measured context (CF-1) is authoritative over squeez's own byte
-    // counters when available; budget honors `context_window_tokens` (CF-2).
-    let effective_used = current.total_tokens.max(real_ctx_tokens);
-    let budget = crate::context::intensity::budget(config);
+    // counters: total_tokens is a cumulative monotonic sum of all tool I/O, not
+    // context occupancy, so on a long session it balloons past the true context
+    // and would falsely trip the critical warning. Use the measured value when
+    // present. Budget keys off the real window detected from the transcript
+    // model id, honoring `context_window_tokens` config first (CF-2).
+    let ctx = crate::context::cache::SessionContext::load(&dir);
+    let effective_used = if real_ctx_tokens > 0 {
+        real_ctx_tokens
+    } else {
+        current.total_tokens
+    };
+    let budget = crate::context::intensity::budget_for(config, ctx.real_ctx_window);
     let pct = effective_used * 100 / budget.max(1);
 
     let compact_trigger = if config.context_window_tokens > 0 {
@@ -539,8 +548,7 @@ fn record_bash_event(
     };
     let warning = if !current.compact_warned && effective_used >= compact_trigger {
         current.compact_warned = true;
-        // Load context for per-tool breakdown
-        let ctx = crate::context::cache::SessionContext::load(&dir);
+        // Per-tool breakdown from the already-loaded context.
         Some(format!(
             "⚠️  squeez: session ~{}K tokens ({}% of budget). Run /compact to free context.\n    Token breakdown: Bash {}K | Read {}K | Grep {}K | Other {}K",
             effective_used / 1000,
@@ -555,7 +563,6 @@ fn record_bash_event(
         let critical = if pct >= 90 {
             true
         } else {
-            let ctx = crate::context::cache::SessionContext::load(&dir);
             crate::economy::burn_rate::calls_remaining(&ctx, config)
                 .map(|r| r <= config.state_warn_calls)
                 .unwrap_or(false)

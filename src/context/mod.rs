@@ -27,11 +27,17 @@ pub fn pre_pass(
     // Phase 5: apply configurable tunables so all methods use user's values.
     ctx.init_tunables_from_config(cfg);
     // Real-context tracking (CF-1): squeez's own accounting only counts bytes
-    // it processed; the transcript-measured context (when observed via hooks)
-    // is authoritative. Use whichever signal is larger so intensity escalates
-    // in MCP/image-heavy sessions squeez's byte counters never see.
-    let effective_used = used_tokens.max(ctx.real_ctx_tokens);
-    let level = intensity::derive(effective_used, cfg);
+    // it processed. The transcript-measured context (when observed via hooks)
+    // is authoritative — squeez's own counters are cumulative monotonic sums of
+    // tool I/O, not context occupancy, so on long sessions they over-report and
+    // would pin intensity at Ultra. Use the measured value when present; fall
+    // back to the byte counter only when no transcript has been seen.
+    let effective_used = if ctx.real_ctx_tokens > 0 {
+        ctx.real_ctx_tokens
+    } else {
+        used_tokens
+    };
+    let level = intensity::derive_with(effective_used, cfg, ctx.real_ctx_window);
     let scaled = intensity::scale(cfg, level);
     (ctx, level, scaled)
 }

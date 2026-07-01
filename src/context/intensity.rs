@@ -24,8 +24,20 @@ impl Intensity {
 /// the actual window (e.g. 200000, or 1000000 for a `[1m]` model). Otherwise
 /// falls back to the legacy `compact_threshold_tokens * 5 / 4` formula.
 pub fn budget(cfg: &Config) -> u64 {
+    budget_for(cfg, 0)
+}
+
+/// Budget keyed to the real host window. Precedence: explicit
+/// `context_window_tokens` config > `real_ctx_window` detected from the
+/// transcript model id > legacy `compact_threshold_tokens * 5/4`. This is what
+/// stops squeez warning against the wrong window (e.g. treating 17%-of-1M as
+/// "critical" because it assumed the 112.5K legacy budget).
+pub fn budget_for(cfg: &Config, real_ctx_window: u64) -> u64 {
     if cfg.context_window_tokens > 0 {
         return cfg.context_window_tokens;
+    }
+    if real_ctx_window > 0 {
+        return real_ctx_window;
     }
     cfg.compact_threshold_tokens.saturating_mul(5) / 4
 }
@@ -48,10 +60,16 @@ pub const ULTRA_TRIGGER_DEN: u64 = 100;
 ///
 /// The threshold is configurable via `ultra_trigger_pct` (default 0.65).
 pub fn derive(used: u64, cfg: &Config) -> Intensity {
+    derive_with(used, cfg, 0)
+}
+
+/// Like [`derive`] but keyed to the real host window (`real_ctx_window`, 0 =
+/// unknown → legacy budget).
+pub fn derive_with(used: u64, cfg: &Config, real_ctx_window: u64) -> Intensity {
     if !cfg.adaptive_intensity {
         return Intensity::Lite;
     }
-    let b = budget(cfg);
+    let b = budget_for(cfg, real_ctx_window);
     if b == 0 {
         // Misconfigured budget — fall back to the previous always-Ultra behavior.
         return Intensity::Ultra;

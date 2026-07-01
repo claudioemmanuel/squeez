@@ -28,11 +28,18 @@ pub fn calls_remaining(ctx: &SessionContext, cfg: &Config) -> Option<u64> {
         // Mostly-empty window — no reliable estimate (mirrors the old avg==0 guard).
         return None;
     }
-    let budget = crate::context::intensity::budget(cfg);
-    // Real measured context (when observed) is authoritative over squeez's
-    // own byte counters, which miss MCP/image traffic entirely (CF-1).
+    let budget = crate::context::intensity::budget_for(cfg, ctx.real_ctx_window);
+    // Real measured context (when observed) is authoritative over squeez's own
+    // byte counters: those are cumulative monotonic sums of all tool I/O, not
+    // context occupancy, so in a long session they balloon far past the true
+    // context and would falsely zero out the remaining budget. Use the measured
+    // value when present; fall back to counters only when no transcript is seen.
     let counted = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_grep + ctx.tokens_other;
-    let used = counted.max(ctx.real_ctx_tokens);
+    let used = if ctx.real_ctx_tokens > 0 {
+        ctx.real_ctx_tokens
+    } else {
+        counted
+    };
     if used >= budget {
         return Some(0);
     }
