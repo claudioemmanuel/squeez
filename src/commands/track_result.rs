@@ -56,6 +56,18 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         if let Some((cr, _io)) = crate::context::transcript::last_context_cache_ratio(path) {
             ctx.real_cache_read_tokens = cr;
         }
+        // Detect the host's real context window so budget/pressure math keys
+        // off the actual window (e.g. 1M) instead of the legacy 112.5K default
+        // (CF-2). Combine the model-id baseline with the largest observed
+        // context: any context >200K can only be the 1M tier. `transcript_path`
+        // is read above, so `real_ctx_tokens` is already current here.
+        let model_window = crate::context::transcript::detect_window(path).unwrap_or(0);
+        // Monotonic: a window never shrinks mid-session, and real_ctx_tokens
+        // fluctuates turn-to-turn (cache dynamics). Once any turn proves the 1M
+        // tier (>200K observed), stay there rather than dropping back to 200K.
+        let inferred =
+            crate::context::transcript::infer_window(model_window, ctx.real_ctx_tokens);
+        ctx.real_ctx_window = ctx.real_ctx_window.max(inferred);
     }
 
     // Bump the call counter for context tracking; tool calls advance state too.

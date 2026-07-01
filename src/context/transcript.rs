@@ -99,6 +99,76 @@ pub fn last_cache_ratio_in(text: &str) -> Option<(u64, u64)> {
     None
 }
 
+/// Context window (in tokens) implied by a model id string. Claude models
+/// ship a 200K window by default; the `[1m]` / `-1m` long-context variants
+/// expose 1M. squeez keys budget/pressure math to this so it never warns
+/// against the wrong window (e.g. flagging 17%-of-1M as "critical" because it
+/// assumed 200K). Unknown ids fall back to the conservative 200K standard.
+pub fn window_for_model(model: &str) -> u64 {
+    let m = model.to_ascii_lowercase();
+    if m.contains("[1m]") || m.contains("-1m") || m.contains(" 1m") {
+        1_000_000
+    } else {
+        200_000
+    }
+}
+
+/// The standard Claude context window. The only larger tier is 1M, so any
+/// observed context above this implies the host is on the 1M window.
+pub const STANDARD_WINDOW: u64 = 200_000;
+
+/// Infer the real context window from two signals: the model id's baseline
+/// window and the largest context actually observed. The Claude transcript
+/// records the base model id (`claude-opus-4-8`) WITHOUT the `[1m]` suffix even
+/// on 1M sessions, so the model id alone can't prove 1M — but a model that has
+/// already accepted >200K of context cannot be on the 200K tier, so the
+/// observed ceiling promotes it to 1M. Below 200K the two tiers are
+/// indistinguishable from the transcript; set `context_window_tokens` to pin it.
+pub fn infer_window(model_window: u64, observed_ctx: u64) -> u64 {
+    let base = if model_window > 0 {
+        model_window
+    } else {
+        STANDARD_WINDOW
+    };
+    if observed_ctx > STANDARD_WINDOW {
+        base.max(1_000_000)
+    } else {
+        base
+    }
+}
+
+/// Detect the host's context window from the most recent non-sidechain
+/// assistant record's `model` field. Returns `None` when no model id is found.
+pub fn detect_window_in(text: &str) -> Option<u64> {
+    for line in text.lines().rev() {
+        if !line.contains("\"type\":\"assistant\"") {
+            continue;
+        }
+        if line.contains("\"isSidechain\":true") {
+            continue;
+        }
+        if let Some(model) = extract_str(line, "model") {
+            return Some(window_for_model(&model));
+        }
+    }
+    None
+}
+
+/// File wrapper for [`detect_window_in`]: tail-read the transcript and detect
+/// the window from its last assistant record.
+pub fn detect_window(path: &Path) -> Option<u64> {
+    tail_read(path).and_then(|t| detect_window_in(&t))
+}
+
+/// Extract the first `"key":"<value>"` string occurrence from `line`.
+fn extract_str(line: &str, key: &str) -> Option<String> {
+    let pat = format!("\"{}\":\"", key);
+    let idx = line.find(&pat)?;
+    let after = &line[idx + pat.len()..];
+    let end = after.find('"')?;
+    Some(after[..end].to_string())
+}
+
 /// Extract the first `"key":<number>` occurrence from `line`.
 /// `"input_tokens"` must not match `"cache_read_input_tokens"`, so the
 /// match is anchored on the full quoted key.
@@ -163,6 +233,43 @@ mod tests {
             last_context_tokens(Path::new("/nonexistent/squeez/transcript.jsonl")),
             None
         );
+    }
+
+    #[test]
+    fn infer_window_promotes_on_observed_ceiling() {
+        // Base model id maps to 200K, but 223K observed can only be the 1M tier.
+        assert_eq!(infer_window(200_000, 223_328), 1_000_000);
+        // Below the standard window: stays at the model-id baseline.
+        assert_eq!(infer_window(200_000, 150_000), 200_000);
+        // Explicit 1M model id stays 1M regardless of observed.
+        assert_eq!(infer_window(1_000_000, 10_000), 1_000_000);
+        // Unknown model id (0) defaults to standard, still promotes on ceiling.
+        assert_eq!(infer_window(0, 50_000), 200_000);
+        assert_eq!(infer_window(0, 250_000), 1_000_000);
+    }
+
+    #[test]
+    fn window_for_model_detects_1m_and_default() {
+        assert_eq!(window_for_model("claude-opus-4-8[1m]"), 1_000_000);
+        assert_eq!(window_for_model("claude-sonnet-5"), 200_000);
+        assert_eq!(window_for_model("claude-opus-4-8"), 200_000);
+    }
+
+    #[test]
+    fn detect_window_reads_model_from_last_assistant() {
+        let line = r#"{"type":"assistant","message":{"model":"claude-opus-4-8[1m]","usage":{"input_tokens":1}}}"#;
+        assert_eq!(detect_window_in(line), Some(1_000_000));
+        let std = r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1}}}"#;
+        assert_eq!(detect_window_in(std), Some(200_000));
+    }
+
+    #[test]
+    fn detect_window_skips_sidechain_and_handles_missing() {
+        let side = r#"{"type":"assistant","isSidechain":true,"message":{"model":"x[1m]"}}"#;
+        let main = r#"{"type":"assistant","message":{"model":"claude-sonnet-5"}}"#;
+        assert_eq!(detect_window_in(&format!("{}\n{}", side, main)), Some(200_000));
+        assert_eq!(detect_window_in(""), None);
+        assert_eq!(detect_window_in(r#"{"type":"user"}"#), None);
     }
 
     #[test]

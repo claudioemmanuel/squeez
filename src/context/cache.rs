@@ -173,6 +173,12 @@ pub struct SessionContext {
     /// 0 = never observed. Feeds adaptive intensity and burn-rate math so
     /// they track the real context, not just squeez-processed bytes.
     pub real_ctx_tokens: u64,
+    /// Context window (tokens) of the host model, detected from the transcript's
+    /// `model` id (e.g. `[1m]` → 1_000_000, else 200_000). 0 = never observed.
+    /// Budget/pressure math keys off this so squeez warns against the real
+    /// window instead of the legacy 112.5K default. `context_window_tokens`
+    /// config still overrides it.
+    pub real_ctx_window: u64,
     /// `cache_read_input_tokens` of the latest measured API turn. Used to
     /// compute the cache-read:I/O ratio for context-leak detection (G1).
     /// 0 = not yet measured.
@@ -248,6 +254,7 @@ impl Default for SessionContext {
             skill_inject_fp: Vec::new(),
             skill_inject_call: Vec::new(),
             real_ctx_tokens: 0,
+            real_ctx_window: 0,
             real_cache_read_tokens: 0,
             calls_this_minute: 0,
             calls_minute_ts: 0,
@@ -935,7 +942,7 @@ impl SessionContext {
 \"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
 \"nudged_keys\":{},\
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
-\"real_ctx_tokens\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
+\"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{}}}",
             json_util::escape_str(&self.session_file),
@@ -982,6 +989,7 @@ impl SessionContext {
             json_util::u64_array(&self.skill_inject_fp),
             json_util::u64_array(&self.skill_inject_call),
             self.real_ctx_tokens,
+            self.real_ctx_window,
             self.real_cache_read_tokens,
             self.calls_this_minute,
             self.calls_minute_ts,
@@ -1146,6 +1154,7 @@ impl SessionContext {
         // Real-context + pending warnings + image dedup — optional for
         // backward compat with older context.json files.
         c.real_ctx_tokens = json_util::map_u64(&map, "real_ctx_tokens").unwrap_or(0);
+        c.real_ctx_window = json_util::map_u64(&map, "real_ctx_window").unwrap_or(0);
         c.real_cache_read_tokens = json_util::map_u64(&map, "real_cache_read_tokens").unwrap_or(0);
         c.calls_this_minute = json_util::map_u64(&map, "calls_this_minute").unwrap_or(0) as u32;
         c.calls_minute_ts = json_util::map_u64(&map, "calls_minute_ts").unwrap_or(0);
@@ -1204,8 +1213,10 @@ mod tests {
     fn real_ctx_tokens_survives_roundtrip() {
         let mut c = SessionContext::default();
         c.real_ctx_tokens = 286_129;
+        c.real_ctx_window = 1_000_000;
         let restored = SessionContext::from_json(&c.to_json());
         assert_eq!(restored.real_ctx_tokens, 286_129);
+        assert_eq!(restored.real_ctx_window, 1_000_000);
     }
 
     #[test]
