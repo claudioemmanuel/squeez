@@ -123,10 +123,19 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         })
         .unwrap_or(false);
 
+    // MCP results (DOM snapshots, evaluate_script returns, structured JSON) are
+    // dedup-only, and only EXACT dedup is safe for them: two near-identical
+    // snapshots differ precisely in the fields the model asked for (element
+    // uids, a grid cell value, coordinates), so a fuzzy "~96% similar" drop
+    // omits exactly the payload — the same failure the A2 stale-state guard
+    // prevents for edited files. Suppress fuzzy dedup for MCP; byte-identical
+    // re-emissions still collapse (identical bytes carry no new information).
+    let is_mcp = tool.starts_with("mcp__");
+
     // Redundancy check: if we've seen this content before, replace with a note.
     if cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
-            let fuzzy_blocked = hit.similarity.is_some() && edited_since_seen;
+            let fuzzy_blocked = hit.similarity.is_some() && (edited_since_seen || is_mcp);
             if !fuzzy_blocked {
                 let note = match hit.similarity {
                     None => format!(
@@ -153,7 +162,6 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     // log-oriented summarizer would corrupt, so they participate in the
     // redundancy check above but are never summarized (audit item 2 — track
     // and dedupe MCP traffic, leave first-sight content intact).
-    let is_mcp = tool.starts_with("mcp__");
     let rewritten = if !is_mcp && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
@@ -280,7 +288,7 @@ fn extract_content(raw: &str) -> Option<String> {
         let after = &rest[idx + 7..];
         let after = after.trim_start();
         if let Some(stripped) = after.strip_prefix('"') {
-            if let Some(end) = stripped.find('"') {
+            if let Some(end) = find_unescaped_quote(stripped) {
                 out.push_str(&unescape(&stripped[..end]));
                 out.push('\n');
             }
@@ -297,7 +305,7 @@ fn extract_string_field(raw: &str, key: &str) -> Option<String> {
         let after = &rest[idx + pat.len()..];
         let after = after.trim_start();
         if let Some(stripped) = after.strip_prefix('"') {
-            if let Some(end) = stripped.find('"') {
+            if let Some(end) = find_unescaped_quote(stripped) {
                 let val = &stripped[..end];
                 if !val.is_empty() {
                     return Some(val.to_string());
@@ -305,6 +313,24 @@ fn extract_string_field(raw: &str, key: &str) -> Option<String> {
             }
         }
         rest = &rest[idx + pat.len()..];
+    }
+    None
+}
+
+/// Byte offset of the first `"` in `s` that terminates a JSON string — i.e. the
+/// first `"` not part of an escape sequence. A naive `find('"')` stops at the
+/// escaped quote inside values like `class=\"grid\"`, truncating the content to
+/// its pre-first-quote prefix; for DOM snapshots that prefix is constant across
+/// calls, so distinct snapshots collide on the exact-hash dedup and get dropped.
+fn find_unescaped_quote(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2, // skip the escaped char (\" or \\ etc.)
+            b'"' => return Some(i),
+            _ => i += 1,
+        }
     }
     None
 }
