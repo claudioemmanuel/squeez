@@ -14,10 +14,19 @@ BINARY="$REPO/target/release/squeez"
 
 INSTALL_DIR="$HOME/.claude/squeez"
 mkdir -p "$INSTALL_DIR/bin" "$INSTALL_DIR/sessions" "$INSTALL_DIR/memory"
+# rm before cp: overwriting an existing Mach-O in place reuses its inode, so
+# the macOS kernel's per-inode signature cache goes stale and the next exec
+# is SIGKILLed ("Killed: 9"). A fresh inode avoids that; re-sign ad-hoc as
+# belt-and-braces.
+rm -f "$INSTALL_DIR/bin/squeez"
 cp "$BINARY" "$INSTALL_DIR/bin/squeez" && chmod +x "$INSTALL_DIR/bin/squeez"
+if command -v codesign &>/dev/null; then
+    codesign -s - -f "$INSTALL_DIR/bin/squeez" 2>/dev/null || true
+fi
 
 # Commit binary to repo
 mkdir -p "$REPO/bin"
+rm -f "$REPO/bin/squeez"
 cp "$BINARY" "$REPO/bin/squeez"
 
 # Delegate hook installation + settings.json patching to the binary itself.
