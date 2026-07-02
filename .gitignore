@@ -11,3 +11,5 @@ bench/report_context.md
 
 # Generated docs    
 docs/
+# fablize skill progress files (session-local harness state)
+.fablize/
