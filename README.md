@@ -182,7 +182,7 @@ squeez cannot automate these, but you can:
 ## Benchmarks
 
 <!-- BENCHMARK:START -->
-Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce.
+Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce — and see [Independently verified with a real tokenizer](#independently-verified-with-a-real-tokenizer) below for the same reduction confirmed under a real BPE tokenizer.
 
 ### Per-scenario results — 28 scenarios × 5 iterations
 
@@ -226,8 +226,8 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **28 / 28 pass** |
-| Latency p50 (filter mode) | **4.2 ms** |
-| Latency p95 (incl. wrap/summarize) | **52 ms** |
+| Latency p50 (filter mode) | **4.4 ms** |
+| Latency p95 (incl. wrap/summarize) | **58 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
@@ -237,6 +237,33 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | 1,000 calls / day | $180.00 | **$160.40 (89%)** |
 | 10,000 calls / day | $1800.00 | **$1603.98 (89%)** |
 <!-- BENCHMARK:END -->
+
+### Independently verified with a real tokenizer
+
+The table above uses `chars / 4` for reproducibility (no vocab, no deps). A fair
+objection: *"that's a made-up unit — show me the reduction under a real byte-pair
+tokenizer."* So `bench/verify_tokens.py` re-tokenizes every fixture — the raw
+output **and** the squeez-compressed output — with `cl100k_base` (the real GPT-4
+family BPE tokenizer, via `tiktoken`) and compares against `chars/4`:
+
+| Model | Aggregate reduction (22 filter/markdown fixtures) |
+|-------|--------------------------------------------------|
+| **Real BPE (`cl100k_base`)** | **83.5%** — 112,557 tk → 18,590 tk |
+| `chars / 4` (benchmark unit) | 83.0% |
+| **Divergence** | **0.5 pts** → the reported reduction is *not* a token-model artifact |
+
+Reduction ratios are near model-invariant, so a real tokenizer confirms the
+claim rather than inflating it. Reproduce end-to-end:
+
+```bash
+cargo build --release
+pip install tiktoken
+python3 bench/verify_tokens.py          # human-readable table
+python3 bench/verify_tokens.py --json   # machine-readable (see bench/verify_tokens.json)
+```
+
+Nothing is cherry-picked: fixtures that squeez can't help (e.g. `kubectl_pods`,
+a 61-line output below the truncation threshold) stay in the aggregate at 0%.
 
 ---
 

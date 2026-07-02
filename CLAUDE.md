@@ -12,6 +12,7 @@ bash build.sh                     # Build + install to ~/.claude/squeez/bin/ + r
 
 bash bench/run.sh                 # Filter-mode benchmarks (14 fixtures)
 bash bench/run_context.sh         # Context engine benchmarks
+python3 bench/verify_tokens.py    # Real-tokenizer (tiktoken cl100k_base) veracity check vs chars/4
 ./target/release/squeez benchmark # Full 19-scenario benchmark suite
 ./target/release/squeez benchmark --json  # JSON output
 ./target/release/squeez benchmark --efficiency-proof  # prove US-001/US-003/US-004 savings

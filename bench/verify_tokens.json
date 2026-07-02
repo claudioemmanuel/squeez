@@ -1,0 +1,165 @@
+{
+  "tokenizer": "cl100k_base (real BPE)",
+  "fixtures": 22,
+  "total_bpe_before": 112557,
+  "total_bpe_after": 18590,
+  "aggregate_bpe_reduction_pct": 83.5,
+  "aggregate_chars4_reduction_pct": 83.0,
+  "delta_pct": 0.5,
+  "rows": [
+    {
+      "fixture": "cargo_build.txt",
+      "bpe_before": 1211,
+      "bpe_after": 654,
+      "bpe_reduction_pct": 46.0,
+      "chars4_reduction_pct": 43.8
+    },
+    {
+      "fixture": "cat_claude_md.txt",
+      "bpe_before": 14445,
+      "bpe_after": 1852,
+      "bpe_reduction_pct": 87.2,
+      "chars4_reduction_pct": 87.1
+    },
+    {
+      "fixture": "docker_logs.txt",
+      "bpe_before": 1049,
+      "bpe_after": 200,
+      "bpe_reduction_pct": 80.9,
+      "chars4_reduction_pct": 72.9
+    },
+    {
+      "fixture": "env_dump.txt",
+      "bpe_before": 586,
+      "bpe_after": 425,
+      "bpe_reduction_pct": 27.5,
+      "chars4_reduction_pct": 34.7
+    },
+    {
+      "fixture": "find_deep.txt",
+      "bpe_before": 537,
+      "bpe_after": 359,
+      "bpe_reduction_pct": 33.1,
+      "chars4_reduction_pct": 34.2
+    },
+    {
+      "fixture": "git_copilot_session.txt",
+      "bpe_before": 614,
+      "bpe_after": 443,
+      "bpe_reduction_pct": 27.9,
+      "chars4_reduction_pct": 34.1
+    },
+    {
+      "fixture": "git_diff.txt",
+      "bpe_before": 551,
+      "bpe_after": 339,
+      "bpe_reduction_pct": 38.5,
+      "chars4_reduction_pct": 36.9
+    },
+    {
+      "fixture": "git_log_200.txt",
+      "bpe_before": 2886,
+      "bpe_after": 874,
+      "bpe_reduction_pct": 69.7,
+      "chars4_reduction_pct": 69.8
+    },
+    {
+      "fixture": "git_status.txt",
+      "bpe_before": 55,
+      "bpe_after": 23,
+      "bpe_reduction_pct": 58.2,
+      "chars4_reduction_pct": 68.0
+    },
+    {
+      "fixture": "intensity_budget80.txt",
+      "bpe_before": 6024,
+      "bpe_after": 1274,
+      "bpe_reduction_pct": 78.9,
+      "chars4_reduction_pct": 83.5
+    },
+    {
+      "fixture": "kubectl_pods.txt",
+      "bpe_before": 1703,
+      "bpe_after": 1703,
+      "bpe_reduction_pct": 0.0,
+      "chars4_reduction_pct": 0.0
+    },
+    {
+      "fixture": "ls_la.txt",
+      "bpe_before": 3217,
+      "bpe_after": 1568,
+      "bpe_reduction_pct": 51.3,
+      "chars4_reduction_pct": 51.0
+    },
+    {
+      "fixture": "mdcompress_claude_md.txt",
+      "bpe_before": 256,
+      "bpe_after": 220,
+      "bpe_reduction_pct": 14.1,
+      "chars4_reduction_pct": 21.8
+    },
+    {
+      "fixture": "mdcompress_en_prose.txt",
+      "bpe_before": 398,
+      "bpe_after": 328,
+      "bpe_reduction_pct": 17.6,
+      "chars4_reduction_pct": 15.6
+    },
+    {
+      "fixture": "mdcompress_prose.txt",
+      "bpe_before": 141,
+      "bpe_after": 101,
+      "bpe_reduction_pct": 28.4,
+      "chars4_reduction_pct": 26.2
+    },
+    {
+      "fixture": "mdcompress_ptbr_prose.txt",
+      "bpe_before": 563,
+      "bpe_after": 478,
+      "bpe_reduction_pct": 15.1,
+      "chars4_reduction_pct": 15.7
+    },
+    {
+      "fixture": "npm_install.txt",
+      "bpe_before": 636,
+      "bpe_after": 263,
+      "bpe_reduction_pct": 58.6,
+      "chars4_reduction_pct": 58.4
+    },
+    {
+      "fixture": "ps_aux.txt",
+      "bpe_before": 58611,
+      "bpe_after": 3379,
+      "bpe_reduction_pct": 94.2,
+      "chars4_reduction_pct": 94.2
+    },
+    {
+      "fixture": "repetitive.txt",
+      "bpe_before": 8853,
+      "bpe_after": 186,
+      "bpe_reduction_pct": 97.9,
+      "chars4_reduction_pct": 97.3
+    },
+    {
+      "fixture": "tsc_errors.txt",
+      "bpe_before": 622,
+      "bpe_after": 229,
+      "bpe_reduction_pct": 63.2,
+      "chars4_reduction_pct": 63.4
+    },
+    {
+      "fixture": "verbose_log.txt",
+      "bpe_before": 7453,
+      "bpe_after": 3674,
+      "bpe_reduction_pct": 50.7,
+      "chars4_reduction_pct": 49.3
+    },
+    {
+      "fixture": "xcodebuild_build.txt",
+      "bpe_before": 2146,
+      "bpe_after": 18,
+      "bpe_reduction_pct": 99.2,
+      "chars4_reduction_pct": 99.1
+    }
+  ]
+}

@@ -8,6 +8,9 @@ Future entries are maintained automatically by release-please from
 conventional commit messages on `main`.
 
 ## [Unreleased]
+### Added
+- test(bench): `bench/verify_tokens.py` — independent veracity check that re-tokenizes every fixture (before + after squeez) with a real BPE tokenizer (`cl100k_base` via tiktoken) instead of the `chars/4` estimate. Confirms the reported reduction is not an artifact of the crude token unit: 83.5% real-BPE vs 83.0% chars/4 across 22 filter/markdown fixtures — a 0.5-point divergence. Committed proof artifact at `bench/verify_tokens.json`.
+
 
 ## [1.34.4] - 2026-07-02
 
