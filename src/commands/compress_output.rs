@@ -32,7 +32,7 @@ pub fn run(tool: &str) -> i32 {
 
 pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32 {
     if let Some(out) = compute_rewrite(raw, tool, sessions_dir, cfg) {
-        emit_updated_output(&out);
+        println!("{}", render_updated_output(raw, tool, &out));
     }
     0
 }
@@ -247,11 +247,30 @@ fn strip_edit_preamble(content: &str) -> Option<String> {
     Some(format!("{}\n{}", prefix, snippet))
 }
 
-fn emit_updated_output(content: &str) {
-    println!(
-        r#"{{"hookSpecificOutput":{{"hookEventName":"PostToolUse","updatedToolOutput":"{}"}}}}"#,
-        json_escape(content)
-    );
+/// Claude Code validates `updatedToolOutput` against the rewritten tool's own
+/// output schema. Read's output is an object (`{"type":"text","file":{...}}`),
+/// so a plain-string rewrite is rejected with "expected object, received
+/// string" — the hook warning appears and the compression is discarded. Wrap
+/// Read rewrites in that object shape, mirroring the original response's
+/// metadata; other rewritten tools accept string output.
+fn render_updated_output(raw: &str, tool: &str, content: &str) -> String {
+    let escaped = json_escape(content);
+    if tool == "Read" {
+        // file_path arrives JSON-escaped in tool_input; re-embed verbatim.
+        let path = extract_string_field(raw, "file_path").unwrap_or_default();
+        let num_lines = content.lines().count().max(1);
+        let total_lines = crate::json_util::extract_u64(raw, "totalLines")
+            .unwrap_or(num_lines as u64);
+        format!(
+            r#"{{"hookSpecificOutput":{{"hookEventName":"PostToolUse","updatedToolOutput":{{"type":"text","file":{{"filePath":"{}","content":"{}","numLines":{},"startLine":1,"totalLines":{}}}}}}}}}"#,
+            path, escaped, num_lines, total_lines
+        )
+    } else {
+        format!(
+            r#"{{"hookSpecificOutput":{{"hookEventName":"PostToolUse","updatedToolOutput":"{}"}}}}"#,
+            escaped
+        )
+    }
 }
 
 fn json_escape(s: &str) -> String {
@@ -347,6 +366,22 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn read_rewrite_is_object_shaped() {
+        let raw = r#"{"tool_name":"Read","tool_input":{"file_path":"/tmp/a.rs"},"tool_response":{"type":"text","file":{"filePath":"/tmp/a.rs","content":"x","numLines":900,"startLine":1,"totalLines":900}}}"#;
+        let out = render_updated_output(raw, "Read", "line1\nline2");
+        assert!(out.contains(r#""updatedToolOutput":{"type":"text","file":{"filePath":"/tmp/a.rs""#));
+        assert!(out.contains(r#""content":"line1\nline2""#));
+        assert!(out.contains(r#""numLines":2"#));
+        assert!(out.contains(r#""totalLines":900"#));
+    }
+
+    #[test]
+    fn non_read_rewrite_stays_string() {
+        let out = render_updated_output("{}", "Grep", "note");
+        assert!(out.contains(r#""updatedToolOutput":"note""#));
+    }
 
     fn tmp() -> std::path::PathBuf {
         static CTR: AtomicU64 = AtomicU64::new(0);
