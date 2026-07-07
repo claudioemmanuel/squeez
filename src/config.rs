@@ -451,8 +451,14 @@ impl Config {
             .unwrap_or_default()
     }
 
+    /// Checks the bypass list against every `&&`/`;`-separated segment of
+    /// `cmd`, not just the whole string — so `cd /path && npx vitest run`
+    /// bypasses when `npx` is listed, even though the leading token is `cd` (#181).
     pub fn is_bypassed(&self, cmd: &str) -> bool {
-        self.bypass.iter().any(|b| cmd.starts_with(b.as_str()))
+        cmd.split("&&").flat_map(|s| s.split(';')).any(|segment| {
+            let segment = segment.trim();
+            self.bypass.iter().any(|b| segment.starts_with(b.as_str()))
+        })
     }
 
     /// True if `cmd` matches a risk pattern — too dangerous to wrap, so it must
@@ -511,5 +517,26 @@ mod wrap_safety_tests {
     fn bypassed_commands_are_not_wrapped() {
         let c = Config::default(); // bypass includes ssh, psql, …
         assert!(!c.should_wrap_bash("ssh host uptime"));
+    }
+
+    #[test]
+    fn bypass_matches_segment_after_cd_and(){
+        let mut c = Config::default();
+        c.bypass.push("npx vitest".to_string());
+        assert!(c.is_bypassed("cd /path/to/repo && npx vitest run"));
+        assert!(!c.should_wrap_bash("cd /path/to/repo && npx vitest run"));
+    }
+
+    #[test]
+    fn bypass_matches_segment_after_semicolon() {
+        let mut c = Config::default();
+        c.bypass.push("mysql".to_string());
+        assert!(c.is_bypassed("cd /tmp; mysql -u root"));
+    }
+
+    #[test]
+    fn bypass_does_not_match_unrelated_compound_command() {
+        let c = Config::default();
+        assert!(!c.is_bypassed("cd /path/to/repo && npx vitest run"));
     }
 }
