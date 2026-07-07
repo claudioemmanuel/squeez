@@ -182,40 +182,40 @@ squeez cannot automate these, but you can:
 ## Benchmarks
 
 <!-- BENCHMARK:START -->
-Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce — and see [Independently verified with a real tokenizer](#independently-verified-with-a-real-tokenizer) below for the same reduction confirmed under a real BPE tokenizer.
+Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~4 chars/token). Run `squeez benchmark` to reproduce.
 
 ### Per-scenario results — 28 scenarios × 5 iterations
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 58.0 ms |
+| `summarize_huge` | 82,257 tk | 445 tk | **-99%** | 57.5 ms |
 | `xcode_build` | 1,881 tk | 17 tk | **-99%** | 61 µs |
-| `repetitive_output` | 4,692 tk | 134 tk | **-97%** | 220 µs |
-| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 953 µs |
-| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 204 µs |
+| `repetitive_output` | 4,692 tk | 134 tk | **-97%** | 226 µs |
+| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 913 µs |
+| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 200 µs |
 | `tsc_errors` | 731 tk | 101 tk | **-86%** | 35 µs |
-| `high_context_adaptive` | 4,418 tk | 729 tk | **-84%** | 1.3 ms |
-| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 254 µs |
-| `docker_logs` | 665 tk | 181 tk | **-73%** | 79 µs |
-| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 47 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 17 µs |
-| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 332 µs |
-| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 678 µs |
-| `npm_install` | 524 tk | 218 tk | **-58%** | 60 µs |
-| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.8 ms |
-| `ls_la` | 1,782 tk | 872 tk | **-51%** | 45 µs |
-| `agent_directory_output` | 3,348 tk | 1,937 tk | **-42%** | 779 µs |
-| `env_dump` | 441 tk | 287 tk | **-35%** | 16 µs |
+| `high_context_adaptive` | 4,418 tk | 729 tk | **-84%** | 1.4 ms |
+| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 246 µs |
+| `docker_logs` | 665 tk | 181 tk | **-73%** | 75 µs |
+| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 44 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 16 µs |
+| `pytest_failures` | 3,402 tk | 1,175 tk | **-65%** | 314 µs |
+| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 691 µs |
+| `npm_install` | 524 tk | 218 tk | **-58%** | 58 µs |
+| `crosscall_redundancy_3x` | 486 tk | 237 tk | **-51%** | 51.7 ms |
+| `ls_la` | 1,782 tk | 872 tk | **-51%** | 44 µs |
+| `agent_directory_output` | 3,348 tk | 1,937 tk | **-42%** | 822 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 17 µs |
 | `agent_heavy` | 2,306 tk | 1,514 tk | **-34%** | 481 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 103 µs |
-| `find_deep` | 424 tk | 279 tk | **-34%** | 22 µs |
-| `md_prose` | 187 tk | 138 tk | **-26%** | 859 µs |
-| `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.1 ms |
-| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 22 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 53 µs |
-| `jest_failures` | 451 tk | 448 tk | **-1%** | 42 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 94 µs |
+| `find_deep` | 424 tk | 279 tk | **-34%** | 23 µs |
+| `md_prose` | 187 tk | 138 tk | **-26%** | 837 µs |
+| `md_claude_md` | 316 tk | 247 tk | **-22%** | 1.0 ms |
+| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 23 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 50 µs |
+| `jest_failures` | 451 tk | 448 tk | **-1%** | 44 µs |
 | `state_first_simulation` | 182 tk | 181 tk | **-1%** | 5 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 31 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 30 µs |
 
 ### Aggregate
 
@@ -226,8 +226,8 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Markdown / context files | **-23.5%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **28 / 28 pass** |
-| Latency p50 (filter mode) | **4.4 ms** |
-| Latency p95 (incl. wrap/summarize) | **58 ms** |
+| Latency p50 (filter mode) | **4.2 ms** |
+| Latency p95 (incl. wrap/summarize) | **52 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
