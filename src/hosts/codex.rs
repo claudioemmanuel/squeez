@@ -7,18 +7,23 @@
 //!
 //! Capability ceiling: `BASH_WRAP | SESSION_MEM | BUDGET_SOFT`.
 //!
-//! Partial hook surface as of Codex 0.123.0 (2026-04-23):
-//! - `apply_patch` now emits `PreToolUse`/`PostToolUse` (PR openai/codex#18391)
-//! - `read_file` and `grep` still have no hook surface
-//! - `PreToolUse` command rewrites for Bash/shell ARE applied, but only when
-//!   returned in the current shape: `hookSpecificOutput` with
-//!   `permissionDecision: "allow"` + `updatedInput`. The older top-level
-//!   `{"decision":"allow","updatedInput":…}` shape is rejected by the runtime.
-//!   Extending `updatedInput` to non-Bash tools is tracked in openai/codex#18491.
+//! Hook surface as of Codex 0.144.0 (2026-07-09), per source inspection of
+//! `codex-rs/core/src/tools/registry.rs` and `codex-rs/hooks/src/engine/output_parser.rs`:
+//! - `apply_patch` emits `PreToolUse`/`PostToolUse` (PR openai/codex#18391, 0.123.0)
+//! - `updatedInput` rewrites for `PreToolUse` now generalized beyond Bash/shell:
+//!   Bash-like tools, `apply_patch`, and MCP tools (PR openai/codex#20527), plus a
+//!   default hook contract (`pre_tool_use_payload`/`post_tool_use_payload`/
+//!   `with_updated_hook_input`) applied to every ordinary local function tool via
+//!   `CoreToolRuntime` (PR openai/codex#23757) — exceptions are hosted tools and
+//!   code-mode `wait`/`write_stdin`.
+//! - No dedicated `read_file`/`grep` tool handler exists in current codex-rs;
+//!   file reads appear to route through the shell/exec tool or MCP, both of
+//!   which are covered by the above. Still unconfirmed at runtime (local Codex
+//!   install here is broken — `ENOENT` on the vendored binary) — do not flip to
+//!   `BUDGET_HARD` until someone confirms live. Tracked in openai/codex#18491.
 //!
-//! `read_file`/`grep` have no hook surface, so Read/Grep budget enforcement
-//! ships as **soft** via a prose hint in the AGENTS.md block written by
-//! `inject_memory`.
+//! Until confirmed, Read/Grep budget enforcement ships as **soft** via a prose
+//! hint in the AGENTS.md block written by `inject_memory`.
 //!
 //! JSON patching of `hooks.json` uses a python3 subprocess, consistent
 //! with every other adapter in this crate.
