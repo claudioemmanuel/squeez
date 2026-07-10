@@ -1,4 +1,6 @@
-use squeez::commands::benchmark::{efficiency_to_json, run_efficiency_proof};
+use squeez::commands::benchmark::{
+    efficiency_to_json, run_efficiency_proof, EfficiencyResult, CACHE_READ_RATE, CACHE_WRITE_RATE,
+};
 
 #[test]
 fn efficiency_proof_returns_five_cases() {
@@ -43,8 +45,8 @@ fn efficiency_json_envelope_is_valid() {
     let json = efficiency_to_json(&results);
 
     assert!(
-        json.contains("\"schema_version\":1"),
-        "JSON missing schema_version:1\ngot: {}",
+        json.contains("\"schema_version\":2"),
+        "JSON missing schema_version:2\ngot: {}",
         &json[..json.len().min(300)]
     );
     assert!(
@@ -66,6 +68,70 @@ fn efficiency_json_envelope_is_valid() {
     for feature in &["US-001", "US-003", "US-004"] {
         assert!(json.contains(feature), "JSON missing feature: {}", feature);
     }
+
+    for field in &[
+        "\"cold_baseline_eff\":",
+        "\"cold_compressed_eff\":",
+        "\"warm_baseline_eff\":",
+        "\"warm_compressed_eff\":",
+        "\"net_saving_cold\":",
+        "\"net_saving_warm\":",
+    ] {
+        assert!(json.contains(field), "JSON missing cache-aware field: {}", field);
+    }
+}
+
+#[test]
+fn cache_aware_effective_costs_are_consistent() {
+    let results = run_efficiency_proof();
+    let eps = 1e-9;
+    for r in &results {
+        assert!(
+            (r.cold_baseline_eff - r.baseline_tokens as f64 * CACHE_WRITE_RATE).abs() < eps,
+            "{}: cold_baseline_eff {} != baseline {} × {}",
+            r.label, r.cold_baseline_eff, r.baseline_tokens, CACHE_WRITE_RATE
+        );
+        assert!(
+            (r.cold_compressed_eff - r.compressed_tokens as f64 * CACHE_WRITE_RATE).abs() < eps,
+            "{}: cold_compressed_eff {} != compressed {} × {}",
+            r.label, r.cold_compressed_eff, r.compressed_tokens, CACHE_WRITE_RATE
+        );
+        assert!(
+            (r.warm_baseline_eff - r.baseline_tokens as f64 * CACHE_READ_RATE).abs() < eps,
+            "{}: warm_baseline_eff {} != baseline {} × {}",
+            r.label, r.warm_baseline_eff, r.baseline_tokens, CACHE_READ_RATE
+        );
+        assert!(
+            (r.warm_compressed_eff - r.compressed_tokens as f64 * CACHE_READ_RATE).abs() < eps,
+            "{}: warm_compressed_eff {} != compressed {} × {}",
+            r.label, r.warm_compressed_eff, r.compressed_tokens, CACHE_READ_RATE
+        );
+        // compressed ≤ baseline ⇒ saving ≥ 0 in both cache states
+        if r.compressed_tokens <= r.baseline_tokens {
+            assert!(r.cold_baseline_eff - r.cold_compressed_eff >= 0.0, "{}: negative cold saving", r.label);
+            assert!(r.warm_baseline_eff - r.warm_compressed_eff >= 0.0, "{}: negative warm saving", r.label);
+        }
+    }
+}
+
+#[test]
+fn cache_aware_json_represents_negative_savings() {
+    // Compressed > baseline (compression made it bigger): savings must go
+    // negative — not be floored — and survive JSON serialization.
+    let r = EfficiencyResult::new("negative_case", "US-001", 100, 200, -100.0, 10.0);
+    assert!(!r.passes);
+    assert!(r.cold_baseline_eff - r.cold_compressed_eff < 0.0);
+    assert!(r.warm_baseline_eff - r.warm_compressed_eff < 0.0);
+
+    let json = efficiency_to_json(&[r]);
+    assert!(
+        json.contains("\"net_saving_cold\":-125.00"),
+        "JSON missing negative cold saving: {}", json
+    );
+    assert!(
+        json.contains("\"net_saving_warm\":-10.00"),
+        "JSON missing negative warm saving: {}", json
+    );
 }
 
 #[test]
