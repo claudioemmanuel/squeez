@@ -11,7 +11,7 @@
 [![DCO](https://img.shields.io/badge/contributions-DCO_signed--off-green.svg)](CONTRIBUTING.md#license--contributor-sign-off)
 [![Changelog](https://img.shields.io/badge/changelog-📋-blue.svg)](CHANGELOG.md)
 
-End-to-end token optimizer for Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, and OpenAI Codex CLI. Compresses bash output up to **95%**, collapses redundant calls, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
+End-to-end token optimizer for seven AI CLI hosts — Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, OpenAI Codex CLI, Pi, and Hermes. Compresses bash output up to **95%**, collapses redundant calls, preserves exact identifiers through every summary, refuses net-loss compressions, and injects a terse prompt persona — automatically, with zero new runtime dependencies.
 
 ---
 
@@ -61,6 +61,7 @@ Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. 
 | **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
 | **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | `apply_patch` hooks landed in 0.123.0 ([#18391](https://github.com/openai/codex/pull/18391)); `updatedInput` + `read_file`/`grep` hook surface still pending ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
 | **Pi** | `~/.pi/agent/skills/squeez/SKILL.md` | ✅ native | ✅ via skill | ✅ native | TypeScript extension at `~/.pi/agent/extensions/squeez/index.ts`; restart Pi after setup |
+| **Hermes** | `~/.hermes/profiles/default/SOUL.md` | ✅ native | ✅ native | ❌ no budget surface | Python plugin (`__init__.py` + `plugin.yaml`) auto-discovered by Hermes; detected via `~/.hermes/` |
 
 ### Manage
 
@@ -71,7 +72,7 @@ squeez uninstall              # remove squeez entries from every detected host
 squeez uninstall --host=<slug>
 ```
 
-Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex` / `pi`.
+Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex` / `pi` / `hermes`.
 
 After install, restart the CLI you use to pick up the new hooks.
 
@@ -102,12 +103,14 @@ squeez update --insecure  # skip checksum (not recommended)
 | **Relevance-aware truncation** | When the generic handler must truncate, it keeps the highest-relevance lines (error/signal words + terms drawn from the command) instead of a blind head — so a buried error survives. |
 | **Context engine** | Cross-call redundancy with two paths: exact-hash match (FNV-1a, fast) **and** fuzzy trigram-shingle Jaccard ≥0.85 (whitespace, timestamps, single-line edits no longer defeat dedup). |
 | **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). **Benign outputs get 2× the threshold** so successful builds stay verbatim. |
+| **Identifier factsheet** | Exact identifiers in the region a summary drops — git SHAs, UUIDs, ticket codes, versions, large ids — ride along in every dense summary (`ids_preserved:` / `"ids":[...]`). Deterministic, budget-capped (16 facts / 256 chars), so lossy summarization never silently loses a hash or ticket number. |
+| **Net-win gate** | The `# squeez` header itself costs ~15–25 tokens. When applied compression saves less than `net_win_min_tokens` (default 24), the call becomes a verbatim passthrough with zero savings recorded — no net-loss invocations. |
 | **Adaptive intensity** | Truly adaptive: **Full** (×0.6 limits) below 80% of token budget, **Ultra** (×0.3) above. Used to be always-Ultra; now actually responds to session pressure. |
 | **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 17 tools (16 read-only session-memory queries + `squeez_retrieve` to expand a compressed output) so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
 | **Config CLI + `/squeez`** | `squeez config get/set/list/reset/path` reads and writes `config.ini` safely (schema validation, comment-preserving writes). `squeez setup` installs a `/squeez` slash command that drives it in natural language from inside the session. |
 | **Post-compact re-injection** | After `/compact`, the `PostCompact` hook re-injects squeez's tracked session state (recent files, error snippets, git refs, retrievable blob ids) as `additionalContext` — so concrete state survives compaction instead of being re-discovered. |
 | **Bash-wrap safety** | Risky commands (`rm -rf`, `git push --force`, `npm publish`, … — configurable `bash_risk_patterns`) and bypassed commands run **unwrapped**, so the host's native permission rules evaluate the original command. `wrap_bash = false` disables wrapping entirely. See [SECURITY.md](SECURITY.md). |
-| **Token estimate** | Compression-timing decisions use a code- and CJK-aware token estimate rather than a flat `chars/4` (punctuation-dense code and CJK no longer undercount). |
+| **Token estimate** | Compression-timing decisions use a content-class calibrated estimate: output is classified Dense/Prose/Mixed and counted at chars/2.0, chars/3.7, or the code- and CJK-aware char-class estimator — dense tool output really runs ~1.9 chars/token in production, not chars/4. Flat legacy path stays available via `class_density = false`. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
@@ -124,8 +127,9 @@ There are now several token-reduction tools targeting AI coding CLIs. They make 
 
 | Tool | Approach | Hosts | Deps | Key wins | Trade-off |
 |------|----------|-------|------|----------|-----------|
-| **squeez** (this project) | Hook + filter pipeline + context engine (MinHash dedup, log-template, relevance truncation, summarize, adaptive intensity) + **reversible compression** (retrieve) + MCP server | Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI | **Zero runtime deps** (`libc` only on Unix) | Up to 95% on bash; cross-call dedup; reversible `squeez_retrieve`; signature-mode for source files; TOON re-encoder (incl. nested JSON); 17 MCP tools; post-compact state re-injection; enterprise (Bedrock/Vertex) USD-saved estimate | Heuristic, not ML — no per-task understanding |
+| **squeez** (this project) | Hook + filter pipeline + context engine (MinHash dedup, log-template, relevance truncation, summarize + identifier factsheet, adaptive intensity, net-win gate) + **reversible compression** (retrieve) + MCP server | Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes | **Zero runtime deps** (`libc` only on Unix) | Up to 95% on bash; cross-call dedup; reversible `squeez_retrieve`; exact ids (SHAs/UUIDs/tickets) survive every summary; signature-mode for source files; TOON re-encoder (incl. nested JSON); 17 MCP tools; post-compact state re-injection; cache-aware savings proof; enterprise (Bedrock/Vertex) USD-saved estimate | Heuristic, not ML — no per-task understanding |
 | [chopratejas/headroom](https://github.com/chopratejas/headroom) | Library + **HTTP proxy** + MCP; compresses tool output, logs, RAG chunks **and conversation history** at the API layer with real tokenizers and ML (Kompress/Magika) | Any (OpenAI/Anthropic/Bedrock/Vertex via proxy) | Python + Rust; PyTorch/HF models | 60-95%; reaches conversation history (the biggest sink) via the proxy; reversible CCR; image compression | Heavier (proxy + ML deps); not a zero-dep drop-in hook. squeez adopts its reversible-retrieve and post-compact ideas within the zero-dep hook model. |
+| [teamchong/pxpipe](https://github.com/teamchong/pxpipe) | **Local API proxy** that renders bulky request context (system prompt, tool docs, old history, big tool_results) as dense **PNG images** — image tokens are priced by pixel area, so dense text packs ~3.1 chars/image-token vs ~1 as text | Claude Code (`/v1/messages`), Codex (`/v1/responses`) | Node/pnpm; canvas at build time | ~59–70% end-to-end bill cut on Fable 5 traffic; reaches surfaces hooks can't (system prompt, tool docs, history); rigorous per-request `count_tokens` counterfactual measurement | **Lossy**: exact-string recall from images fails on most models (0/15 verbatim on Opus 4.8; silent confabulation, not errors) — default scope is Fable 5 only. Complementary to squeez, not competing: squeez compresses losslessly at the hook layer *before* content enters context; pxpipe cheapens what remains on the wire. They stack — squeez v1.35.0's factsheet, class-density and cache-aware accounting are ported from its measurement discipline. |
 | [rtk-ai/rtk](https://github.com/rtk-ai/rtk) | Hook proxy that **rewrites bash commands** (`git status` → `rtk git status`), then compresses 100+ command outputs | Claude Code, Cursor | Zero deps (Rust) | 60-90% on 100+ commands; `rtk read -l aggressive` for signature mode | [rtk#582](https://github.com/rtk-ai/rtk/issues/582): aggressive rewriting can **increase** total cost by 18% because Claude emits +50% more output tokens to compensate for stripped context. squeez ships [a guard](https://github.com/jhonatanjunio/squeez/issues/1) against this regime. |
 | [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez) | **Task-conditioned ML** (Qwen 2B / ModernBERT 150M) — pipe tool output + task description, get back only relevant lines | Any (CLI tool) | Python, PyTorch / vLLM server | 92% compression, F1 0.80; task-aware (same log slices kept differently per query) | Requires running an LLM locally; not zero-dep. Same project name, different design. |
 | [ojuschugh1/sqz](https://github.com/ojuschugh1/sqz) | CLI context compressor | Any | Python | Single-command compression | Lower coverage than the others. |
@@ -339,6 +343,8 @@ squeez benchmark --list                   # list all scenarios
 
 Quality is scored by checking that **signal terms** (words from error/warning/failed lines in the baseline) survive compression. 19/19 pass at ≥ 50% threshold.
 
+`squeez benchmark --efficiency-proof` additionally reports **cache-aware effective costs**: list-price ratios (input ×1.0, cache write ×1.25, cache read ×0.1, output ×5) applied identically to both sides of every row under the same cache state — so the provider's caching discount is never miscounted as compression savings. Negative savings are representable, never floored; JSON output is `schema_version: 2`. Savings are reported per compressed slice; end-to-end depends on workload.
+
 ### `squeez mcp`
 
 Runs a Model Context Protocol JSON-RPC 2.0 server over stdin/stdout. Hand-rolled, no `mcp.server` / `fastmcp` dependency — keeps the `libc`-only constraint intact. Wire it into Claude Code:
@@ -417,6 +423,8 @@ max_call_log              = 32    # rolling call log depth (also caps redundancy
 recent_window             = 16    # how many recent calls are eligible for redundancy lookup
 similarity_threshold      = 0.85  # Jaccard threshold for fuzzy dedup (0.0–1.0)
 ultra_trigger_pct         = 0.80  # fraction of context budget at which Full → Ultra
+class_density             = true  # content-class token estimate: dense chars/2.0, prose chars/3.7 (false = legacy flat path)
+net_win_min_tokens        = 24    # skip compression + header when it saves less than this (0 = gate off)
 mcp_prior_summaries_default = 5   # default n for squeez_prior_summaries
 mcp_recent_calls_default    = 10  # default n for squeez_recent_calls
 
@@ -532,9 +540,15 @@ top_errors:
 top_files:
   - /var/log/app/error.log
 test_summary=FAILED: 3 of 248
+ids_preserved:
+  - 3f2ec81ea3e4ce24
+  - 550e8400-e29b-41d4-a716-446655440000
+  - PROJ-1482
 tail_preserved=20
 [last 20 lines verbatim...]
 ```
+
+**Identifier factsheet:** the `ids_preserved:` block carries exact identifiers found in the region the summary drops — git SHAs / hex ids (≥7 chars with a digit), UUIDs, ticket codes, versions, and large integers — so the most dangerous failure mode of lossy summarization (a silently lost hash) can't happen. Extraction is deterministic and budget-capped at 16 facts / 256 chars; bulk generated sequences (hundreds of version strings in a build log) are recognized as noise and dropped wholesale while opaque ids survive. The Structured summary shape carries the same list as `"ids":[...]`.
 
 **Benign-aware threshold:** before summarizing, squeez scans for error markers (`error:`, `panic`, `traceback`, `FAILED`, `EXCEPTION`, `Fatal`). If none are found, the threshold is doubled (1,000 lines default) so successful builds, clean test runs, and uneventful logs stay verbatim unless they are genuinely huge.
 
