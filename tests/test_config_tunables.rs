@@ -52,6 +52,27 @@ fn invalid_values_fall_back_to_defaults() {
 }
 
 #[test]
+fn class_density_and_net_win_defaults() {
+    let c = Config::default();
+    assert!(c.class_density);
+    assert_eq!(c.net_win_min_tokens, 24);
+}
+
+#[test]
+fn class_density_parses_from_ini() {
+    let c = Config::from_str("class_density = false");
+    assert!(!c.class_density);
+}
+
+#[test]
+fn net_win_min_tokens_parses_from_ini() {
+    let c = Config::from_str("net_win_min_tokens = 0");
+    assert_eq!(c.net_win_min_tokens, 0);
+    let c = Config::from_str("net_win_min_tokens = 40");
+    assert_eq!(c.net_win_min_tokens, 40);
+}
+
+#[test]
 fn tunables_propagate_to_session_context() {
     use squeez::context::cache::SessionContext;
     let mut cfg = Config::default();
