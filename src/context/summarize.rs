@@ -1,5 +1,6 @@
 use crate::commands::wrap;
 use crate::config::Config;
+use crate::context::factsheet;
 use crate::json_util;
 
 /// Which output shape to use for the dense summary.
@@ -148,9 +149,26 @@ fn apply_prose(lines: Vec<String>, cmd: &str) -> Vec<String> {
     }
 
     let tail_n = TAIL_KEEP.min(total);
-    out.push(format!("tail_preserved={}", tail_n));
-
     let tail_start = total.saturating_sub(tail_n);
+
+    // R1 factsheet: exact identifiers (SHAs, UUIDs, versions, tickets, big
+    // numbers) in the dropped region would otherwise vanish — the tail is
+    // preserved verbatim so only lines before it need rescue. Cap the facts
+    // so the whole summary stays within the ≤40-line bound.
+    let dropped = lines[..tail_start].join("\n");
+    let facts = factsheet::extract(&dropped);
+    if !facts.is_empty() {
+        // room = 40 − lines so far − "ids_preserved:" − "tail_preserved=" − tail
+        let room = 40usize.saturating_sub(out.len() + 2 + tail_n);
+        if room > 0 {
+            out.push("ids_preserved:".to_string());
+            for f in facts.iter().take(room) {
+                out.push(format!("  - {}", f));
+            }
+        }
+    }
+
+    out.push(format!("tail_preserved={}", tail_n));
     for line in lines.into_iter().skip(tail_start) {
         out.push(line);
     }
@@ -194,12 +212,24 @@ fn apply_structured(lines: Vec<String>, cmd: &str) -> Vec<String> {
 
     let test_json = json_util::escape_str(&test);
 
+    // R1 factsheet: identifiers from the dropped region (before the tail),
+    // empty array when none. Same rationale as the Prose ids_preserved block.
+    let ids_json = {
+        let dropped = lines[..tail_start].join("\n");
+        let items: Vec<String> = factsheet::extract(&dropped)
+            .iter()
+            .map(|f| format!("\"{}\"", json_util::escape_str(f)))
+            .collect();
+        format!("[{}]", items.join(","))
+    };
+
     let json_line = format!(
-        "{{\"squeez\":\"summary\",\"cmd\":\"{}\",\"total\":{},\"files\":{},\"errors\":{},\"test\":\"{}\",\"tail\":{}}}",
+        "{{\"squeez\":\"summary\",\"cmd\":\"{}\",\"total\":{},\"files\":{},\"errors\":{},\"ids\":{},\"test\":\"{}\",\"tail\":{}}}",
         json_util::escape_str(&cmd_short),
         total,
         files_json,
         errors_json,
+        ids_json,
         test_json,
         tail_n,
     );
@@ -319,6 +349,27 @@ mod tests {
         let joined = out.join("\n");
         assert!(joined.contains("top_files"));
         assert!(joined.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn summary_carries_ids_from_dropped_head() {
+        // SHA + UUID live in the head, far from the preserved tail — the
+        // factsheet must rescue them in both output shapes.
+        let mut lines: Vec<String> = vec![
+            "commit a1347daf9b2c41e0 built".to_string(),
+            "trace 550e8400-e29b-41d4-a716-446655440000 ok".to_string(),
+        ];
+        lines.extend((0..598).map(|i| format!("noise {}", i)));
+
+        let prose = apply_with_format(lines.clone(), "cmd", SummaryFormat::Prose).join("\n");
+        assert!(prose.contains("ids_preserved:"));
+        assert!(prose.contains("  - a1347daf9b2c41e0"));
+        assert!(prose.contains("  - 550e8400-e29b-41d4-a716-446655440000"));
+
+        let structured = apply_with_format(lines, "cmd", SummaryFormat::Structured);
+        assert!(structured[0].contains(
+            "\"ids\":[\"550e8400-e29b-41d4-a716-446655440000\",\"a1347daf9b2c41e0\"]"
+        ));
     }
 
     #[test]

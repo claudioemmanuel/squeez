@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod factsheet;
 pub mod hash;
 pub mod intensity;
 pub mod redundancy;
