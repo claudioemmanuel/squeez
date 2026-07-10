@@ -11,8 +11,13 @@ conventional commit messages on `main`.
 
 ## [1.36.0] - 2026-07-10
 
+pxpipe-inspired savings techniques ([#183](https://github.com/claudioemmanuel/squeez/issues/183), [#184](https://github.com/claudioemmanuel/squeez/pull/184)) — measurement/gating rigor ported from [teamchong/pxpipe](https://github.com/teamchong/pxpipe) to squeez's text-level, zero-dep layer.
+
 ### Added
-- pxpipe-inspired savings — factsheet, class density, cache-aware accounting, net-win gate (#184)
+- feat(summarize): preserve exact identifiers via factsheet extraction — git SHAs, UUIDs, ticket codes, versions and large ids from the dropped region now ride along in every dense summary (`ids_preserved:` / `"ids":[...]`), deterministic and budget-capped (16 facts / 256 chars)
+- feat(tokens): content-class calibrated density — output is classified Dense/Prose/Mixed and estimated at chars/2.0, chars/3.7, or the char-class estimator (pxpipe measured ~1.91 chars/token on dense production tool output, N=391); new `class_density` config (default `true`)
+- feat(wrap): net-win gate — when applied compression saves fewer tokens than the `# squeez` header costs (~15–25 tk), the call becomes a verbatim passthrough with zero savings recorded; new `net_win_min_tokens` config (default `24`, `0` disables)
+- feat(benchmark): cache-aware effective-cost accounting in `--efficiency-proof` — list-price ratios (input ×1.0, cache write ×1.25, cache read ×0.1, output ×5) applied identically to both sides under the same cache state; negatives representable, `schema_version: 2`, new WARM-SAVE column
 - tokenizer_scale for Sonnet 5 + fix release notes from git history (#175)
 - feat(hosts): add Hermes Agent adapter
 - feat(compact): post-compact dense state re-injection (#168)
@@ -340,7 +345,6 @@ conventional commit messages on `main`.
 - atomic settings.json write + uninstall safety guards
 - harden pretooluse hook (shlex.quote, error handling, single path source)
 - wrap — process_group(0) for correct signal forwarding, tighten is_streaming
-
 ## [1.34.6] - 2026-07-07
 
 ### Added

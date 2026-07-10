@@ -36,7 +36,7 @@ Signed-off-by: Your Name <you@example.com>
 
 ## Architecture
 
-**squeez** is hook-based bash output compressor for five CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI. It intercepts every tool invocation via host-specific hooks and runs output through 4-stage compression pipeline before model sees it. Claude Code hooks: PreToolUse → wrap/budget/prompt-compress, SessionStart → init, PostToolUse → track-result + updatedToolOutput rewrite (Read/Grep/Glob/Monitor), SubagentStop → feed sub-agent output into SessionContext, PreCompact → log event, PostCompact → re-arm reminder.
+**squeez** is hook-based bash output compressor for seven CLI agent hosts: Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes. It intercepts every tool invocation via host-specific hooks and runs output through 4-stage compression pipeline before model sees it. Claude Code hooks: PreToolUse → wrap/budget/prompt-compress, SessionStart → init, PostToolUse → track-result + updatedToolOutput rewrite (Read/Grep/Glob/Monitor), SubagentStop → feed sub-agent output into SessionContext, PreCompact → log event, PostCompact → re-arm reminder.
 
 ### Host adapters (`src/hosts/`)
 
@@ -59,6 +59,7 @@ Cross-call awareness across 16 recent invocations:
 - **cache.rs** — tracks seen outputs, file paths, errors from Read/Glob/Grep/Bash results
 - **redundancy.rs** — two-path dedup: exact FNV-1a hash (fast), then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 (whitespace/timestamp changes don't break match). Emits `[squeez: identical to ...]`  `[squeez: ~P% similar to ...]`
 - **summarize.rs** — triggered at >500 lines; benign outputs (no error markers) get 2× threshold (1000 lines). Produces ≤40-line dense summary (errors, files, test status, verbatim tail)
+- **factsheet.rs** — deterministic extraction of exact identifiers (hex/SHA ≥7 w/ digit, UUID, ticket code, version, int ≥6 digits) from the region summarize drops; budget 16 facts / 256 chars, substring-collapse, tier-then-length ordering; >MAX_FACTS distinct versions = generated-sequence noise, tier dropped. Rides in summaries as `ids_preserved:` / `"ids":[...]`
 - **intensity.rs** — truly adaptive: **Full** (×0.6) when used < 65% of budget, **Ultra** (×0.3) when ≥65% (`ultra_trigger_pct`default 0.65). `[adaptive: Full]`  `[adaptive: Ultra]` in header. Budget honors `context_window_tokens` when set; "used" is `max(squeez counters, real_ctx_tokens)`
 - **transcript.rs** — real-context tracking: tail-reads host transcript (`transcript_path` from PostToolUse payload) and extracts last assistant turn's `usage` (input + cache_read + cache_creation) → `SessionContext.real_ctx_tokens`. Lets intensity/burn-rate fire in MCP/image-heavy sessions whose tokens never pass through squeez
 - **hash.rs** — FNV-1a-64 + `shingle_minhash()` (bottom-k=96, whitespace-token trigrams) + `jaccard()` (sorted-merge O(n+m))
@@ -72,11 +73,13 @@ Guards: byte-identical image payloads dedup session-long (`image_fp`); MCP resul
 | `src/commands/wrap.rs` | Main orchestrator: spawn subprocess, capture, compress, inject header |
 | `src/commands/compress_md/` | Markdown compressor module: `mod.rs` (core logic), `locale.rs` (Locale struct + `from_code`), `locales/en.rs` + `locales/pt_br.rs` (word lists). Exposes `compress_text` (EN default) and `compress_text_with_locale`. Select locale via `lang=` in config or `--lang` CLI flag. |
 | `src/commands/init.rs` | Session start orchestrator: finalizes previous session, prints banner, delegates memory injection to `HostAdapter.inject_memory()` via `run_for_host(slug)` |
-| `src/hosts/` | Per-host adapters (`claude_code.rs` / `copilot.rs` / `opencode.rs` / `gemini.rs` / `codex.rs`) implementing the `HostAdapter` trait + `HostCaps` bitflags + `all_hosts()` / `find()` registry. Each adapter owns install/uninstall + memory-file injection for its CLI. |
+| `src/hosts/` | Per-host adapters (`claude_code.rs` / `copilot.rs` / `opencode.rs` / `gemini.rs` / `codex.rs` / `pi.rs` / `hermes.rs`) implementing the `HostAdapter` trait + `HostCaps` bitflags + `all_hosts()` / `find()` registry. Each adapter owns install/uninstall + memory-file injection for its CLI. |
 | `src/commands/setup.rs` | `squeez setup` — thin orchestrator over the adapter registry |
 | `src/commands/uninstall.rs` | `squeez uninstall` — reverse registration, preserves session data |
-| `src/commands/benchmark.rs` | 22-scenario reproducible benchmark suite (incl. 3 economy scenarios); `--baseline` flag prints C0 vs C4 A/B table |
-| `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults. Key tunable: `state_warn_calls` (default 10) — calls-remaining threshold that triggers State-First Pattern warning |
+| `src/commands/benchmark.rs` | 22-scenario reproducible benchmark suite (incl. 3 economy scenarios); `--baseline` flag prints C0 vs C4 A/B table; `--efficiency-proof` reports cache-aware effective costs (ratios ×1.0/×1.25/×0.1/×5 applied to both sides under same cache state, negatives unfloored, JSON `schema_version:2`) |
+| `src/config.rs` | Config struct + `~/.claude/squeez/config.ini` parser; all fields have defaults. Key tunables: `state_warn_calls` (default 10) — calls-remaining threshold for State-First Pattern warning; `class_density` (default true) — content-class token estimate in wrap; `net_win_min_tokens` (default 24) — passthrough gate when compression saves less than header cost |
+| `src/tokens.rs` | Zero-dep token estimate: char-class base (`estimate`), model-density scale (`estimate_scaled`), content-class calibrated (`classify` Dense/Prose/Mixed + `estimate_classed`: chars/2.0 dense, chars/3.7 prose, base for mixed) |
+| `src/context/factsheet.rs` | Exact-identifier extraction for summaries (see Context engine) — zero-dep hand-rolled scanners, no regex |
 | `src/session.rs` | Session state: token accounting, JSONL event log at `~/.claude/squeez/sessions/` |
 | `src/context/cache.rs` | Cross-call dedup + file access cache (16-call window); stores shingles for fuzzy match |
 | `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 14 read-only tools (`squeez_recent_calls`, `squeez_seen_files`, `squeez_seen_errors`, `squeez_seen_error_details`, `squeez_session_summary`, `squeez_session_detail`, `squeez_session_stats`, `squeez_session_efficiency`, `squeez_prior_summaries`, `squeez_search_history`, `squeez_file_history`, `squeez_agent_costs`, `squeez_protocol`, `squeez_context_pressure`) |
