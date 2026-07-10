@@ -154,6 +154,19 @@ pub struct Config {
     /// (error/signal words + command query terms) instead of a blind head.
     /// Default: true.
     pub relevance_truncation_enabled: bool,
+    // ── Content-class calibrated density (R2) ────────────────────────────────
+    /// Use the content-class estimator for wrap token accounting: Dense
+    /// payloads (JSON/code/diffs) ≈ chars/2, Prose ≈ chars/3.7, Mixed falls
+    /// back to the char-class estimate. Calibrated on pxpipe measurements
+    /// (~1.91 chars/token dense, ~3.5-3.7 prose). False = flat
+    /// `estimate_scaled` path. Default: true.
+    pub class_density: bool,
+    // ── Net-win gate (R4) ────────────────────────────────────────────────────
+    /// Minimum token savings compression must achieve to be worth the
+    /// ~15-25-token `# squeez` header. Below this, wrap emits the original
+    /// output and suppresses the header (follow-up warnings still print).
+    /// 0 = disabled. Default: 24.
+    pub net_win_min_tokens: usize,
     // ── Bash-wrap safety (#150) ──────────────────────────────────────────────
     /// Master switch for rewriting Bash commands to `squeez wrap '…'` in the
     /// PreToolUse hook. When false, commands run unwrapped (no output
@@ -236,6 +249,8 @@ impl Default for Config {
             log_template_enabled: true,
             log_template_min: 3,
             relevance_truncation_enabled: true,
+            class_density: true,
+            net_win_min_tokens: 24,
             wrap_bash: true,
             bash_risk_patterns: vec![
                 "rm -rf".to_string(),
@@ -428,6 +443,10 @@ impl Config {
                     }
                     "relevance_truncation_enabled" => {
                         c.relevance_truncation_enabled = v == "true"
+                    }
+                    "class_density" => c.class_density = v == "true",
+                    "net_win_min_tokens" => {
+                        c.net_win_min_tokens = v.parse().unwrap_or(c.net_win_min_tokens)
                     }
                     "wrap_bash" => c.wrap_bash = v == "true",
                     "bash_risk_patterns" => {

@@ -574,6 +574,17 @@ fn make_massive_cargo_output() -> String {
 
 // ─── Efficiency proof ─────────────────────────────────────────────────────────
 
+// Anthropic list-price ratios (Fable 5), kept as ratios — not $ — so the
+// accounting stays model-agnostic. Following pxpipe (github.com/teamchong/pxpipe),
+// the SAME rate is applied to both sides of each comparison under the SAME cache
+// state, so the caching discount is never miscounted as compression savings.
+// Savings reported here are per compressed slice ("compressed-only"); end-to-end
+// savings depend on the workload's mix of compressed vs untouched context.
+pub const INPUT_RATE: f64 = 1.0;
+pub const CACHE_WRITE_RATE: f64 = 1.25;
+pub const CACHE_READ_RATE: f64 = 0.1;
+pub const OUTPUT_RATE: f64 = 5.0;
+
 /// One row in the efficiency-proof table.
 pub struct EfficiencyResult {
     pub label: &'static str,
@@ -583,6 +594,41 @@ pub struct EfficiencyResult {
     pub reduction_pct: f64,
     pub floor_pct: f64,
     pub passes: bool,
+    /// Effective cost (token-rate units) on first send of a cacheable block.
+    pub cold_baseline_eff: f64,
+    pub cold_compressed_eff: f64,
+    /// Effective cost when every later turn re-reads the block from cache.
+    pub warm_baseline_eff: f64,
+    pub warm_compressed_eff: f64,
+}
+
+impl EfficiencyResult {
+    /// Build a row, deriving pass/fail and cache-aware effective costs.
+    /// Cold = ×CACHE_WRITE_RATE, warm = ×CACHE_READ_RATE — same rate on both
+    /// sides of the comparison (pxpipe-style), so savings can be negative and
+    /// are not floored.
+    pub fn new(
+        label: &'static str,
+        feature: &'static str,
+        baseline_tokens: usize,
+        compressed_tokens: usize,
+        reduction_pct: f64,
+        floor_pct: f64,
+    ) -> Self {
+        EfficiencyResult {
+            label,
+            feature,
+            baseline_tokens,
+            compressed_tokens,
+            reduction_pct,
+            floor_pct,
+            passes: reduction_pct >= floor_pct,
+            cold_baseline_eff: baseline_tokens as f64 * CACHE_WRITE_RATE,
+            cold_compressed_eff: compressed_tokens as f64 * CACHE_WRITE_RATE,
+            warm_baseline_eff: baseline_tokens as f64 * CACHE_READ_RATE,
+            warm_compressed_eff: compressed_tokens as f64 * CACHE_READ_RATE,
+        }
+    }
 }
 
 /// Run 5 deterministic proof cases and return evidence that each shipped feature
@@ -610,15 +656,14 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         let reduction = reduction_pct(baseline_tokens, compressed_tokens);
         // FLOOR: 80.0 — sig-mode replaces 1000-line body with ~50-80 sig lines
         let floor = 80.0_f64;
-        results.push(EfficiencyResult {
-            label: "sig_mode_rust_1000",
-            feature: "US-001",
+        results.push(EfficiencyResult::new(
+            "sig_mode_rust_1000",
+            "US-001",
             baseline_tokens,
             compressed_tokens,
-            reduction_pct: reduction,
-            floor_pct: floor,
-            passes: reduction >= floor,
-        });
+            reduction,
+            floor,
+        ));
     }
 
     // ── US-001 / sig_mode_python_1000 ───────────────────────────────────────
@@ -642,15 +687,14 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         // FLOOR: 65.0 — Python class+def signatures are less keyword-dense
         // but padding lines dominate the 1000-line fixture, giving ≥65% savings.
         let floor = 65.0_f64;
-        results.push(EfficiencyResult {
-            label: "sig_mode_python_1000",
-            feature: "US-001",
+        results.push(EfficiencyResult::new(
+            "sig_mode_python_1000",
+            "US-001",
             baseline_tokens,
             compressed_tokens,
-            reduction_pct: reduction,
-            floor_pct: floor,
-            passes: reduction >= floor,
-        });
+            reduction,
+            floor,
+        ));
     }
 
     // ── US-001 / sig_mode_delta_vs_baseline_pipeline ────────────────────────
@@ -687,15 +731,14 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
 
         let reduction = reduction_pct(baseline_tokens, compressed_tokens);
         let floor = 10.0_f64;
-        results.push(EfficiencyResult {
-            label: "sig_mode_delta_vs_pipeline",
-            feature: "US-001",
+        results.push(EfficiencyResult::new(
+            "sig_mode_delta_vs_pipeline",
+            "US-001",
             baseline_tokens,
             compressed_tokens,
-            reduction_pct: reduction,
-            floor_pct: floor,
-            passes: reduction >= floor,
-        });
+            reduction,
+            floor,
+        ));
     }
 
     // ── US-003 / structured_vs_prose ────────────────────────────────────────
@@ -723,15 +766,14 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         // we measure the delta — 50% reflects the head/tail savings.
         let floor = 30.0_f64; // FLOOR: 30.0 — conservative to account for large error extracts
         let _ = line_count; // used for documentation; floor reflects actual output shape
-        results.push(EfficiencyResult {
-            label: "structured_vs_prose",
-            feature: "US-003",
+        results.push(EfficiencyResult::new(
+            "structured_vs_prose",
+            "US-003",
             baseline_tokens,
             compressed_tokens,
-            reduction_pct: reduction,
-            floor_pct: floor,
-            passes: reduction >= floor,
-        });
+            reduction,
+            floor,
+        ));
     }
 
     // ── US-004 / hypothesis_c6_vs_c0 ────────────────────────────────────────
@@ -748,26 +790,17 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
             // FLOOR: 80.0 — C6 combines all optimisation levers; any combined
             // config achieving less than 80% vs raw would indicate a regression.
             let floor = 80.0_f64;
-            results.push(EfficiencyResult {
-                label: "hypothesis_c6_vs_c0",
-                feature: "US-004",
+            results.push(EfficiencyResult::new(
+                "hypothesis_c6_vs_c0",
+                "US-004",
                 baseline_tokens,
                 compressed_tokens,
-                reduction_pct: red,
-                floor_pct: floor,
-                passes: red >= floor,
-            });
+                red,
+                floor,
+            ));
         } else {
             // Fallback: should never happen with a well-formed grid
-            results.push(EfficiencyResult {
-                label: "hypothesis_c6_vs_c0",
-                feature: "US-004",
-                baseline_tokens: 0,
-                compressed_tokens: 0,
-                reduction_pct: 0.0,
-                floor_pct: 80.0,
-                passes: false,
-            });
+            results.push(EfficiencyResult::new("hypothesis_c6_vs_c0", "US-004", 0, 0, 0.0, 80.0));
         }
     }
 
@@ -778,13 +811,13 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
 pub fn efficiency_to_json(results: &[EfficiencyResult]) -> String {
     let all_pass = results.iter().all(|r| r.passes);
     let mut out = String::new();
-    out.push_str("{\"schema_version\":1,\"efficiency_proof\":[");
+    out.push_str("{\"schema_version\":2,\"efficiency_proof\":[");
     for (i, r) in results.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
         out.push_str(&format!(
-            "{{\"feature\":\"{}\",\"label\":\"{}\",\"baseline_tokens\":{},\"compressed_tokens\":{},\"reduction_pct\":{:.2},\"floor_pct\":{:.2},\"passes\":{}}}",
+            "{{\"feature\":\"{}\",\"label\":\"{}\",\"baseline_tokens\":{},\"compressed_tokens\":{},\"reduction_pct\":{:.2},\"floor_pct\":{:.2},\"passes\":{},\"cold_baseline_eff\":{:.2},\"cold_compressed_eff\":{:.2},\"warm_baseline_eff\":{:.2},\"warm_compressed_eff\":{:.2},\"net_saving_cold\":{:.2},\"net_saving_warm\":{:.2}}}",
             json_util::escape_str(r.feature),
             json_util::escape_str(r.label),
             r.baseline_tokens,
@@ -792,6 +825,12 @@ pub fn efficiency_to_json(results: &[EfficiencyResult]) -> String {
             r.reduction_pct,
             r.floor_pct,
             r.passes,
+            r.cold_baseline_eff,
+            r.cold_compressed_eff,
+            r.warm_baseline_eff,
+            r.warm_compressed_eff,
+            r.cold_baseline_eff - r.cold_compressed_eff,
+            r.warm_baseline_eff - r.warm_compressed_eff,
         ));
     }
     out.push_str(&format!("],\"all_pass\":{}}}", all_pass));
@@ -806,20 +845,21 @@ fn print_efficiency_proof_table(results: &[EfficiencyResult]) {
     println!("╚═══════════════════════════════════════════════════════════════════════════════════╝");
     println!();
     println!(
-        "{:<8}  {:<28}  {:>8}  {:>10}  {:>9}  {:>6}  {}",
-        "FEATURE", "LABEL", "BASELINE", "COMPRESSED", "REDUCTION", "FLOOR", "STATUS"
+        "{:<8}  {:<28}  {:>8}  {:>10}  {:>9}  {:>6}  {:>10}  {}",
+        "FEATURE", "LABEL", "BASELINE", "COMPRESSED", "REDUCTION", "FLOOR", "WARM-SAVE", "STATUS"
     );
-    println!("{}", "─".repeat(88));
+    println!("{}", "─".repeat(100));
     for r in results {
         let status = if r.passes { "PASS" } else { "FAIL" };
         println!(
-            "{:<8}  {:<28}  {:>6}tk  {:>8}tk  {:>8.1}%  {:>5.1}%  {}",
+            "{:<8}  {:<28}  {:>6}tk  {:>8}tk  {:>8.1}%  {:>5.1}%  {:>10.1}  {}",
             r.feature,
             r.label,
             r.baseline_tokens,
             r.compressed_tokens,
             r.reduction_pct,
             r.floor_pct,
+            r.warm_baseline_eff - r.warm_compressed_eff,
             status,
         );
     }
@@ -830,6 +870,11 @@ fn print_efficiency_proof_table(results: &[EfficiencyResult]) {
     } else {
         println!("FAIL: one or more floors did not pass. See rows above.");
     }
+    println!(
+        "cache-aware: cold=×{} warm=×{}, same state both sides (pxpipe-style); \
+         savings are per compressed slice, end-to-end depends on workload.",
+        CACHE_WRITE_RATE, CACHE_READ_RATE
+    );
     println!();
 }
 

@@ -148,7 +148,12 @@ pub fn run(cmd_str: &str) -> i32 {
     combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
     combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
 
-    let input_tokens = crate::tokens::estimate_scaled(&combined, config.tokenizer_scale);
+    // Content-class calibrated estimate (R2); flat path via class_density=false.
+    let input_tokens = if config.class_density {
+        crate::tokens::estimate_classed(&combined, config.tokenizer_scale)
+    } else {
+        crate::tokens::estimate_scaled(&combined, config.tokenizer_scale)
+    };
     let lines: Vec<String> = combined.lines().map(String::from).collect();
     let orig_line_count = lines.len();
 
@@ -194,7 +199,28 @@ pub fn run(cmd_str: &str) -> i32 {
     }
 
     let output_str = compressed.join("\n");
-    let output_tokens = crate::tokens::estimate_scaled(&output_str, config.tokenizer_scale);
+    let output_tokens = if config.class_density {
+        crate::tokens::estimate_classed(&output_str, config.tokenizer_scale)
+    } else {
+        crate::tokens::estimate_scaled(&output_str, config.tokenizer_scale)
+    };
+
+    // ── Net-win gate (R4) ──────────────────────────────────────────────
+    // The `# squeez` header itself costs ~15-25 tokens. When compression was
+    // applied but saved less than `net_win_min_tokens`, the call is a net
+    // loss — emit the original output and suppress the header line instead.
+    // Follow-up warnings (compact, burst, cache-idle, cache-ratio) still
+    // print below: they're decision-relevant regardless of this call.
+    // Redundancy hits are exempt: the marker is a cross-call pointer, not a
+    // marginal compression win, and must keep its header context.
+    let compression_applied = output_str != combined.trim_end_matches('\n');
+    let net_win_gate = config.net_win_min_tokens > 0
+        && !redundancy_hit
+        && compression_applied
+        && input_tokens.saturating_sub(output_tokens) < config.net_win_min_tokens;
+    // Session accounting records what is actually emitted — zero savings on
+    // a gated passthrough.
+    let emitted_tokens = if net_win_gate { input_tokens } else { output_tokens };
 
     // ── Reversible compression: stash the original so the model can recover it ──
     // When a large output was meaningfully compressed, save the verbatim
@@ -204,6 +230,7 @@ pub fn run(cmd_str: &str) -> i32 {
     // hit (the prior call already holds the content).
     let retrieve_marker = if config.retrieve_enabled
         && !redundancy_hit
+        && !net_win_gate
         && orig_line_count >= config.retrieve_min_lines
         && output_str.len() + 256 < combined.len()
     {
@@ -225,7 +252,7 @@ pub fn run(cmd_str: &str) -> i32 {
     let test_sum   = extract_test_summary(&combined);
 
     let compact_warning = record_bash_event(
-        cmd_str, input_tokens, output_tokens, &files, &errors, &git_events, &test_sum, &config,
+        cmd_str, input_tokens, emitted_tokens, &files, &errors, &git_events, &test_sum, &config,
         ctx.real_ctx_tokens,
     );
 
@@ -238,39 +265,43 @@ pub fn run(cmd_str: &str) -> i32 {
     let cmd_name = cmd_str.split_whitespace().next().unwrap_or("cmd");
 
     if config.show_header {
-        let intensity_tag = if config.adaptive_intensity {
-            format!(" [adaptive: {}]", intensity.as_str())
-        } else {
-            String::new()
-        };
-        // Token economy: burn rate prediction
-        let budget_tag = crate::economy::burn_rate::pressure_warning(&ctx, &config)
-            .or_else(|| {
-                crate::economy::burn_rate::calls_remaining(&ctx, &config)
-                    .map(|r| crate::economy::burn_rate::format_pressure_header(r))
-            })
-            .unwrap_or_default();
-        let budget_tag = if budget_tag.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", budget_tag)
-        };
-        // Token economy: agent cost warning
-        let agent_tag = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
-            .map(|w| format!(" {}", w))
-            .unwrap_or_default();
-        // Token economy: enterprise transport indicator
-        let enterprise_mode = crate::economy::enterprise::detect();
-        let enterprise_tag = if enterprise_mode.is_enterprise() {
-            format!(" {}", crate::economy::enterprise::header_tag(enterprise_mode))
-        } else {
-            String::new()
-        };
-        println!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
-            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
-            intensity_tag, budget_tag, agent_tag, enterprise_tag
-        );
+        // Net-win gate: suppress only the header line itself — the warning
+        // lines below stay, they matter independently of compression.
+        if !net_win_gate {
+            let intensity_tag = if config.adaptive_intensity {
+                format!(" [adaptive: {}]", intensity.as_str())
+            } else {
+                String::new()
+            };
+            // Token economy: burn rate prediction
+            let budget_tag = crate::economy::burn_rate::pressure_warning(&ctx, &config)
+                .or_else(|| {
+                    crate::economy::burn_rate::calls_remaining(&ctx, &config)
+                        .map(|r| crate::economy::burn_rate::format_pressure_header(r))
+                })
+                .unwrap_or_default();
+            let budget_tag = if budget_tag.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", budget_tag)
+            };
+            // Token economy: agent cost warning
+            let agent_tag = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
+                .map(|w| format!(" {}", w))
+                .unwrap_or_default();
+            // Token economy: enterprise transport indicator
+            let enterprise_mode = crate::economy::enterprise::detect();
+            let enterprise_tag = if enterprise_mode.is_enterprise() {
+                format!(" {}", crate::economy::enterprise::header_tag(enterprise_mode))
+            } else {
+                String::new()
+            };
+            println!(
+                "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
+                cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
+                intensity_tag, budget_tag, agent_tag, enterprise_tag
+            );
+        }
         if let Some(ref warning) = compact_warning {
             println!("{}", warning);
         }
@@ -319,7 +350,16 @@ pub fn run(cmd_str: &str) -> i32 {
     if let Some(ref marker) = retrieve_marker {
         println!("{}", marker);
     }
-    if !output_str.is_empty() {
+    if net_win_gate {
+        // Gated passthrough: the header would cost more than compression
+        // saved, so the model gets the verbatim original.
+        if !combined.is_empty() {
+            print!("{}", combined);
+            if !combined.ends_with('\n') {
+                println!();
+            }
+        }
+    } else if !output_str.is_empty() {
         println!("{}", output_str);
     }
 
@@ -338,8 +378,8 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.note_errors(&errors);
         ctx.note_git(&git_events);
         ctx.note_tool_tokens("Bash", input_tokens as u64);
-        // Token economy: record burn rate
-        ctx.note_burn(output_tokens as u64);
+        // Token economy: record burn rate (what was actually emitted)
+        ctx.note_burn(emitted_tokens as u64);
 
         // ── Auto-curation nudges (item 1) ──────────────────────────────
         let nudges = crate::economy::nudge::evaluate(
@@ -358,7 +398,7 @@ pub fn run(cmd_str: &str) -> i32 {
     // ── Continuous handler calibration (item 2) ────────────────────────
     if config.handler_stats_enabled {
         let mut stats = crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp);
-        stats.record(cmd_name, input_tokens as u64, output_tokens as u64);
+        stats.record(cmd_name, input_tokens as u64, emitted_tokens as u64);
         stats.save(&sessions_dir_pp);
     }
 

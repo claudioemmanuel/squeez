@@ -50,6 +50,109 @@ pub fn estimate(s: &str) -> usize {
     }
 }
 
+// ── Content-class calibrated density (R2) ──────────────────────────────────
+//
+// pxpipe measured real tokenizer density on production tool output:
+// dense payloads (JSON/code/diffs, N=391) run ~1.91 chars/token, while
+// English prose runs ~3.5-3.7 chars/token. A flat divisor is wrong in both
+// directions, so `classify` fingerprints the payload coarsely and
+// `estimate_classed` picks a calibrated divisor per class.
+
+/// Content class of a payload, used to pick a calibrated chars/token density.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentClass {
+    Dense,
+    Prose,
+    Mixed,
+}
+
+/// Bytes of `s` that `classify` inspects. Density is stable across a payload,
+/// so the head is enough — no need to rescan a multi-MB capture.
+const CLASSIFY_SAMPLE_BYTES: usize = 64 * 1024;
+/// Punctuation/symbol share of non-whitespace chars at or above which content
+/// is Dense. pxpipe's dense corpus (JSON/code/diffs, ~1.91 chars/token) runs
+/// ≥ ~18% ASCII punctuation.
+const DENSE_PUNCT_RATIO: f64 = 0.18;
+/// Share at or below which content is Prose — English prose (~3.5-3.7
+/// chars/token in the same calibration) rarely exceeds ~8% punctuation.
+const PROSE_PUNCT_RATIO: f64 = 0.08;
+/// Calibrated divisor for Dense: pxpipe's measured 1.91 rounded to a
+/// conservative 2.0.
+const DENSE_CHARS_PER_TOKEN: f64 = 2.0;
+/// Calibrated divisor for Prose (pxpipe prose upper bound).
+const PROSE_CHARS_PER_TOKEN: f64 = 3.7;
+
+/// Coarsely classify `s` by tokenizer density: punctuation share plus a
+/// line-shape check (JSON/diff/table lines start with `{ " + - |` or carry
+/// `=>` / `::` / `==`).
+pub fn classify(s: &str) -> ContentClass {
+    let mut end = s.len().min(CLASSIFY_SAMPLE_BYTES);
+    while end < s.len() && !s.is_char_boundary(end) {
+        end += 1;
+    }
+    let sample = &s[..end];
+
+    let mut punct = 0usize;
+    let mut nonws = 0usize;
+    for c in sample.chars() {
+        if c.is_whitespace() {
+            continue;
+        }
+        nonws += 1;
+        if c.is_ascii() && !c.is_ascii_alphanumeric() {
+            punct += 1;
+        }
+    }
+    if nonws == 0 {
+        return ContentClass::Mixed;
+    }
+
+    // Structural shape: majority of non-empty lines look like JSON/diff/table.
+    let mut structural = 0usize;
+    let mut nonempty = 0usize;
+    for line in sample.lines() {
+        let t = line.trim_start();
+        if t.is_empty() {
+            continue;
+        }
+        nonempty += 1;
+        if matches!(t.as_bytes()[0], b'{' | b'"' | b'+' | b'-' | b'|')
+            || t.contains("=>")
+            || t.contains("::")
+            || t.contains("==")
+        {
+            structural += 1;
+        }
+    }
+    let looks_structured = structural * 2 > nonempty;
+
+    let ratio = punct as f64 / nonws as f64;
+    if ratio >= DENSE_PUNCT_RATIO || looks_structured {
+        ContentClass::Dense
+    } else if ratio <= PROSE_PUNCT_RATIO {
+        ContentClass::Prose
+    } else {
+        ContentClass::Mixed
+    }
+}
+
+/// Estimate tokens in `s` using the content-class calibrated densities:
+/// Dense → chars/2.0, Prose → chars/3.7, Mixed → the char-class `estimate`.
+/// `scale` applies like `estimate_scaled`; the non-empty floor of 1 holds.
+pub fn estimate_classed(s: &str, scale: f32) -> usize {
+    let base = match classify(s) {
+        ContentClass::Dense => (s.chars().count() as f64 / DENSE_CHARS_PER_TOKEN).ceil() as usize,
+        ContentClass::Prose => (s.chars().count() as f64 / PROSE_CHARS_PER_TOKEN).ceil() as usize,
+        ContentClass::Mixed => estimate(s),
+    };
+    let scaled = ((base as f64) * scale as f64).ceil() as usize;
+    if scaled == 0 && !s.is_empty() {
+        1
+    } else {
+        scaled
+    }
+}
+
 /// Estimate tokens in `s`, scaled by a model's tokenizer density factor.
 ///
 /// `scale = 1.0` returns `estimate(s)` unchanged (legacy). Values > 1.0 model
@@ -135,5 +238,42 @@ mod tests {
     #[test]
     fn scaled_empty_is_zero() {
         assert_eq!(estimate_scaled("", 1.3), 0);
+    }
+
+    #[test]
+    fn json_classifies_dense_and_beats_chars_over_four() {
+        let json = r#"{"name":"squeez","version":"1.34.6","deps":{"libc":"0.2"},"flags":[true,false]}"#;
+        assert_eq!(classify(json), ContentClass::Dense);
+        assert!(
+            estimate_classed(json, 1.0) > json.chars().count() / 4,
+            "dense JSON should exceed the chars/4 rule"
+        );
+    }
+
+    #[test]
+    fn english_prose_classifies_prose() {
+        let prose = "the quick brown fox jumps over the lazy dog and then trots quietly home";
+        assert_eq!(classify(prose), ContentClass::Prose);
+    }
+
+    #[test]
+    fn mixed_agent_output_falls_back_to_estimate() {
+        // Prose with sprinkled paths/versions: punct ratio between the Prose
+        // and Dense thresholds, no structural line shape.
+        let mixed = "Compiling squeez v1.34.6 (/Users/me/squeez)\nFinished dev profile in 2.41s";
+        assert_eq!(classify(mixed), ContentClass::Mixed);
+        assert_eq!(estimate_classed(mixed, 1.0), estimate(mixed));
+    }
+
+    #[test]
+    fn classed_scale_above_one_counts_more() {
+        let prose = "the quick brown fox jumps over the lazy dog and then trots quietly home";
+        assert!(estimate_classed(prose, 1.3) > estimate_classed(prose, 1.0));
+    }
+
+    #[test]
+    fn classed_empty_is_zero() {
+        assert_eq!(estimate_classed("", 1.0), 0);
+        assert_eq!(estimate_classed("", 1.3), 0);
     }
 }
