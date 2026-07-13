@@ -44,13 +44,16 @@ pub static PT_BR: Locale = Locale {
     conjunctions: &[
         " e", " ou", " mas", " porém", " contudo", " então", " logo", " pois",
     ],
+    // E6: measured against o200k_base + cl100k_base across 3 real-sentence
+    // contexts (bench/verify_tokens.py --substitutions, snapshot committed
+    // at bench/substitutions_snapshot.json). Kept: ctx_wins >=2/3 (saves
+    // >=1 token in at least 2 of 3 contexts). Pruned for scoring COSTS or
+    // NEUTRAL (ctx_wins <2/3): sem->s/, com->c/, porque->pq, função->fn,
+    // funções->fns, também->tb, você->vc, para->p/ — unlike the surviving
+    // pairs below, these single/short-word contractions don't reliably
+    // collapse to fewer BPE tokens.
     ultra_subs: &[
-        ("sem",            "s/"),
-        ("com",            "c/"),
-        ("porque",         "pq"),
         ("por que",        "pq"),
-        ("função",         "fn"),
-        ("funções",        "fns"),
         ("parâmetro",      "param"),
         ("parâmetros",     "params"),
         ("argumento",      "arg"),
@@ -61,8 +64,5 @@ pub static PT_BR: Locale = Locale {
         ("diretório",      "dir"),
         ("repositório",    "repo"),
         ("aproximadamente","~"),
-        ("também",         "tb"),
-        ("você",           "vc"),
-        ("para",           "p/"),
     ],
 };

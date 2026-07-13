@@ -34,16 +34,18 @@ fn front_matter_preserved_verbatim() {
 
 #[test]
 fn prose_body_still_compressed() {
+    // E6: EN word-substitution (function->fn, with->w/, because->b/c) was
+    // pruned from ultra_subs -- measured COSTS/NEUTRAL against real
+    // tokenizers. The body still gets the validated mechanism: filler and
+    // article dropping.
     let input = format!(
-        "{}\nConfigure the function with these parameters because of the documentation.\n",
+        "{}\nThis is just really the configuration you need.\n",
         FRONT_MATTER
     );
     let r = compress_text(&input, Mode::Ultra);
-    // The body (after front-matter) gets the usual Ultra substitutions.
-    assert!(r.output.contains("fn"), "body should abbreviate function→fn");
-    assert!(r.output.contains("w/"), "body should abbreviate with→w/");
-    assert!(r.output.contains("param"), "body should abbreviate parameters→param");
-    assert!(r.output.contains("b/c"), "body should abbreviate because→b/c");
+    assert!(!r.output.to_lowercase().contains("really"), "body should drop filler 'really'");
+    assert!(!r.output.to_lowercase().contains("just"), "body should drop filler 'just'");
+    assert!(r.output.contains("configuration"), "body content survives");
     assert!(r.stats.new_bytes < r.stats.orig_bytes, "must reduce overall size");
 }
 
@@ -65,9 +67,9 @@ fn idempotent_second_pass_safe() {
 #[test]
 fn no_front_matter_file_unaffected() {
     // A plain prose file (no leading `---`) compresses exactly as before.
-    let input = "Configure the function with these parameters because of the docs.\n";
+    let input = "This is just really the configuration you need.\n";
     let r = compress_text(input, Mode::Ultra);
     assert!(r.safe);
-    assert!(r.output.contains("fn"));
-    assert!(r.output.contains("w/"));
+    assert!(!r.output.to_lowercase().contains("really"));
+    assert!(!r.output.to_lowercase().contains("just"));
 }

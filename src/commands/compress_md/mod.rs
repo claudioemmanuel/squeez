@@ -893,11 +893,13 @@ mod tests {
     }
 
     #[test]
-    fn ultra_substitutes_with() {
+    fn ultra_no_longer_substitutes_en_words() {
+        // E6: EN ultra_subs pruned to empty -- see locales/en.rs for the
+        // measured rationale (no pair cleared >=2/3 context wins).
         let input = "Configure the app with these parameters.\n";
         let r = compress_text(input, Mode::Ultra);
-        assert!(r.output.contains("w/"));
-        assert!(r.output.contains("param"));
+        assert!(r.output.contains("with"));
+        assert!(r.output.contains("parameters"));
     }
 
     #[test]

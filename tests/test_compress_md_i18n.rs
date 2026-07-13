@@ -48,21 +48,25 @@ fn is_clean_word_accepts_accented_via_behavior() {
 
 #[test]
 fn replace_word_boundary_unicode_correct() {
+    // E6: "função"->"fn" was pruned from ultra_subs (measured NEUTRAL,
+    // ctx_wins 1/3) -- reuse a surviving pair (diretório->dir) for this
+    // word-boundary regression: "diretórios" (plural, a different word)
+    // must not get corrupted by a substring match against "diretório".
     let pt = Locale::from_code("pt-BR");
     let r = compress_text_with_locale(
-        "a função e o funcionário trabalham juntos\n",
+        "o diretório e os diretórios do projeto\n",
         Mode::Ultra,
         pt,
     );
     assert!(r.safe);
-    assert!(r.output.contains("fn"), "'função' must be abbreviated to 'fn'");
+    assert!(r.output.contains("dir"), "'diretório' must be abbreviated to 'dir'");
     assert!(
-        r.output.contains("funcionário"),
-        "'funcionário' must not be corrupted"
+        r.output.contains("diretórios"),
+        "'diretórios' (plural, different word) must not be corrupted"
     );
     assert!(
-        !r.output.contains("fnário"),
-        "partial word match 'fnário' must not occur"
+        !r.output.to_lowercase().contains("dirs"),
+        "partial word match must not occur"
     );
 }
 
@@ -139,16 +143,18 @@ fn pt_br_phrase_de_modo_geral_dropped() {
 
 #[test]
 fn pt_br_ultra_subs_applied() {
+    // E6: uses only pairs that survived measurement (ctx_wins >=2/3) --
+    // "função"->"fn" and "sem"->"s/" were pruned (see locales/pt_br.rs).
     let pt = Locale::from_code("pt-BR");
     let r = compress_text_with_locale(
-        "a configuração da função sem parâmetros\n",
+        "a configuração do diretório com argumentos e parâmetros\n",
         Mode::Ultra,
         pt,
     );
     assert!(r.safe);
     assert!(r.output.contains("config"));
-    assert!(r.output.contains("fn"));
-    assert!(r.output.contains("s/"));
+    assert!(r.output.contains("dir"));
+    assert!(r.output.contains("args"));
     assert!(r.output.contains("param"));
 }
 
@@ -163,16 +169,19 @@ fn pt_br_preserves_accents_not_in_ultra_subs() {
 
 #[test]
 fn pt_br_word_boundary_no_false_match() {
+    // E6: "função"->"fn" was pruned; reuse argumento/argumentos (both
+    // surviving pairs) for the same boundary concern -- the singular must
+    // not partial-match inside the plural and leave a stray "s".
     let pt = Locale::from_code("pt-BR");
     let r = compress_text_with_locale(
-        "o funcionário usa a função principal\n",
+        "os argumentos e o argumento principal\n",
         Mode::Ultra,
         pt,
     );
     assert!(r.safe);
-    assert!(r.output.contains("funcionário"));
-    assert!(!r.output.contains("fnário"));
-    assert!(r.output.contains("fn"));
+    assert!(r.output.contains("args"));
+    assert!(r.output.contains("arg"));
+    assert!(!r.output.to_lowercase().contains("args s") && !r.output.to_lowercase().contains("arg s"));
 }
 
 #[test]
@@ -296,16 +305,20 @@ fn en_articles_still_dropped() {
 }
 
 #[test]
-fn en_ultra_subs_still_work() {
+fn en_ultra_subs_pruned_to_empty() {
+    // E6: EN ultra_subs is now empty -- every letter/word substitution
+    // measured COSTS or NEUTRAL (ctx_wins <2/3) against real tokenizers.
+    // See locales/en.rs for the rationale and bench/substitutions_snapshot.json
+    // for the measured data.
     let en = Locale::from_code("en");
     let r = compress_text_with_locale(
         "Configure the function with these parameters.\n",
         Mode::Ultra,
         en,
     );
-    assert!(r.output.contains("fn"));
-    assert!(r.output.contains("w/"));
-    assert!(r.output.contains("param"));
+    assert!(r.output.contains("function"));
+    assert!(r.output.contains("with"));
+    assert!(r.output.contains("parameters"));
 }
 
 // ── Cross-locale contract ─────────────────────────────────────────────────

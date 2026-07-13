@@ -13,14 +13,21 @@ fn full_mode_drops_articles_and_fillers() {
 }
 
 #[test]
-fn ultra_mode_substitutes_long_words() {
-    let input = "Configure the function with these parameters because of the docs.\n";
+fn ultra_mode_no_longer_substitutes_en_words() {
+    // E6: EN letter/word substitutions (with->w/, function->fn, etc.) were
+    // pruned -- measured against real tokenizers (bench/verify_tokens.py
+    // --substitutions), none saved >=1 token in >=2 of 3 real-sentence
+    // contexts. BPE already tokenizes these common English words compactly;
+    // the abbreviation was net-zero-or-worse, not free compression. Ultra
+    // still drops articles/fillers (a different, validated mechanism).
+    let input = "The function with these parameters because of the docs.\n";
     let r = compress_text(input, Mode::Ultra);
     assert!(r.safe);
-    assert!(r.output.contains("fn"));
-    assert!(r.output.contains("w/"));
-    assert!(r.output.contains("param"));
-    assert!(r.output.contains("b/c"));
+    assert!(r.output.contains("function"));
+    assert!(r.output.contains("with"));
+    assert!(r.output.contains("parameters"));
+    assert!(r.output.contains("because"));
+    assert!(!r.output.to_lowercase().contains(" the "));
 }
 
 #[test]
