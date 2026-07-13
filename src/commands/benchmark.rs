@@ -1331,8 +1331,15 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         category: "bash_output".to_string(),
         kind: ScenarioKind::Filter { hint: "pytest".to_string() },
         content: make_pytest_failures(),
-        required_keywords: vec!["FAILED".to_string(), "failed".to_string()],
-        quality_mode: QualityMode::Signal,
+        // Exercises src/commands/reporters/pytest.rs — output shape changes
+        // (failures-only via the "short test summary info" section), so
+        // quality is Keywords: exact failing test IDs must survive verbatim.
+        required_keywords: vec![
+            "tests/test_auth.py::test_token_expiry".to_string(),
+            "tests/test_billing.py::test_refund_idempotency".to_string(),
+            "tests/test_search.py::test_unicode_query".to_string(),
+        ],
+        quality_mode: QualityMode::Keywords,
     });
     s.push(Scenario {
         name: "jest_failures".to_string(),
