@@ -339,6 +339,46 @@ fn make_cargo_test_failures() -> String {
     out
 }
 
+fn make_jest_json_failures() -> String {
+    let mut out = String::from(
+        "{\"numFailedTestSuites\":2,\"numFailedTests\":2,\"numPassedTestSuites\":10,\
+\"numPassedTests\":201,\"numPendingTests\":0,\
+\"numTotalTestSuites\":12,\"numTotalTests\":203,\"success\":false,\"testResults\":[",
+    );
+    let comps = [
+        "Card", "Form", "Table", "Nav", "Footer", "Header", "Input", "Select", "Checkbox", "Radio",
+    ];
+    for (i, comp) in comps.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"name\":\"/repo/src/components/{}.test.tsx\",\"status\":\"passed\",\"message\":\"\",\"assertionResults\":[",
+            comp
+        ));
+        for j in 0..20 {
+            if j > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"fullName\":\"{comp} renders case {j}\",\"title\":\"renders case {j}\",\"status\":\"passed\",\"failureMessages\":[]}}",
+                comp = comp,
+                j = j
+            ));
+        }
+        out.push_str("]}");
+    }
+    out.push_str(",{\"name\":\"/repo/src/api/client.test.ts\",\"status\":\"failed\",\"message\":\"\",\"assertionResults\":[");
+    out.push_str("{\"fullName\":\"API client should fetch users\",\"title\":\"should fetch users\",\"status\":\"passed\",\"failureMessages\":[]},");
+    out.push_str("{\"fullName\":\"API client should retry on 503\",\"title\":\"should retry on 503\",\"status\":\"failed\",\"failureMessages\":[\"Error: expect(received).toHaveBeenCalledTimes(expected)\\n\\nExpected number of calls: 3\\nReceived number of calls: 1\\n    at Object.<anonymous> (/repo/src/api/client.test.ts:47:24)\\n    at Promise.then.completed (/repo/node_modules/jest-circus/build/utils.js:298:28)\\n    at _runTest (/repo/node_modules/jest-circus/build/run.js:139:3)\"]}");
+    out.push_str("]}");
+    out.push_str(",{\"name\":\"/repo/src/utils/format.test.ts\",\"status\":\"failed\",\"message\":\"\",\"assertionResults\":[");
+    out.push_str("{\"fullName\":\"format utils formatCurrency should handle negative values\",\"title\":\"formatCurrency should handle negative values\",\"status\":\"failed\",\"failureMessages\":[\"Error: expect(received).toBe(expected)\\n\\nExpected: \\\"-$12.34\\\"\\nReceived: \\\"$-12.34\\\"\\n    at Object.<anonymous> (/repo/src/utils/format.test.ts:24:34)\\n    at Promise.then.completed (/repo/node_modules/jest-circus/build/utils.js:298:28)\"]}");
+    out.push_str("]}");
+    out.push_str("]}");
+    out
+}
+
 fn make_agent_heavy() -> String {
     let mut out = String::new();
     // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
@@ -1314,6 +1354,19 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
             "context::redundancy::test_fuzzy_match".to_string(),
             "economy::preservation::test_threshold".to_string(),
             "session::test_overhead_accounting".to_string(),
+        ],
+        quality_mode: QualityMode::Keywords,
+    });
+    // jest_json_failures: exercises src/commands/reporters/jest_json.rs —
+    // nested-JSON parse, node_modules stack-frame dropping.
+    s.push(Scenario {
+        name: "jest_json_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "jest --json".to_string() },
+        content: make_jest_json_failures(),
+        required_keywords: vec![
+            "API client should retry on 503".to_string(),
+            "formatCurrency should handle negative values".to_string(),
         ],
         quality_mode: QualityMode::Keywords,
     });

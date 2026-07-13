@@ -345,6 +345,250 @@ pub fn map_u64_array(map: &HashMap<&str, &str>, key: &str) -> Vec<u64> {
     inner.split(',').filter_map(|s| s.trim().parse().ok()).collect()
 }
 
+// ── Recursive JSON value parser ──────────────────────────────────────────
+//
+// The extractors above only handle flat objects (one level of array
+// nesting). Reporters for nested test-runner JSON (jest/vitest --json,
+// eslint --format json) need arbitrary object/array nesting — this is a
+// small recursive-descent parser over `Vec<char>` (not bytes, so multi-byte
+// UTF-8 in test names/messages is handled correctly without slicing mid-codepoint).
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsonValue {
+    Null,
+    Bool(bool),
+    Num(f64),
+    Str(String),
+    Arr(Vec<JsonValue>),
+    Obj(Vec<(String, JsonValue)>),
+}
+
+impl JsonValue {
+    pub fn get(&self, key: &str) -> Option<&JsonValue> {
+        match self {
+            JsonValue::Obj(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            JsonValue::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            JsonValue::Num(n) if *n >= 0.0 => Some(*n as u64),
+            _ => None,
+        }
+    }
+
+    pub fn as_arr(&self) -> &[JsonValue] {
+        match self {
+            JsonValue::Arr(items) => items,
+            _ => &[],
+        }
+    }
+}
+
+/// Parses a single JSON value from `input`. Returns `None` on malformed input
+/// rather than panicking — callers should treat that as "not this format" and
+/// fall back to a simpler condenser.
+pub fn parse_value(input: &str) -> Option<JsonValue> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut pos = 0usize;
+    skip_ws(&chars, &mut pos);
+    let v = parse_val(&chars, &mut pos)?;
+    Some(v)
+}
+
+fn skip_ws(c: &[char], pos: &mut usize) {
+    while *pos < c.len() && c[*pos].is_whitespace() {
+        *pos += 1;
+    }
+}
+
+fn matches_lit(c: &[char], pos: usize, lit: &str) -> bool {
+    let lit: Vec<char> = lit.chars().collect();
+    pos + lit.len() <= c.len() && c[pos..pos + lit.len()] == lit[..]
+}
+
+fn parse_val(c: &[char], pos: &mut usize) -> Option<JsonValue> {
+    skip_ws(c, pos);
+    match *c.get(*pos)? {
+        '{' => parse_obj(c, pos),
+        '[' => parse_arr(c, pos),
+        '"' => parse_str(c, pos).map(JsonValue::Str),
+        't' if matches_lit(c, *pos, "true") => {
+            *pos += 4;
+            Some(JsonValue::Bool(true))
+        }
+        'f' if matches_lit(c, *pos, "false") => {
+            *pos += 5;
+            Some(JsonValue::Bool(false))
+        }
+        'n' if matches_lit(c, *pos, "null") => {
+            *pos += 4;
+            Some(JsonValue::Null)
+        }
+        _ => parse_num(c, pos),
+    }
+}
+
+fn parse_obj(c: &[char], pos: &mut usize) -> Option<JsonValue> {
+    *pos += 1; // consume '{'
+    let mut fields = Vec::new();
+    skip_ws(c, pos);
+    if *c.get(*pos)? == '}' {
+        *pos += 1;
+        return Some(JsonValue::Obj(fields));
+    }
+    loop {
+        skip_ws(c, pos);
+        if *c.get(*pos)? != '"' {
+            return None;
+        }
+        let key = parse_str(c, pos)?;
+        skip_ws(c, pos);
+        if *c.get(*pos)? != ':' {
+            return None;
+        }
+        *pos += 1;
+        let val = parse_val(c, pos)?;
+        fields.push((key, val));
+        skip_ws(c, pos);
+        match c.get(*pos)? {
+            ',' => {
+                *pos += 1;
+            }
+            '}' => {
+                *pos += 1;
+                break;
+            }
+            _ => return None,
+        }
+    }
+    Some(JsonValue::Obj(fields))
+}
+
+fn parse_arr(c: &[char], pos: &mut usize) -> Option<JsonValue> {
+    *pos += 1; // consume '['
+    let mut items = Vec::new();
+    skip_ws(c, pos);
+    if *c.get(*pos)? == ']' {
+        *pos += 1;
+        return Some(JsonValue::Arr(items));
+    }
+    loop {
+        items.push(parse_val(c, pos)?);
+        skip_ws(c, pos);
+        match c.get(*pos)? {
+            ',' => {
+                *pos += 1;
+            }
+            ']' => {
+                *pos += 1;
+                break;
+            }
+            _ => return None,
+        }
+    }
+    Some(JsonValue::Arr(items))
+}
+
+fn parse_str(c: &[char], pos: &mut usize) -> Option<String> {
+    *pos += 1; // consume opening '"'
+    let mut s = String::new();
+    loop {
+        let ch = *c.get(*pos)?;
+        *pos += 1;
+        if ch == '"' {
+            return Some(s);
+        }
+        if ch != '\\' {
+            s.push(ch);
+            continue;
+        }
+        let esc = *c.get(*pos)?;
+        *pos += 1;
+        match esc {
+            '"' => s.push('"'),
+            '\\' => s.push('\\'),
+            '/' => s.push('/'),
+            'n' => s.push('\n'),
+            't' => s.push('\t'),
+            'r' => s.push('\r'),
+            'b' => s.push('\u{8}'),
+            'f' => s.push('\u{c}'),
+            'u' => {
+                if *pos + 4 > c.len() {
+                    return None;
+                }
+                let hex: String = c[*pos..*pos + 4].iter().collect();
+                let cp = u32::from_str_radix(&hex, 16).ok()?;
+                *pos += 4;
+                s.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+            }
+            other => s.push(other),
+        }
+    }
+}
+
+fn parse_num(c: &[char], pos: &mut usize) -> Option<JsonValue> {
+    let start = *pos;
+    if c.get(*pos) == Some(&'-') {
+        *pos += 1;
+    }
+    while matches!(c.get(*pos), Some(ch) if ch.is_ascii_digit() || matches!(ch, '.' | 'e' | 'E' | '+' | '-'))
+    {
+        *pos += 1;
+    }
+    if *pos == start {
+        return None;
+    }
+    let s: String = c[start..*pos].iter().collect();
+    s.parse::<f64>().ok().map(JsonValue::Num)
+}
+
+#[cfg(test)]
+mod value_tests {
+    use super::*;
+
+    #[test]
+    fn parses_nested_objects_and_arrays() {
+        let json = r#"{"a":1,"b":[1,2,{"c":"x"}],"d":{"e":true,"f":null}}"#;
+        let v = parse_value(json).unwrap();
+        assert_eq!(v.get("a").unwrap().as_u64(), Some(1));
+        assert_eq!(v.get("b").unwrap().as_arr().len(), 3);
+        assert_eq!(v.get("b").unwrap().as_arr()[2].get("c").unwrap().as_str(), Some("x"));
+        assert_eq!(v.get("d").unwrap().get("e").unwrap(), &JsonValue::Bool(true));
+        assert_eq!(v.get("d").unwrap().get("f").unwrap(), &JsonValue::Null);
+    }
+
+    #[test]
+    fn handles_escaped_strings_and_unicode() {
+        let json = r#"{"msg":"line1\nline2 \"quoted\" é"}"#;
+        let v = parse_value(json).unwrap();
+        assert_eq!(v.get("msg").unwrap().as_str(), Some("line1\nline2 \"quoted\" é"));
+    }
+
+    #[test]
+    fn malformed_input_returns_none_not_panic() {
+        assert!(parse_value("{\"a\":").is_none());
+        assert!(parse_value("not json at all").is_none());
+        assert!(parse_value("").is_none());
+    }
+
+    #[test]
+    fn missing_key_returns_none() {
+        let v = parse_value(r#"{"a":1}"#).unwrap();
+        assert!(v.get("missing").is_none());
+        assert!(v.get("a").unwrap().get("nested").is_none());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
