@@ -1,0 +1,374 @@
+{
+  "control_rule": "tail -N truncation; N = squeez output line count (arm C) \u2014 length-matched for fairness",
+  "fixtures": 22,
+  "rows": [
+    {
+      "fixture": "cargo_build.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 1211,
+        "B": 468,
+        "C": 654,
+        "marginal_delta": -186
+      },
+      "o200k": {
+        "A": 1207,
+        "B": 460,
+        "C": 650,
+        "marginal_delta": -190
+      }
+    },
+    {
+      "fixture": "cat_claude_md.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 14445,
+        "B": 1561,
+        "C": 1852,
+        "marginal_delta": -291
+      },
+      "o200k": {
+        "A": 14469,
+        "B": 1553,
+        "C": 1844,
+        "marginal_delta": -291
+      }
+    },
+    {
+      "fixture": "docker_logs.txt",
+      "control_lines": 16,
+      "cl100k": {
+        "A": 1049,
+        "B": 472,
+        "C": 200,
+        "marginal_delta": 272
+      },
+      "o200k": {
+        "A": 1049,
+        "B": 472,
+        "C": 200,
+        "marginal_delta": 272
+      }
+    },
+    {
+      "fixture": "env_dump.txt",
+      "control_lines": 39,
+      "cl100k": {
+        "A": 586,
+        "B": 565,
+        "C": 425,
+        "marginal_delta": 140
+      },
+      "o200k": {
+        "A": 609,
+        "B": 589,
+        "C": 437,
+        "marginal_delta": 152
+      }
+    },
+    {
+      "fixture": "find_deep.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 537,
+        "B": 401,
+        "C": 359,
+        "marginal_delta": 42
+      },
+      "o200k": {
+        "A": 547,
+        "B": 406,
+        "C": 369,
+        "marginal_delta": 37
+      }
+    },
+    {
+      "fixture": "git_copilot_session.txt",
+      "control_lines": 30,
+      "cl100k": {
+        "A": 614,
+        "B": 376,
+        "C": 443,
+        "marginal_delta": -67
+      },
+      "o200k": {
+        "A": 613,
+        "B": 381,
+        "C": 437,
+        "marginal_delta": -56
+      }
+    },
+    {
+      "fixture": "git_diff.txt",
+      "control_lines": 25,
+      "cl100k": {
+        "A": 551,
+        "B": 260,
+        "C": 339,
+        "marginal_delta": -79
+      },
+      "o200k": {
+        "A": 568,
+        "B": 267,
+        "C": 349,
+        "marginal_delta": -82
+      }
+    },
+    {
+      "fixture": "git_log_200.txt",
+      "control_lines": 61,
+      "cl100k": {
+        "A": 2886,
+        "B": 870,
+        "C": 874,
+        "marginal_delta": -4
+      },
+      "o200k": {
+        "A": 2904,
+        "B": 875,
+        "C": 880,
+        "marginal_delta": -5
+      }
+    },
+    {
+      "fixture": "git_status.txt",
+      "control_lines": 4,
+      "cl100k": {
+        "A": 55,
+        "B": 25,
+        "C": 23,
+        "marginal_delta": 2
+      },
+      "o200k": {
+        "A": 55,
+        "B": 25,
+        "C": 23,
+        "marginal_delta": 2
+      }
+    },
+    {
+      "fixture": "intensity_budget80.txt",
+      "control_lines": 121,
+      "cl100k": {
+        "A": 6024,
+        "B": 1150,
+        "C": 1274,
+        "marginal_delta": -124
+      },
+      "o200k": {
+        "A": 6024,
+        "B": 1150,
+        "C": 1274,
+        "marginal_delta": -124
+      }
+    },
+    {
+      "fixture": "kubectl_pods.txt",
+      "control_lines": 61,
+      "cl100k": {
+        "A": 1703,
+        "B": 1703,
+        "C": 1703,
+        "marginal_delta": 0
+      },
+      "o200k": {
+        "A": 1715,
+        "B": 1715,
+        "C": 1715,
+        "marginal_delta": 0
+      }
+    },
+    {
+      "fixture": "ls_la.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 3217,
+        "B": 1591,
+        "C": 1568,
+        "marginal_delta": 23
+      },
+      "o200k": {
+        "A": 3217,
+        "B": 1591,
+        "C": 1568,
+        "marginal_delta": 23
+      }
+    },
+    {
+      "fixture": "mdcompress_claude_md.txt",
+      "control_lines": 33,
+      "cl100k": {
+        "A": 256,
+        "B": 256,
+        "C": 220,
+        "marginal_delta": 36
+      },
+      "o200k": {
+        "A": 256,
+        "B": 256,
+        "C": 221,
+        "marginal_delta": 35
+      }
+    },
+    {
+      "fixture": "mdcompress_en_prose.txt",
+      "control_lines": 28,
+      "cl100k": {
+        "A": 398,
+        "B": 398,
+        "C": 328,
+        "marginal_delta": 70
+      },
+      "o200k": {
+        "A": 396,
+        "B": 396,
+        "C": 327,
+        "marginal_delta": 69
+      }
+    },
+    {
+      "fixture": "mdcompress_prose.txt",
+      "control_lines": 6,
+      "cl100k": {
+        "A": 141,
+        "B": 141,
+        "C": 101,
+        "marginal_delta": 40
+      },
+      "o200k": {
+        "A": 140,
+        "B": 140,
+        "C": 101,
+        "marginal_delta": 39
+      }
+    },
+    {
+      "fixture": "mdcompress_ptbr_prose.txt",
+      "control_lines": 28,
+      "cl100k": {
+        "A": 563,
+        "B": 563,
+        "C": 478,
+        "marginal_delta": 85
+      },
+      "o200k": {
+        "A": 439,
+        "B": 439,
+        "C": 364,
+        "marginal_delta": 75
+      }
+    },
+    {
+      "fixture": "npm_install.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 636,
+        "B": 260,
+        "C": 263,
+        "marginal_delta": -3
+      },
+      "o200k": {
+        "A": 636,
+        "B": 260,
+        "C": 263,
+        "marginal_delta": -3
+      }
+    },
+    {
+      "fixture": "ps_aux.txt",
+      "control_lines": 51,
+      "cl100k": {
+        "A": 58611,
+        "B": 3317,
+        "C": 3379,
+        "marginal_delta": -62
+      },
+      "o200k": {
+        "A": 59081,
+        "B": 3342,
+        "C": 3427,
+        "marginal_delta": -85
+      }
+    },
+    {
+      "fixture": "repetitive.txt",
+      "control_lines": 11,
+      "cl100k": {
+        "A": 8853,
+        "B": 181,
+        "C": 186,
+        "marginal_delta": -5
+      },
+      "o200k": {
+        "A": 8855,
+        "B": 183,
+        "C": 188,
+        "marginal_delta": -5
+      }
+    },
+    {
+      "fixture": "tsc_errors.txt",
+      "control_lines": 9,
+      "cl100k": {
+        "A": 622,
+        "B": 101,
+        "C": 229,
+        "marginal_delta": -128
+      },
+      "o200k": {
+        "A": 627,
+        "B": 102,
+        "C": 233,
+        "marginal_delta": -131
+      }
+    },
+    {
+      "fixture": "verbose_log.txt",
+      "control_lines": 121,
+      "cl100k": {
+        "A": 7453,
+        "B": 3571,
+        "C": 3674,
+        "marginal_delta": -103
+      },
+      "o200k": {
+        "A": 7453,
+        "B": 3571,
+        "C": 3674,
+        "marginal_delta": -103
+      }
+    },
+    {
+      "fixture": "xcodebuild_build.txt",
+      "control_lines": 3,
+      "cl100k": {
+        "A": 2146,
+        "B": 111,
+        "C": 18,
+        "marginal_delta": 93
+      },
+      "o200k": {
+        "A": 2064,
+        "B": 103,
+        "C": 18,
+        "marginal_delta": 85
+      }
+    }
+  ],
+  "summary": {
+    "cl100k": {
+      "median": -1.5,
+      "mean": -11.32,
+      "min": -291,
+      "max": 272,
+      "stdev": 115.4
+    },
+    "o200k": {
+      "median": -1.5,
+      "mean": -13,
+      "min": -291,
+      "max": 272,
+      "stdev": 116.13
+    }
+  }
+}
