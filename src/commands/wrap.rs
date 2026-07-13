@@ -333,7 +333,7 @@ pub fn run(cmd_str: &str) -> i32 {
         context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
         context::retrieve::store(&combined).map(|id| {
             format!(
-                "[squeez: full {}-line output stored — call squeez_retrieve with key=\"{}\" to expand]",
+                "[squeez: full {}-line output stored — call squeez_retrieve with key=\"{}\" to expand, or squeez_stash_search to find it later]",
                 orig_line_count, id
             )
         })

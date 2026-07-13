@@ -157,15 +157,26 @@ fn apply_prose(lines: Vec<String>, cmd: &str) -> Vec<String> {
     // so the whole summary stays within the ≤40-line bound.
     let dropped = lines[..tail_start].join("\n");
     let facts = factsheet::extract(&dropped);
+    // E4: vocabulary line — top distinctive terms from the dropped region, so
+    // a later `squeez_stash_search` query can match this call even though its
+    // body isn't kept verbatim. One line, capped at 80 chars.
+    let vocab_terms = crate::context::stash_index::distinctive_terms(&dropped, 10);
+    let vocab_line = (!vocab_terms.is_empty())
+        .then(|| format!("vocab: {}", vocab_terms.join(" ")).chars().take(80).collect::<String>());
+
     if !facts.is_empty() {
-        // room = 40 − lines so far − "ids_preserved:" − "tail_preserved=" − tail
-        let room = 40usize.saturating_sub(out.len() + 2 + tail_n);
+        // room = 40 − lines so far − "ids_preserved:" − vocab line − "tail_preserved=" − tail
+        let reserved = 2 + if vocab_line.is_some() { 1 } else { 0 };
+        let room = 40usize.saturating_sub(out.len() + reserved + tail_n);
         if room > 0 {
             out.push("ids_preserved:".to_string());
             for f in facts.iter().take(room) {
                 out.push(format!("  - {}", f));
             }
         }
+    }
+    if let Some(v) = vocab_line {
+        out.push(v);
     }
 
     out.push(format!("tail_preserved={}", tail_n));
@@ -214,8 +225,12 @@ fn apply_structured(lines: Vec<String>, cmd: &str) -> Vec<String> {
 
     // R1 factsheet: identifiers from the dropped region (before the tail),
     // empty array when none. Same rationale as the Prose ids_preserved block.
+    // No vocab field here (E4 Prose-only) -- Structured's whole point is
+    // staying well under Prose's byte size, and the stash_index sidecar
+    // already makes the underlying stashed blob searchable independent of
+    // what the summary itself carries.
+    let dropped = lines[..tail_start].join("\n");
     let ids_json = {
-        let dropped = lines[..tail_start].join("\n");
         let items: Vec<String> = factsheet::extract(&dropped)
             .iter()
             .map(|f| format!("\"{}\"", json_util::escape_str(f)))
@@ -349,6 +364,30 @@ mod tests {
         let joined = out.join("\n");
         assert!(joined.contains("top_files"));
         assert!(joined.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn summarize_vocab_line_present_and_capped() {
+        // E4: distinctive terms from the dropped head should surface as a
+        // single "vocab: ..." line, capped at 80 chars, in Prose only.
+        let mut lines: Vec<String> = Vec::new();
+        for _ in 0..40 {
+            lines.push("redundancy fuzzy match preservation threshold context noise".to_string());
+        }
+        for i in 0..600 {
+            lines.push(format!("filler {}", i));
+        }
+        let prose = apply(lines.clone(), "cargo test");
+        let vocab_line = prose.iter().find(|l| l.starts_with("vocab: "));
+        assert!(vocab_line.is_some(), "expected a vocab line, got: {:?}", prose);
+        assert!(vocab_line.unwrap().len() <= 80);
+        assert!(vocab_line.unwrap().contains("redundancy"));
+
+        let structured = apply_with_format(lines, "cargo test", SummaryFormat::Structured);
+        assert!(
+            !structured.iter().any(|l| l.contains("\"vocab\"")),
+            "Structured must stay vocab-free to hold its byte-size invariant"
+        );
     }
 
     #[test]

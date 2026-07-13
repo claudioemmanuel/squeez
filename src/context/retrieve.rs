@@ -61,6 +61,18 @@ pub fn prune(ttl_secs: u64) {
     prune_in(&blobs_dir(), ttl_secs)
 }
 
+/// Searches the stash for blobs whose content best matches `query` (E4) --
+/// see `stash_index::search_in` for the scoring. A model can use this to
+/// find a prior stashed output by meaning instead of needing the exact key.
+pub fn search(query: &str, n: usize) -> Vec<crate::context::stash_index::SearchHit> {
+    crate::context::stash_index::search_in(&blobs_dir(), query, n)
+}
+
+/// Top distinctive terms for a stashed blob's sidecar index, if it has one.
+pub fn terms_for(id: &str, n: usize) -> Vec<String> {
+    crate::context::stash_index::terms_for_in(&blobs_dir(), id, n)
+}
+
 /// The ids of the most recently stored blobs (newest first), up to `n`. Used
 /// by the post-compact summary to point the model at outputs it can re-expand.
 pub fn recent_ids(n: usize) -> Vec<String> {
@@ -97,6 +109,9 @@ fn store_in(dir: &Path, content: &str) -> Option<String> {
     // Rewriting an existing blob is fine — it refreshes the mtime so an output
     // the model keeps re-encountering stays alive past the TTL.
     std::fs::write(dir.join(&id), content).ok()?;
+    // Sidecar index (E4) — best-effort; a failure here only means this blob
+    // is unsearchable, not unretrievable, so it's never let block the store.
+    crate::context::stash_index::write_index_in(dir, &id, content);
     Some(id)
 }
 
@@ -121,6 +136,11 @@ fn prune_in(dir: &Path, ttl_secs: u64) {
         let age = modified.elapsed().map(|d| d.as_secs()).unwrap_or(0);
         if age > ttl_secs {
             let _ = std::fs::remove_file(entry.path());
+            if let Some(name) = entry.file_name().to_str() {
+                if is_valid_id(name) {
+                    crate::context::stash_index::remove_index_in(dir, name);
+                }
+            }
         }
     }
 }

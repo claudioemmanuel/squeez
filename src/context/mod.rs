@@ -5,6 +5,7 @@ pub mod intensity;
 pub mod redundancy;
 pub mod retrieve;
 pub mod sensitive;
+pub mod stash_index;
 pub mod summarize;
 pub mod transcript;
 

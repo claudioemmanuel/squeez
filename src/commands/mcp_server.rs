@@ -203,8 +203,13 @@ const TOOLS: &[(&str, &str, &str)] = &[
     ),
     (
         "squeez_retrieve",
-        "Expand a compressed output back to its verbatim original. When squeez compresses a large bash output it prints a marker like `[squeez: full N-line output stored — call squeez_retrieve with key=\\\"<id>\\\" to expand]`. Pass that id as `key` to get the full original text back. Use only when the compressed view dropped something you actually need.",
-        "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\",\"description\":\"the 16-hex blob id from a squeez retrieve marker\"}},\"required\":[\"key\"]}",
+        "Expand a compressed output back to its verbatim original. When squeez compresses a large bash output it prints a marker like `[squeez: full N-line output stored — call squeez_retrieve with key=\\\"<id>\\\" to expand]`. Pass that id as `key` to get the full original text back. Optionally pass `start_line`/`count` to get a slice instead of the whole blob (e.g. to page through a large stashed output). Use only when the compressed view dropped something you actually need.",
+        "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\",\"description\":\"the 16-hex blob id from a squeez retrieve marker\"},\"start_line\":{\"type\":\"integer\",\"description\":\"1-indexed line to start from (default 1)\"},\"count\":{\"type\":\"integer\",\"description\":\"max lines to return from start_line (default: rest of the blob)\"}},\"required\":[\"key\"]}",
+    ),
+    (
+        "squeez_stash_search",
+        "Search the retrieve stash for a prior stashed output by meaning, without needing its exact key. Scores blobs by distinctive-term overlap plus fuzzy shingle match against `query`. Returns each hit's key, score, and a short preview — pass the key to squeez_retrieve to expand it.",
+        "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"what you're looking for\"},\"n\":{\"type\":\"integer\",\"description\":\"max results (default 5)\"}},\"required\":[\"query\"]}",
     ),
 ];
 
@@ -247,6 +252,8 @@ fn tools_call_response(id: &str, line: &str) -> String {
     let path_arg = crate::json_util::extract_str(line, "path").unwrap_or_default();
     let date_arg = crate::json_util::extract_str(line, "date").unwrap_or_default();
     let key_arg = crate::json_util::extract_str(line, "key").unwrap_or_default();
+    let start_line = crate::json_util::extract_u64(line, "start_line").map(|v| v as usize);
+    let count = crate::json_util::extract_u64(line, "count").map(|v| v as usize);
 
     let cfg = crate::config::Config::load();
     let text = match name.as_str() {
@@ -266,7 +273,8 @@ fn tools_call_response(id: &str, line: &str) -> String {
         "squeez_context_pressure" => tool_context_pressure(),
         "squeez_handler_stats" => tool_handler_stats(),
         "squeez_enterprise_savings" => tool_enterprise_savings(),
-        "squeez_retrieve" => tool_retrieve(&key_arg),
+        "squeez_retrieve" => tool_retrieve(&key_arg, start_line, count),
+        "squeez_stash_search" => tool_stash_search(&query, n.unwrap_or(5)),
         other => return error_response(id, -32602, &format!("unknown tool: {}", other)),
     };
     text_result_response(id, &text)
@@ -824,19 +832,51 @@ fn tool_enterprise_savings() -> String {
     )
 }
 
-/// Expand a stashed original by blob id. Returns the verbatim text, or a clear
-/// not-found message when the id is malformed / expired / missing.
-fn tool_retrieve(key: &str) -> String {
+/// Expand a stashed original by blob id, optionally sliced by 1-indexed
+/// `start_line`/`count` instead of returning the whole blob. Returns the
+/// verbatim text, or a clear not-found message when the id is malformed /
+/// expired / missing.
+fn tool_retrieve(key: &str, start_line: Option<usize>, count: Option<usize>) -> String {
     if key.is_empty() {
         return "squeez_retrieve: missing 'key' — pass the id from a [squeez: ... key=\"<id>\"] marker.".to_string();
     }
     match crate::context::retrieve::retrieve(key) {
-        Some(original) => original,
+        Some(original) if start_line.is_none() && count.is_none() => original,
+        Some(original) => slice_lines(&original, start_line, count),
         None => format!(
             "squeez_retrieve: no stored output for key '{}'. It may be malformed, expired (past retrieve_ttl_days), or never stored.",
             key
         ),
     }
+}
+
+/// 1-indexed line slice of `text`: `start_line` (default 1) through
+/// `start_line + count - 1` (default: rest of the text). Out-of-range
+/// bounds clamp rather than panic.
+fn slice_lines(text: &str, start_line: Option<usize>, count: Option<usize>) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start_idx = start_line.unwrap_or(1).max(1).saturating_sub(1).min(lines.len());
+    let end_idx = match count {
+        Some(c) => start_idx.saturating_add(c).min(lines.len()),
+        None => lines.len(),
+    };
+    lines[start_idx..end_idx].join("\n")
+}
+
+/// Search the retrieve stash for a prior stashed output by meaning (E4).
+fn tool_stash_search(query: &str, n: usize) -> String {
+    if query.trim().is_empty() {
+        return "squeez_stash_search: missing 'query'.".to_string();
+    }
+    let hits = crate::context::retrieve::search(query, n);
+    if hits.is_empty() {
+        return format!("squeez_stash_search: no matches for '{}'.", query);
+    }
+    let mut out = String::new();
+    for h in &hits {
+        out.push_str(&format!("{} (score {:.2}): {}\n", h.key, h.score, h.preview));
+    }
+    out
 }
 
 /// Context pressure advisor: pressure %, calls remaining, tokens_saved, recommendation.
@@ -979,9 +1019,26 @@ mod tests {
     fn tool_retrieve_handles_missing_and_bad_keys() {
         // Round-trip through the real store is covered in context::retrieve.
         // Here we lock down the dispatcher's safety branches (no global env).
-        assert!(tool_retrieve("").contains("missing 'key'"));
-        assert!(tool_retrieve("../etc/passwd").contains("no stored output"));
-        assert!(tool_retrieve("ZZZZ").contains("no stored output"));
+        assert!(tool_retrieve("", None, None).contains("missing 'key'"));
+        assert!(tool_retrieve("../etc/passwd", None, None).contains("no stored output"));
+        assert!(tool_retrieve("ZZZZ", None, None).contains("no stored output"));
+    }
+
+    #[test]
+    fn slice_lines_handles_start_and_count() {
+        let text = "one\ntwo\nthree\nfour\nfive";
+        assert_eq!(slice_lines(text, None, None), text);
+        assert_eq!(slice_lines(text, Some(2), Some(2)), "two\nthree");
+        assert_eq!(slice_lines(text, Some(4), None), "four\nfive");
+        // Out-of-range start/count clamp instead of panicking.
+        assert_eq!(slice_lines(text, Some(100), Some(5)), "");
+        assert_eq!(slice_lines(text, Some(1), Some(1000)), text);
+    }
+
+    #[test]
+    fn tool_stash_search_reports_missing_query_and_no_match() {
+        assert!(tool_stash_search("", 5).contains("missing 'query'"));
+        assert!(tool_stash_search("zzz_no_such_term_qqq", 5).contains("no matches"));
     }
 
     #[test]

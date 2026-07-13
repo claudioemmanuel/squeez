@@ -58,12 +58,25 @@ pub fn build_summary() -> Option<String> {
         parts.push(format!("git: {}", refs.join(", ")));
     }
 
-    // Retrievable blobs for outputs compaction may have dropped.
+    // Retrievable blobs for outputs compaction may have dropped. Each key is
+    // annotated with its top distinctive terms (E4) so the model can tell
+    // what a key is about without a squeez_retrieve round trip.
     let ids = retrieve::recent_ids(3);
     if !ids.is_empty() {
+        let annotated: Vec<String> = ids
+            .iter()
+            .map(|id| {
+                let terms = retrieve::terms_for(id, 3);
+                if terms.is_empty() {
+                    id.clone()
+                } else {
+                    format!("{}({})", id, terms.join(","))
+                }
+            })
+            .collect();
         parts.push(format!(
             "retrievable: call squeez_retrieve with key in [{}]",
-            ids.join(", ")
+            annotated.join(", ")
         ));
     }
 

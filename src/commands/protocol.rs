@@ -26,6 +26,8 @@ squeez protocol (read once per session):
    `squeez_session_efficiency` `squeez_agent_costs`
    History: `squeez_prior_summaries` `squeez_search_history` `squeez_file_history`
    `squeez_protocol`
+   Retrieve: `squeez_retrieve` (expand a stashed key, optional start_line/count
+   slice) `squeez_stash_search` (find a stashed key by meaning, no exact key needed)
 6. Context critical (≥75% budget or ≤10 calls left): write `.claude/session_state.md`
    (## Current Objective / ## Files Read / ## Decisions / ## Next Steps) then
    `/clear` or `/compact [focus]`. State file ~2K tokens vs 10K+ for compaction.
@@ -106,6 +108,8 @@ mod tests {
             "squeez_search_history",
             "squeez_file_history",
             "squeez_protocol",
+            "squeez_retrieve",
+            "squeez_stash_search",
         ] {
             assert!(p.contains(tool), "payload missing mention of {}", tool);
         }
@@ -130,6 +134,14 @@ mod tests {
             p.contains("memory file") && p.contains("1KB"),
             "payload missing memory-file warning marker from US-002"
         );
+    }
+
+    #[test]
+    fn payload_documents_e4_stash_search() {
+        // E4: stash search + slice-retrieve capability.
+        let p = full_payload();
+        assert!(p.contains("squeez_stash_search"), "payload missing squeez_stash_search mention");
+        assert!(p.contains("start_line"), "payload missing retrieve slicing mention");
     }
 
     #[test]
