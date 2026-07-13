@@ -120,7 +120,19 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         files.append(&mut paths);
         let errors = wrap::extract_errors(&trimmed);
         if !errors.is_empty() {
-            ctx.note_errors(&errors);
+            // Sensitive guard (Epic E7): `note_errors` persists a 128-char
+            // verbatim snippet of every new error line into context.json
+            // (surfaced later via the `squeez_seen_error_details` MCP tool).
+            // Drop any line that looks like a credential before it reaches
+            // that persistence path — independent of the compression
+            // decisions above, and default-on (not configurable yet).
+            let safe_errors: Vec<String> = errors
+                .into_iter()
+                .filter(|e| crate::context::sensitive::is_sensitive(e).is_none())
+                .collect();
+            if !safe_errors.is_empty() {
+                ctx.note_errors(&safe_errors);
+            }
         }
         // Quota/plan-limit escalation (CF-3): these errors rarely match the
         // `error:`-prefix heuristics above (e.g. Figma's "You've reached the

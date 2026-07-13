@@ -28,9 +28,25 @@ pub fn is_valid_id(id: &str) -> bool {
 
 /// Store `content` verbatim and return its retrieval id. Content-addressed:
 /// identical content maps to the same id and reuses the blob. Returns `None`
-/// on any I/O failure (best-effort — a failed stash just means no marker).
+/// on any I/O failure, or when the content looks sensitive (Epic E7 guard —
+/// see `store_guarded`) — a failed/refused stash just means no marker.
 pub fn store(content: &str) -> Option<String> {
-    store_in(&blobs_dir(), content)
+    store_guarded(content).ok()
+}
+
+/// Like `store`, but distinguishes *why* nothing was persisted. Content is
+/// checked against `sensitive::is_sensitive` before it ever reaches disk;
+/// if it looks like a credential, the blob is never written and `Err` carries
+/// the matched class name (e.g. `"dotenv-bulk-secrets"`). On success `Ok(id)`
+/// carries the retrieval id, same as `store`.
+///
+/// `store()` collapses this into `Option<String>` because its call site
+/// (wrap.rs) already treats `None` as "no marker" regardless of cause. This
+/// function exists so a future caller — e.g. an orchestrator warning that
+/// wants to tell the model "a secret was found and not stashed" — can get the
+/// reason without changing that call site's contract today.
+pub fn store_guarded(content: &str) -> Result<String, &'static str> {
+    store_guarded_in(&blobs_dir(), content)
 }
 
 /// Retrieve a previously stored blob by id. `None` if the id is malformed, the
@@ -67,6 +83,13 @@ pub fn recent_ids(n: usize) -> Vec<String> {
 }
 
 // ── Dir-injected cores (so tests don't race on the global SQUEEZ_DIR env) ────
+
+fn store_guarded_in(dir: &Path, content: &str) -> Result<String, &'static str> {
+    if let Some(class) = crate::context::sensitive::is_sensitive(content) {
+        return Err(class);
+    }
+    store_in(dir, content).ok_or("io-error")
+}
 
 fn store_in(dir: &Path, content: &str) -> Option<String> {
     let id = format!("{:016x}", fnv1a_64(content.as_bytes()));
@@ -133,6 +156,45 @@ mod tests {
         let a = store_in(&dir, "same content").unwrap();
         let b = store_in(&dir, "same content").unwrap();
         assert_eq!(a, b, "identical content must map to the same blob id");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sensitive_dotenv_body_is_not_stashed() {
+        // Epic E7: a `cat .env`-shaped body must never hit disk, even though
+        // it's long enough to otherwise qualify for the blob store.
+        let dir = tmp("sensitive-dotenv");
+        let body = "DB_PASSWORD=hunter2\nSTRIPE_SECRET=sk_live_abcdef\n\
+                     API_TOKEN=abcdefghijklmnop\nDEBUG=true\n"
+            .repeat(10);
+        let result = store_guarded_in(&dir, &body);
+        assert_eq!(result, Err("dotenv-bulk-secrets"));
+        // No blob file should exist in the (possibly not even created) dir.
+        let entries = std::fs::read_dir(&dir).map(|e| e.count()).unwrap_or(0);
+        assert_eq!(entries, 0, "sensitive content must not be written to disk");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sensitive_private_key_is_not_stashed() {
+        let dir = tmp("sensitive-pem");
+        let body = format!(
+            "-----BEGIN RSA PRIVATE KEY-----\n{}\n-----END RSA PRIVATE KEY-----\n",
+            "MIIEowIBAAKCAQEA".repeat(20)
+        );
+        assert_eq!(store_guarded_in(&dir, &body), Err("private-key-block"));
+        assert_eq!(store(&body), None, "public store() must also refuse sensitive content");
+        let entries = std::fs::read_dir(&dir).map(|e| e.count()).unwrap_or(0);
+        assert_eq!(entries, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_content_still_round_trips_through_store_guarded() {
+        let dir = tmp("clean-guarded");
+        let original = "ordinary build log line\n".repeat(50);
+        let id = store_guarded_in(&dir, &original).expect("clean content should store");
+        assert_eq!(retrieve_in(&dir, &id).as_deref(), Some(original.as_str()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

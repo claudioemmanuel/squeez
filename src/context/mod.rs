@@ -4,6 +4,7 @@ pub mod hash;
 pub mod intensity;
 pub mod redundancy;
 pub mod retrieve;
+pub mod sensitive;
 pub mod summarize;
 pub mod transcript;
 

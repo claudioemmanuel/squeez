@@ -57,3 +57,13 @@ surface, set `wrap_bash false`. A deeper fix (compressing Bash output in
 PostToolUse so the original command runs under native permission evaluation)
 is tracked as a follow-up; it has a capture-before-host-truncation trade-off
 still being evaluated.
+
+## Sensitive-content guard (blobs & session state)
+
+`retrieve::store()` (the `squeez_retrieve` blob cache) and the error-snippet
+cache in `context.json` both persist tool output to disk. Before either write,
+`context::sensitive::is_sensitive()` scans for credential shapes (PEM private
+keys, AWS access/secret keys, GitHub/Slack/OpenAI-style tokens, `Authorization:
+Bearer` headers, bulk dotenv-style secrets) and refuses the write if any hit —
+so a `cat .env` or a leaked key is never stashed verbatim. This guard is
+default-on and not currently configurable.
