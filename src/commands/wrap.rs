@@ -156,6 +156,7 @@ pub fn run(cmd_str: &str) -> i32 {
     };
     let lines: Vec<String> = combined.lines().map(String::from).collect();
     let orig_line_count = lines.len();
+    let benign = context::summarize::is_benign(&lines);
 
     // ── Summarize fallback for huge outputs (pre-handler) ──────────────
     // Decision based on raw line count so handlers can't hide huge inputs.
@@ -198,6 +199,21 @@ pub fn run(cmd_str: &str) -> i32 {
         }
     }
 
+    // ── Success collapse (E5) ───────────────────────────────────────────
+    // A zero-signal successful run of a low-signal command (git push/pull/
+    // fetch/add/commit, package installs, docker pull/build, wrangler
+    // deploy) collapses to a single `ok <cmd> (...)` line. The original is
+    // always still stashed below (retrieve_marker bypasses its usual
+    // line-count/size gates for this case) so nothing is unrecoverable.
+    let success_collapsed = !redundancy_hit
+        && config.success_collapse
+        && exit_code == 0
+        && benign
+        && crate::strategies::success_collapse::is_eligible(cmd_str, &config.success_collapse_deny);
+    if success_collapsed {
+        compressed = vec![crate::strategies::success_collapse::collapse(cmd_str, &combined)];
+    }
+
     let output_str = compressed.join("\n");
     let output_tokens = if config.class_density {
         crate::tokens::estimate_classed(&output_str, config.tokenizer_scale)
@@ -227,12 +243,16 @@ pub fn run(cmd_str: &str) -> i32 {
     // original to a content-addressed blob and surface a retrieve marker. This
     // is the safety net that lets compression be aggressive: the dropped lines
     // are one `squeez_retrieve` away instead of gone. Skipped on a redundancy
-    // hit (the prior call already holds the content).
+    // hit (the prior call already holds the content). Success collapse always
+    // stashes regardless of line count -- a collapsed `ok git push (...)` on
+    // a 6-line output still needs a recovery path, the usual size gates exist
+    // to bound the (very different) compression-worth-it decision.
     let retrieve_marker = if config.retrieve_enabled
         && !redundancy_hit
         && !net_win_gate
-        && orig_line_count >= config.retrieve_min_lines
-        && output_str.len() + 256 < combined.len()
+        && !combined.trim().is_empty()
+        && (success_collapsed
+            || (orig_line_count >= config.retrieve_min_lines && output_str.len() + 256 < combined.len()))
     {
         context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
         context::retrieve::store(&combined).map(|id| {

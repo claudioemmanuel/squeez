@@ -112,6 +112,8 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("relevance_truncation_enabled", Kind::Bool),
     ("wrap_bash", Kind::Bool),
     ("bash_risk_patterns", Kind::List),
+    ("success_collapse", Kind::Bool),
+    ("success_collapse_deny", Kind::List),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -190,6 +192,8 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "relevance_truncation_enabled" => c.relevance_truncation_enabled.to_string(),
         "wrap_bash" => c.wrap_bash.to_string(),
         "bash_risk_patterns" => c.bash_risk_patterns.join(","),
+        "success_collapse" => c.success_collapse.to_string(),
+        "success_collapse_deny" => c.success_collapse_deny.join(","),
         _ => return None,
     };
     Some(v)

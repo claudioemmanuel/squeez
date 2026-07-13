@@ -185,6 +185,17 @@ pub struct Config {
     /// sandbox — extend it to match your own rules. Default: common destructive
     /// operations.
     pub bash_risk_patterns: Vec<String>,
+    // ── Success collapse (E5) ─────────────────────────────────────────────────
+    /// When true, a zero-signal successful run (exit 0, no error markers) of
+    /// an allow-listed low-signal command (git push/pull/fetch/add/commit,
+    /// package installs, docker pull/build, wrangler deploy) collapses to a
+    /// single `ok <cmd> (...)` line instead of printing the full output. The
+    /// original is always still stashed and retrievable. Default: true.
+    pub success_collapse: bool,
+    /// Command prefixes to exclude from success collapse even though they
+    /// match the built-in allow-list (e.g. a wrapped `git commit` alias that
+    /// prints something you rely on). Default: empty.
+    pub success_collapse_deny: Vec<String>,
 }
 
 impl Default for Config {
@@ -271,6 +282,8 @@ impl Default for Config {
                 "mkfs".to_string(),
                 "> /dev/sd".to_string(),
             ],
+            success_collapse: true,
+            success_collapse_deny: Vec::new(),
         }
     }
 }
@@ -462,6 +475,11 @@ impl Config {
                     "bash_risk_patterns" => {
                         c.bash_risk_patterns =
                             v.split(',').map(|s| s.trim().to_string()).collect()
+                    }
+                    "success_collapse" => c.success_collapse = v == "true",
+                    "success_collapse_deny" => {
+                        c.success_collapse_deny =
+                            v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
                     }
                     _ => {}
                 }
