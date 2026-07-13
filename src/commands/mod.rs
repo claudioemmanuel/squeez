@@ -13,6 +13,7 @@ pub mod compress_prompt;
 pub mod config_cmd;
 pub mod data_tool;
 pub mod database;
+pub mod discover;
 pub mod docker;
 pub mod filter_stdin;
 pub mod flag_force;

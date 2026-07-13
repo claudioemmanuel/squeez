@@ -10,74 +10,86 @@ use crate::commands::{
 use crate::config::Config;
 
 pub fn compress(cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
-    let handler: Box<dyn Handler> = detect(cmd);
+    let (handler, _name) = detect(cmd);
     handler.compress(cmd, lines, config)
 }
 
-fn detect(cmd: &str) -> Box<dyn Handler> {
+/// The dispatch-table handler name for `cmd` (e.g. "git", "generic").
+/// Exposed for `discover` (E8) to flag GenericHandler-routed commands as
+/// candidates for a custom filter-DSL rule, without needing a downcast on
+/// the trait object `detect` otherwise returns.
+pub fn handler_name(cmd: &str) -> &'static str {
+    detect(cmd).1
+}
+
+fn detect(cmd: &str) -> (Box<dyn Handler>, &'static str) {
     let name = extract_name(cmd);
     match name.as_str() {
-        "git" => Box::new(GitHandler),
-        "docker" | "docker-compose" | "podman" => Box::new(DockerHandler),
-        "npm" | "pnpm" | "yarn" => Box::new(PackageMgrHandler),
+        "git" => (Box::new(GitHandler), "git"),
+        "docker" | "docker-compose" | "podman" => (Box::new(DockerHandler), "docker"),
+        "npm" | "pnpm" | "yarn" => (Box::new(PackageMgrHandler), "package_mgr"),
         "bun" => {
             // `bun test` / `bun run test` / `bun x vitest` behave like a test runner.
             let rest = cmd.split_whitespace().skip(1);
             if rest.clone().any(|a| a == "test")
                 || rest.clone().any(|a| a == "vitest" || a == "jest" || a == "playwright")
             {
-                Box::new(TestRunnerHandler)
+                (Box::new(TestRunnerHandler), "test_runner")
             } else {
-                Box::new(PackageMgrHandler)
+                (Box::new(PackageMgrHandler), "package_mgr")
             }
         }
         "cargo" => {
             if cmd.split_whitespace().any(|a| a == "test") {
-                Box::new(TestRunnerHandler)
+                (Box::new(TestRunnerHandler), "test_runner")
             } else {
-                Box::new(PackageMgrHandler)
+                (Box::new(PackageMgrHandler), "package_mgr")
             }
         }
-        "jest" | "vitest" | "pytest" | "py.test" | "nextest" => Box::new(TestRunnerHandler),
+        "jest" | "vitest" | "pytest" | "py.test" | "nextest" => {
+            (Box::new(TestRunnerHandler), "test_runner")
+        }
         "go" => {
             if cmd.split_whitespace().any(|a| a == "test") {
-                Box::new(TestRunnerHandler)
+                (Box::new(TestRunnerHandler), "test_runner")
             } else {
-                Box::new(GenericHandler)
+                (Box::new(GenericHandler), "generic")
             }
         }
-        "playwright" => Box::new(PlaywrightHandler),
-        "tsc" | "eslint" | "biome" | "ruff" => Box::new(TypescriptHandler),
-        "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => Box::new(BuildHandler),
+        "playwright" => (Box::new(PlaywrightHandler), "playwright"),
+        "tsc" | "eslint" | "biome" | "ruff" => (Box::new(TypescriptHandler), "typescript"),
+        "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => (Box::new(BuildHandler), "build"),
         "next" => {
             if cmd.contains("build") || cmd.contains("dev") || cmd.contains("start") {
-                Box::new(NextBuildHandler)
+                (Box::new(NextBuildHandler), "next_build")
             } else {
-                Box::new(GenericHandler)
+                (Box::new(GenericHandler), "generic")
             }
         }
         "vite" | "turbo" => {
             if cmd.contains("build") {
-                Box::new(BuildHandler)
+                (Box::new(BuildHandler), "build")
             } else {
-                Box::new(GenericHandler)
+                (Box::new(GenericHandler), "generic")
             }
         }
-        "wrangler" => Box::new(WranglerHandler),
-        "kubectl" | "gh" | "aws" | "gcloud" | "az" => Box::new(CloudHandler),
-        "psql" | "prisma" | "mysql" | "drizzle-kit" => Box::new(DatabaseHandler),
-        "curl" | "wget" | "http" => Box::new(NetworkHandler),
-        "node" | "python" | "python3" | "ruby" => Box::new(RuntimeHandler),
+        "wrangler" => (Box::new(WranglerHandler), "wrangler"),
+        "kubectl" | "gh" | "aws" | "gcloud" | "az" => (Box::new(CloudHandler), "cloud"),
+        "psql" | "prisma" | "mysql" | "drizzle-kit" => (Box::new(DatabaseHandler), "database"),
+        "curl" | "wget" | "http" => (Box::new(NetworkHandler), "network"),
+        "node" | "python" | "python3" | "ruby" => (Box::new(RuntimeHandler), "runtime"),
         "find" | "ls" | "du" | "ps" | "env" | "lsof" | "netstat"
         | "cat" | "head" | "tail" | "less" | "more" | "bat"
-        | "bfs" => Box::new(FsHandler),
-        "ugrep" => Box::new(TextProcHandler),
-        "monitor" => Box::new(GenericHandler),
+        | "bfs" => (Box::new(FsHandler), "fs"),
+        "ugrep" => (Box::new(TextProcHandler), "text_proc"),
+        "monitor" => (Box::new(GenericHandler), "generic"),
         // JSON/YAML/IaC tools
-        "jq" | "yq" | "terraform" | "tofu" | "helm" | "pulumi" => Box::new(DataToolHandler),
+        "jq" | "yq" | "terraform" | "tofu" | "helm" | "pulumi" => {
+            (Box::new(DataToolHandler), "data_tool")
+        }
         // Text-processing tools: grep match output
-        "grep" | "rg" | "awk" | "sed" => Box::new(TextProcHandler),
-        _ => Box::new(GenericHandler),
+        "grep" | "rg" | "awk" | "sed" => (Box::new(TextProcHandler), "text_proc"),
+        _ => (Box::new(GenericHandler), "generic"),
     }
 }
 

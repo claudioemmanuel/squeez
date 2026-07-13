@@ -96,6 +96,9 @@ fn main() {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::economy::budget::run(&rest));
         }
+        Some("discover") => {
+            std::process::exit(squeez::commands::discover::run());
+        }
         Some("protocol") => {
             // Print the auto-teach payload (markers + protocol) to stdout.
             // Same content the MCP `squeez_protocol` tool returns.
@@ -116,6 +119,7 @@ fn main() {
             eprintln!("       squeez update [--check] [--insecure]");
             eprintln!("       squeez mcp                       — JSON-RPC 2.0 server over stdio");
             eprintln!("       squeez protocol                  — print the auto-teach payload");
+            eprintln!("       squeez discover                  — rank commands worth a custom filter-DSL rule");
             eprintln!("       squeez compact-summary           — PostCompact hook: re-inject session state");
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
             eprintln!("       squeez budget-params <tool>        — output JSON budget patch for tool");
