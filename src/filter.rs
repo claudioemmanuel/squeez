@@ -10,6 +10,13 @@ use crate::commands::{
 use crate::config::Config;
 
 pub fn compress(cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
+    // E8: a user-declared filter-DSL rule (.squeez/filters.ini or
+    // ~/.claude/squeez/filters.ini) for this exact command takes priority
+    // over the built-in dispatch table -- that's the whole point of
+    // letting a user hand-tune the long tail `discover` surfaces.
+    if let Some(def) = crate::filter_dsl::find_for_command(cmd) {
+        return crate::filter_dsl::apply(&def, lines);
+    }
     let (handler, _name) = detect(cmd);
     handler.compress(cmd, lines, config)
 }
