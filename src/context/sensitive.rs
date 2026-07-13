@@ -58,6 +58,24 @@ pub fn is_sensitive(text: &str) -> Option<&'static str> {
     None
 }
 
+/// Tier 2 (E7): command/path substrings worth a heads-up even when the
+/// content sniffers above find no credential-shaped text -- e.g.
+/// `ssh-add ~/.ssh/id_rsa` or `cat .netrc` don't necessarily print
+/// anything shaped like a private-key block or bearer token, but the
+/// TARGET itself is conventionally sensitive.
+///
+/// Deliberately a WARN-only signal, never a block: `.env.example`,
+/// `.env.sample`, `credentials.example.json` etc. legitimately contain
+/// these substrings without being secret, and the content-tier scanners
+/// above are the authoritative "refuse to persist this" check. Checked
+/// against the full text (a command string or a file path), first match
+/// wins.
+const PATH_DENYLIST: &[&str] = &[".env", ".ssh/", "id_rsa", "credentials", ".netrc"];
+
+pub fn path_denylist_match(text: &str) -> Option<&'static str> {
+    PATH_DENYLIST.iter().find(|pat| text.contains(*pat)).copied()
+}
+
 // ── Shared byte-level scan helpers ──────────────────────────────────────
 
 fn is_alnum(c: u8) -> bool {
@@ -362,5 +380,32 @@ mod tests {
         let padding = "x".repeat(SCAN_CAP_BYTES + 10);
         let s = format!("{padding}\nAKIAABCDEFGHIJ1234K");
         assert_eq!(is_sensitive(&s), None, "secret past the scan cap must not be found");
+    }
+
+    // ── Path denylist (E7 tier 2) ────────────────────────────────────────
+
+    #[test]
+    fn path_denylist_flags_dotenv_cat() {
+        assert_eq!(path_denylist_match("cat .env"), Some(".env"));
+    }
+
+    #[test]
+    fn path_denylist_flags_ssh_key_paths() {
+        assert_eq!(path_denylist_match("ssh-add ~/.ssh/id_rsa"), Some(".ssh/"));
+        assert_eq!(path_denylist_match("cat ~/.aws/credentials"), Some("credentials"));
+        assert_eq!(path_denylist_match("cat ~/.netrc"), Some(".netrc"));
+    }
+
+    #[test]
+    fn path_denylist_still_matches_dotenv_example() {
+        // Deliberate: this tier is warn-only, so matching ".env.example" is
+        // correct -- the caller must not treat a path-tier match as a block.
+        assert_eq!(path_denylist_match("cat .env.example"), Some(".env"));
+    }
+
+    #[test]
+    fn path_denylist_ignores_unrelated_commands() {
+        assert_eq!(path_denylist_match("git status"), None);
+        assert_eq!(path_denylist_match("cargo test"), None);
     }
 }

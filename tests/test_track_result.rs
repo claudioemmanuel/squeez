@@ -26,6 +26,34 @@ fn read_tool_records_file_path() {
 }
 
 #[test]
+fn read_of_sensitive_path_queues_warning() {
+    // E7 tier 2: reading a conventionally-sensitive path queues a
+    // warn-only heads-up (drained by the next squeez wrap bash call),
+    // even though this content itself has no credential-shaped text.
+    let dir = tmp("sensitive_read");
+    let json = r#"{"tool_name":"Read","tool_input":{"file_path":"/home/user/.ssh/id_rsa"},"tool_result":{"content":"just some text, not shaped like a key"}}"#;
+    assert_eq!(run_with_dir("Read", json, &dir), 0);
+    let mut ctx = SessionContext::load(&dir);
+    let warnings = ctx.drain_warnings();
+    assert!(
+        warnings.iter().any(|w| w.contains("sensitive-looking path") && w.contains(".ssh/")),
+        "got: {:?}",
+        warnings
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn read_of_ordinary_path_queues_no_warning() {
+    let dir = tmp("ordinary_read");
+    let json = r#"{"tool_name":"Read","tool_input":{"file_path":"/abs/src/main.rs"},"tool_result":{"content":"fn main() {}"}}"#;
+    assert_eq!(run_with_dir("Read", json, &dir), 0);
+    let mut ctx = SessionContext::load(&dir);
+    assert!(ctx.drain_warnings().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn grep_tool_no_panic() {
     let dir = tmp("grep");
     let json = r#"{"tool_name":"Grep","tool_input":{"pattern":"TODO","glob":"*.rs"},"tool_result":{"content":"src/foo.rs:42:    // TODO: refactor"}}"#;

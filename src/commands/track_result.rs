@@ -110,6 +110,18 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
     }
     for p in &explicit_paths {
         ctx.note_file(p, explicit_access.clone());
+        // Sensitive path warning (E7 tier 2): a Read/Grep/Glob target that
+        // references a conventionally-sensitive path (.env, ~/.ssh/id_rsa,
+        // .netrc, ...) is worth a heads-up even though this observer has no
+        // stdout channel of its own -- queued and drained by the next
+        // `squeez wrap` bash call, same as the quota/call-rate warnings
+        // above. Warn-only, same rationale as wrap.rs's command-string check.
+        if let Some(pat) = crate::context::sensitive::path_denylist_match(p) {
+            ctx.queue_warning(&format!(
+                "path {} references a sensitive-looking path (\"{}\") — verify no secrets before sharing this output",
+                p, pat
+            ));
+        }
     }
 
     // Files extracted from content body are reads.

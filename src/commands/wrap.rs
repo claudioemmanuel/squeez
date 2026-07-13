@@ -341,6 +341,20 @@ pub fn run(cmd_str: &str) -> i32 {
         None
     };
 
+    // ── Sensitive path warning (E7 tier 2) ──────────────────────────────
+    // The content sniffer above only catches text SHAPED like a credential.
+    // A command that references a conventionally-sensitive path (.env,
+    // ~/.ssh/id_rsa, .netrc, ...) is worth a heads-up even when its output
+    // doesn't match a content pattern. Warn-only, independent of whether
+    // anything got stashed -- never blocks (see path_denylist_match's doc
+    // for why .env.example legitimately still matches).
+    let sensitive_path_warning = context::sensitive::path_denylist_match(cmd_str).map(|pat| {
+        format!(
+            "[squeez: cmd references a sensitive-looking path (\"{}\") — verify no secrets before sharing this output]",
+            pat
+        )
+    });
+
     // ── Artifact capture + session tracking ───────────────────────────────
     let files      = extract_file_paths(&combined);
     let errors     = extract_errors(&combined);
@@ -488,6 +502,10 @@ pub fn run(cmd_str: &str) -> i32 {
     if let Some(ref marker) = retrieve_marker {
         println!("{}", marker);
         overhead_lines.push(marker.clone());
+    }
+    if let Some(ref w) = sensitive_path_warning {
+        println!("{}", w);
+        overhead_lines.push(w.clone());
     }
     if net_win_gate {
         // Gated passthrough: the header would cost more than compression
