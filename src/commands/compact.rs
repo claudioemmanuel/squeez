@@ -120,5 +120,13 @@ pub fn run() -> i32 {
             crate::json_util::escape_str(&text)
         );
     }
+    // The header tag-dedup memo (E1) tracks what the model has already seen;
+    // compaction rebuilds the model's context from scratch, so the memo must
+    // reset or an unchanged budget/agent tag would stay suppressed even
+    // though the model no longer holds the prior header that set it.
+    let sessions_dir = session::sessions_dir();
+    let mut ctx = SessionContext::load(&sessions_dir);
+    ctx.reset_header_tag_memo();
+    ctx.save(&sessions_dir);
     0
 }

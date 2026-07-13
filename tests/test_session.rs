@@ -45,6 +45,7 @@ fn test_current_session_roundtrip() {
         compact_warned: true,
         state_warned: false,
         start_ts: 1_774_656_000,
+        overhead_tokens: 0,
     };
     s.save(&dir);
     let loaded = squeez::session::CurrentSession::load(&dir).unwrap();

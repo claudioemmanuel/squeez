@@ -214,6 +214,15 @@ pub struct SessionContext {
     /// duplicate reads across sibling agents in the same workflow.
     pub subagent_file_map_ids: Vec<String>,
     pub subagent_file_map_paths: Vec<String>, // `;`-joined paths per entry
+    // ── Header tag dedup (E1) ────────────────────────────────────────────────
+    /// Last emitted `[budget: ...]` tag text (empty = none emitted yet).
+    pub last_budget_tag: String,
+    /// `call_n` at which `last_budget_tag` was last actually printed.
+    pub last_budget_tag_call_n: u64,
+    /// Last emitted `[agents: ...]` tag text.
+    pub last_agent_tag: String,
+    /// `call_n` at which `last_agent_tag` was last actually printed.
+    pub last_agent_tag_call_n: u64,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -264,6 +273,10 @@ impl Default for SessionContext {
             last_activity_ts: 0,
             subagent_file_map_ids: Vec::new(),
             subagent_file_map_paths: Vec::new(),
+            last_budget_tag: String::new(),
+            last_budget_tag_call_n: 0,
+            last_agent_tag: String::new(),
+            last_agent_tag_call_n: 0,
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -762,6 +775,50 @@ impl SessionContext {
         }
         dups
     }
+
+    /// Clear the header tag-dedup memo (budget/agent tags). Called after
+    /// `/compact` — the model's context was just rebuilt and no longer holds
+    /// whatever tag value it last saw, so the next header should re-emit
+    /// both tags regardless of whether the value actually changed.
+    pub fn reset_header_tag_memo(&mut self) {
+        self.last_budget_tag.clear();
+        self.last_budget_tag_call_n = 0;
+        self.last_agent_tag.clear();
+        self.last_agent_tag_call_n = 0;
+    }
+}
+
+// ── Header tag dedup (E1) ────────────────────────────────────────────────────
+
+/// Calls between forced refreshes of an unchanged header tag — a repeated
+/// `[budget: ...]`/`[agents: ...]` value is pure overhead once the model has
+/// already seen it, but a periodic refresher keeps it from vanishing forever
+/// if the model's window slides past the original emission.
+const TAG_REFRESH_INTERVAL: u64 = 10;
+
+/// Decide whether a header tag segment should be printed this call, updating
+/// the memo in place. Returns `false` (never emitted) for an empty `value` —
+/// there's nothing to show or memoize. Otherwise returns `true` when `value`
+/// differs from the last emission or `TAG_REFRESH_INTERVAL` calls have
+/// elapsed since the last emission.
+pub fn dedup_header_tag(
+    last_value: &mut String,
+    last_call_n: &mut u64,
+    value: &str,
+    call_n: u64,
+) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    let changed = value != last_value.as_str();
+    let stale = call_n.saturating_sub(*last_call_n) >= TAG_REFRESH_INTERVAL;
+    if changed || stale {
+        *last_value = value.to_string();
+        *last_call_n = call_n;
+        true
+    } else {
+        false
+    }
 }
 
 // ── Cross-call hint ────────────────────────────────────────────────────────
@@ -944,7 +1001,8 @@ impl SessionContext {
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
 \"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
-\"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{}}}",
+\"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
+\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -999,6 +1057,10 @@ impl SessionContext {
             self.last_activity_ts,
             json_util::str_array(&self.subagent_file_map_ids),
             json_util::str_array(&self.subagent_file_map_paths),
+            json_util::escape_str(&self.last_budget_tag),
+            self.last_budget_tag_call_n,
+            json_util::escape_str(&self.last_agent_tag),
+            self.last_agent_tag_call_n,
         )
     }
 
@@ -1173,6 +1235,14 @@ impl SessionContext {
         c.subagent_file_map_ids = saf_ids.iter().take(saf_len).cloned().collect();
         c.subagent_file_map_paths = saf_paths.iter().take(saf_len).cloned().collect();
 
+        // Header tag dedup memo (E1) — optional for backward compat.
+        c.last_budget_tag = json_util::map_str(&map, "last_budget_tag").unwrap_or_default();
+        c.last_budget_tag_call_n =
+            json_util::map_u64(&map, "last_budget_tag_call_n").unwrap_or(0);
+        c.last_agent_tag = json_util::map_str(&map, "last_agent_tag").unwrap_or_default();
+        c.last_agent_tag_call_n =
+            json_util::map_u64(&map, "last_agent_tag_call_n").unwrap_or(0);
+
         c
     }
 }
@@ -1197,6 +1267,71 @@ mod tests {
         let call_n = c.skill_dedup_record(0xDEADBEEF);
         let restored = SessionContext::from_json(&c.to_json());
         assert_eq!(restored.skill_dedup_lookup(0xDEADBEEF), Some(call_n));
+    }
+
+    // ── Header tag dedup (E1) ────────────────────────────────────────────────
+
+    #[test]
+    fn dedup_header_tag_suppresses_unchanged_value() {
+        let mut last = String::new();
+        let mut last_n = 0u64;
+        // First emission: empty → value is a change, must show.
+        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 1));
+        assert_eq!(last, "[budget: ~10 calls left]");
+        assert_eq!(last_n, 1);
+        // Second call, unchanged value, within the refresh window: suppressed.
+        assert!(!dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 2));
+        assert_eq!(last_n, 1, "memo must not move on a suppressed call");
+        // Value changed: reappears.
+        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~9 calls left]", 3));
+        assert_eq!(last, "[budget: ~9 calls left]");
+        assert_eq!(last_n, 3);
+    }
+
+    #[test]
+    fn dedup_header_tag_refreshes_after_interval() {
+        let mut last = "[budget: ~10 calls left]".to_string();
+        let mut last_n = 1u64;
+        // Same value, but TAG_REFRESH_INTERVAL calls have elapsed — the
+        // periodic refresher forces re-emission even though unchanged.
+        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 11));
+        assert_eq!(last_n, 11);
+    }
+
+    #[test]
+    fn dedup_header_tag_empty_value_never_emitted() {
+        let mut last = String::new();
+        let mut last_n = 0u64;
+        assert!(!dedup_header_tag(&mut last, &mut last_n, "", 5));
+        assert_eq!(last_n, 0, "empty value must not be memoized as emitted");
+    }
+
+    #[test]
+    fn reset_header_tag_memo_clears_state() {
+        let mut ctx = SessionContext::default();
+        ctx.last_budget_tag = "[budget: ~5 calls left]".to_string();
+        ctx.last_budget_tag_call_n = 7;
+        ctx.last_agent_tag = "[agents: 2 calls]".to_string();
+        ctx.last_agent_tag_call_n = 7;
+        ctx.reset_header_tag_memo();
+        assert!(ctx.last_budget_tag.is_empty());
+        assert_eq!(ctx.last_budget_tag_call_n, 0);
+        assert!(ctx.last_agent_tag.is_empty());
+        assert_eq!(ctx.last_agent_tag_call_n, 0);
+    }
+
+    #[test]
+    fn header_tag_memo_survives_json_roundtrip() {
+        let mut c = SessionContext::default();
+        c.last_budget_tag = "[budget: ~5 calls left]".to_string();
+        c.last_budget_tag_call_n = 12;
+        c.last_agent_tag = "[agents: 3 calls, ~900K est. tokens]".to_string();
+        c.last_agent_tag_call_n = 12;
+        let restored = SessionContext::from_json(&c.to_json());
+        assert_eq!(restored.last_budget_tag, c.last_budget_tag);
+        assert_eq!(restored.last_budget_tag_call_n, c.last_budget_tag_call_n);
+        assert_eq!(restored.last_agent_tag, c.last_agent_tag);
+        assert_eq!(restored.last_agent_tag_call_n, c.last_agent_tag_call_n);
     }
 
     #[test]

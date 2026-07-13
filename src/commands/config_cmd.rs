@@ -30,6 +30,7 @@ enum Kind {
     Summary,
     Lang,
     List,
+    Header,
 }
 
 impl Kind {
@@ -42,6 +43,7 @@ impl Kind {
             Kind::Summary => "prose|structured|auto",
             Kind::Lang => "en|pt-BR",
             Kind::List => "comma-separated list",
+            Kind::Header => "always|net|off",
         }
     }
 }
@@ -50,7 +52,7 @@ impl Kind {
 /// Keep in sync with `Config` (a test asserts `field_value` covers every key).
 const SCHEMA: &[(&str, Kind)] = &[
     ("enabled", Kind::Bool),
-    ("show_header", Kind::Bool),
+    ("show_header", Kind::Header),
     ("max_lines", Kind::Usize),
     ("dedup_min", Kind::Usize),
     ("git_log_max_commits", Kind::Usize),
@@ -212,6 +214,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
         Kind::Summary => matches!(v, "prose" | "structured" | "auto"),
         Kind::Lang => matches!(v.to_lowercase().as_str(), "en" | "pt-br"),
         Kind::List => !v.is_empty(),
+        Kind::Header => matches!(v.to_lowercase().as_str(), "always" | "net" | "off"),
     };
     if !ok {
         return Err(format!(
@@ -222,7 +225,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
     // Normalize a couple of kinds so the written form matches what the loader
     // and the rest of the codebase expect.
     let normalized = match kind {
-        Kind::Persona => v.to_lowercase(),
+        Kind::Persona | Kind::Header => v.to_lowercase(),
         Kind::Lang => {
             if v.eq_ignore_ascii_case("pt-br") {
                 "pt-BR".to_string()

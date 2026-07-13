@@ -6,7 +6,7 @@ fn defaults_populated() {
     assert_eq!(c.max_lines, 120);
     assert_eq!(c.dedup_min, 2);
     assert!(c.enabled);
-    assert!(c.show_header);
+    assert_eq!(c.show_header, "net");
     assert_eq!(c.git_log_max_commits, 20);
     assert_eq!(c.docker_logs_max_lines, 100);
     assert!(c.bypass.contains(&"psql".to_string()));

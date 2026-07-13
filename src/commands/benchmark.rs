@@ -631,7 +631,7 @@ impl EfficiencyResult {
     }
 }
 
-/// Run 5 deterministic proof cases and return evidence that each shipped feature
+/// Run 6 deterministic proof cases and return evidence that each shipped feature
 /// actually saves tokens.
 pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
     let mut results = Vec::with_capacity(5);
@@ -647,7 +647,7 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         let mut cfg = Config::default();
         cfg.sig_mode_enabled = true;
         cfg.sig_mode_threshold_lines = 400; // default
-        cfg.show_header = false;
+        cfg.show_header = "off".to_string();
         cfg.adaptive_intensity = false;
 
         let out = filter::compress("cat file.rs", lines, &cfg);
@@ -677,7 +677,7 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         let mut cfg = Config::default();
         cfg.sig_mode_enabled = true;
         cfg.sig_mode_threshold_lines = 400;
-        cfg.show_header = false;
+        cfg.show_header = "off".to_string();
         cfg.adaptive_intensity = false;
 
         let out = filter::compress("cat module.py", lines, &cfg);
@@ -719,7 +719,7 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
 
         let mut cfg_off = Config::default();
         cfg_off.sig_mode_enabled = false;
-        cfg_off.show_header = false;
+        cfg_off.show_header = "off".to_string();
         cfg_off.adaptive_intensity = false;
         let out_off = filter::compress("cat file.rs", lines.clone(), &cfg_off);
         let baseline_tokens = out_off.join("\n").len() / 4;
@@ -804,7 +804,95 @@ pub fn run_efficiency_proof() -> Vec<EfficiencyResult> {
         }
     }
 
+    // ── E1 / header_overhead_50call_session ─────────────────────────────────
+    // FLOOR: 50.0 — the net-win gate fix (dropping the `compression_applied`
+    // requirement so a -0% no-op call gates too) suppresses the `# squeez`
+    // header and its `[budget: …]`/`[agents: …]` tags on no-win calls. Replays
+    // a synthetic 50-call session (45 no-win calls + 5 genuinely compressible
+    // ones) in-process and compares cumulative squeez-emitted header tokens
+    // under the pre-fix rule (a -0% no-op call always printed the header) vs
+    // the shipped gate (header only when saved ≥ net_win_min_tokens).
+    {
+        let (old_overhead, new_overhead) = run_overhead_session(50);
+        let reduction = reduction_pct(old_overhead, new_overhead);
+        // FLOOR: 50.0 — 45 of 50 headers vanish under the fixed gate; even
+        // conservatively (tags excluded) the saving stays well above half.
+        let floor = 50.0_f64;
+        results.push(EfficiencyResult::new(
+            "header_overhead_50call_session",
+            "E1",
+            old_overhead,
+            new_overhead,
+            reduction,
+            floor,
+        ));
+    }
+
     results
+}
+
+/// Replay a synthetic `calls`-call session through the real filter pipeline
+/// and header format, returning `(old_overhead_tokens, new_overhead_tokens)`:
+/// the cumulative token estimate of every `# squeez` header line emitted
+/// under the pre-fix gate (which required `compression_applied`, so a -0%
+/// no-op call always printed the header) vs the fixed gate (any call saving
+/// less than `net_win_min_tokens` is suppressed). 90% of calls are trivial
+/// no-win output ("ok" one-liners); every 10th is a large duplicated log that
+/// compresses far past the threshold and keeps its header under both rules.
+/// In-process on purpose: spawning the installed binary would measure
+/// whatever version is on disk, not this build.
+fn run_overhead_session(calls: usize) -> (usize, usize) {
+    let cfg = Config {
+        adaptive_intensity: false, // fixed config for reproducibility
+        show_header: "off".to_string(),
+        ..Config::default()
+    };
+
+    let mut old_overhead = 0usize;
+    let mut new_overhead = 0usize;
+    for call_idx in 0..calls {
+        // Every 10th call is a genuine compression win; the rest are no-ops.
+        let raw = if call_idx % 10 == 9 {
+            "[INFO] worker heartbeat ok\n".repeat(120)
+        } else {
+            "ok\n".to_string()
+        };
+        let lines: Vec<String> = raw.lines().map(|l| l.to_string()).collect();
+        let out = filter::compress("echo", lines, &cfg).join("\n");
+
+        let input_tokens = crate::tokens::estimate(&raw);
+        let output_tokens = crate::tokens::estimate(&out);
+        let saved = input_tokens.saturating_sub(output_tokens);
+        let compression_applied = out != raw.trim_end_matches('\n');
+
+        // The header line as wrap formats it (budget/agent tags omitted —
+        // they only add to the overhead, so this measurement is conservative).
+        let header = format!(
+            "# squeez [echo] {}→{} tokens (-{}%) 0ms",
+            input_tokens,
+            output_tokens,
+            if input_tokens > 0 {
+                100usize.saturating_sub(output_tokens * 100 / input_tokens)
+            } else {
+                0
+            },
+        );
+        let header_tokens = crate::tokens::estimate(&header);
+
+        // Pre-fix rule: gate only fired when compression was applied AND the
+        // saving was marginal — a no-op call always printed the header.
+        let old_gated = compression_applied && saved < cfg.net_win_min_tokens;
+        // Fixed rule (E1): any call saving < net_win_min_tokens is gated.
+        let new_gated = saved < cfg.net_win_min_tokens;
+
+        if !old_gated {
+            old_overhead += header_tokens;
+        }
+        if !new_gated {
+            new_overhead += header_tokens;
+        }
+    }
+    (old_overhead, new_overhead)
 }
 
 /// Render efficiency proof results as a JSON string for --json output and tests.
@@ -841,7 +929,7 @@ pub fn efficiency_to_json(results: &[EfficiencyResult]) -> String {
 fn print_efficiency_proof_table(results: &[EfficiencyResult]) {
     println!();
     println!("╔═══════════════════════════════════════════════════════════════════════════════════╗");
-    println!("║          squeez efficiency proof — US-001 / US-003 / US-004 token savings         ║");
+    println!("║     squeez efficiency proof — US-001 / US-003 / US-004 / E1 token savings        ║");
     println!("╚═══════════════════════════════════════════════════════════════════════════════════╝");
     println!();
     println!(
@@ -1408,7 +1496,7 @@ fn extract_signal_terms(text: &str) -> Vec<String> {
 fn run_filter(scenario: &Scenario, hint: &str, iterations: usize) -> ScenarioResult {
     let config = Config {
         adaptive_intensity: false, // fixed config for reproducibility
-        show_header: false,
+        show_header: "off".to_string(),
         ..Config::default()
     };
 
@@ -1974,7 +2062,7 @@ pub fn run_hypothesis_grid() -> Vec<HypothesisResult> {
     // C1: strip subagent-spawn lines before filter, then compress with default config.
     let cfg_default = Config {
         adaptive_intensity: false,
-        show_header: false,
+        show_header: "off".to_string(),
         ..Config::default()
     };
     let c1_text = strip_subagent_lines(&raw_input);
@@ -1984,7 +2072,7 @@ pub fn run_hypothesis_grid() -> Vec<HypothesisResult> {
     // C2: default config with max_lines = 50 (simulates "concise" persona prompt).
     let cfg_c2 = Config {
         adaptive_intensity: false,
-        show_header: false,
+        show_header: "off".to_string(),
         max_lines: 50,
         ..Config::default()
     };
@@ -1994,7 +2082,7 @@ pub fn run_hypothesis_grid() -> Vec<HypothesisResult> {
     // C3: compact_threshold_tokens halved to 32_000 (aggressive context budget).
     let cfg_c3 = Config {
         adaptive_intensity: false,
-        show_header: false,
+        show_header: "off".to_string(),
         compact_threshold_tokens: 32_000,
         ..Config::default()
     };
@@ -2015,7 +2103,7 @@ pub fn run_hypothesis_grid() -> Vec<HypothesisResult> {
     // Uses the most aggressive config (C2+C3 merged) to guarantee lowest compressed_tokens.
     let cfg_c6 = Config {
         adaptive_intensity: false,
-        show_header: false,
+        show_header: "off".to_string(),
         max_lines: 50,
         compact_threshold_tokens: 32_000,
         ..Config::default()

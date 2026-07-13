@@ -122,6 +122,7 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
         compact_warned: false,
         state_warned: false,
         start_ts: now,
+        overhead_tokens: 0,
     };
     new.save(sessions_dir);
 

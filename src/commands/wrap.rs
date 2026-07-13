@@ -206,17 +206,17 @@ pub fn run(cmd_str: &str) -> i32 {
     };
 
     // ── Net-win gate (R4) ──────────────────────────────────────────────
-    // The `# squeez` header itself costs ~15-25 tokens. When compression was
-    // applied but saved less than `net_win_min_tokens`, the call is a net
-    // loss — emit the original output and suppress the header line instead.
-    // Follow-up warnings (compact, burst, cache-idle, cache-ratio) still
-    // print below: they're decision-relevant regardless of this call.
-    // Redundancy hits are exempt: the marker is a cross-call pointer, not a
-    // marginal compression win, and must keep its header context.
-    let compression_applied = output_str != combined.trim_end_matches('\n');
+    // The `# squeez` header itself costs ~15-25 tokens. When the call saved
+    // less than `net_win_min_tokens` — whether compression ran and barely
+    // helped, or didn't apply at all (a -0% no-op is a save of zero by
+    // definition) — the call is a net loss: emit the original output and
+    // suppress the header line instead. Follow-up warnings (compact, burst,
+    // cache-idle, cache-ratio) still print below: they're decision-relevant
+    // regardless of this call. Redundancy hits are exempt: the marker is a
+    // cross-call pointer, not a marginal compression win, and must keep its
+    // header context.
     let net_win_gate = config.net_win_min_tokens > 0
         && !redundancy_hit
-        && compression_applied
         && input_tokens.saturating_sub(output_tokens) < config.net_win_min_tokens;
     // Session accounting records what is actually emitted — zero savings on
     // a gated passthrough.
@@ -264,81 +264,116 @@ pub fn run(cmd_str: &str) -> i32 {
 
     let cmd_name = cmd_str.split_whitespace().next().unwrap_or("cmd");
 
-    if config.show_header {
-        // Net-win gate: suppress only the header line itself — the warning
-        // lines below stay, they matter independently of compression.
-        if !net_win_gate {
-            let intensity_tag = if config.adaptive_intensity {
-                format!(" [adaptive: {}]", intensity.as_str())
-            } else {
-                String::new()
-            };
-            // Token economy: burn rate prediction
-            let budget_tag = crate::economy::burn_rate::pressure_warning(&ctx, &config)
-                .or_else(|| {
-                    crate::economy::burn_rate::calls_remaining(&ctx, &config)
-                        .map(|r| crate::economy::burn_rate::format_pressure_header(r))
-                })
-                .unwrap_or_default();
-            let budget_tag = if budget_tag.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", budget_tag)
-            };
-            // Token economy: agent cost warning
-            let agent_tag = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
-                .map(|w| format!(" {}", w))
-                .unwrap_or_default();
-            // Token economy: enterprise transport indicator
-            let enterprise_mode = crate::economy::enterprise::detect();
-            let enterprise_tag = if enterprise_mode.is_enterprise() {
-                format!(" {}", crate::economy::enterprise::header_tag(enterprise_mode))
-            } else {
-                String::new()
-            };
-            println!(
-                "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
-                cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
-                intensity_tag, budget_tag, agent_tag, enterprise_tag
+    // ── Overhead accounting (E1) ────────────────────────────────────────────
+    // Every squeez-authored line the model has to read (header, warnings,
+    // nudges, retrieve marker) costs tokens independent of any compression
+    // win. Collected here so `squeez_session_efficiency` can report the
+    // honest net_saved = tokens_saved - overhead_tokens.
+    let mut overhead_lines: Vec<String> = Vec::new();
+
+    // `show_header` separately controls whether the header LINE prints —
+    // "always" ignores the net-win gate, "off" never prints it, "net"
+    // (default, and any unrecognized value) follows the gate as before.
+    let header_shown = match config.show_header.as_str() {
+        "off" => false,
+        "always" => true,
+        _ => !net_win_gate,
+    };
+    if header_shown {
+        let intensity_tag = if config.adaptive_intensity {
+            format!(" [adaptive: {}]", intensity.as_str())
+        } else {
+            String::new()
+        };
+        let this_call_n = ctx.call_counter.saturating_add(1);
+        // Token economy: burn rate prediction — deduped against the last
+        // emitted value so an unchanged tag doesn't repeat every call.
+        let budget_tag_raw = crate::economy::burn_rate::pressure_warning(&ctx, &config)
+            .or_else(|| {
+                crate::economy::burn_rate::calls_remaining(&ctx, &config)
+                    .map(|r| crate::economy::burn_rate::format_pressure_header(r))
+            })
+            .unwrap_or_default();
+        let budget_tag = if context::cache::dedup_header_tag(
+            &mut ctx.last_budget_tag,
+            &mut ctx.last_budget_tag_call_n,
+            &budget_tag_raw,
+            this_call_n,
+        ) {
+            format!(" {}", budget_tag_raw)
+        } else {
+            String::new()
+        };
+        // Token economy: agent cost warning — same dedup treatment.
+        let agent_tag_raw = crate::economy::agent_tracker::agent_cost_warning(&ctx, &config)
+            .unwrap_or_default();
+        let agent_tag = if context::cache::dedup_header_tag(
+            &mut ctx.last_agent_tag,
+            &mut ctx.last_agent_tag_call_n,
+            &agent_tag_raw,
+            this_call_n,
+        ) {
+            format!(" {}", agent_tag_raw)
+        } else {
+            String::new()
+        };
+        // Token economy: enterprise transport indicator
+        let enterprise_mode = crate::economy::enterprise::detect();
+        let enterprise_tag = if enterprise_mode.is_enterprise() {
+            format!(" {}", crate::economy::enterprise::header_tag(enterprise_mode))
+        } else {
+            String::new()
+        };
+        let header = format!(
+            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
+            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
+            intensity_tag, budget_tag, agent_tag, enterprise_tag
+        );
+        println!("{}", header);
+        overhead_lines.push(header);
+    }
+    if let Some(ref warning) = compact_warning {
+        println!("{}", warning);
+        overhead_lines.push(warning.clone());
+    }
+    // Workflow burst warning: N agents within burst_window_secs.
+    if let Some(w) = crate::economy::agent_tracker::burst_warning(&ctx, &config) {
+        println!("{}", w);
+        overhead_lines.push(w);
+    }
+    // Cache idle expiry warning: 5-min ephemeral cache may have expired
+    // if the agent was stalled waiting for sub-subagents or user input.
+    if config.cache_idle_warn_secs > 0 && ctx.last_activity_ts > 0 {
+        let idle = crate::session::unix_now().saturating_sub(ctx.last_activity_ts);
+        if idle >= config.cache_idle_warn_secs {
+            let w = format!(
+                "[squeez: cache idle {}s — 5-min ephemeral cache may have expired; \
+                 next turn will re-create context at full write cost]",
+                idle
             );
-        }
-        if let Some(ref warning) = compact_warning {
-            println!("{}", warning);
-        }
-        // Workflow burst warning: N agents within burst_window_secs.
-        if let Some(w) = crate::economy::agent_tracker::burst_warning(&ctx, &config) {
             println!("{}", w);
+            overhead_lines.push(w);
         }
-        // Cache idle expiry warning: 5-min ephemeral cache may have expired
-        // if the agent was stalled waiting for sub-subagents or user input.
-        if config.cache_idle_warn_secs > 0 && ctx.last_activity_ts > 0 {
-            let idle = crate::session::unix_now().saturating_sub(ctx.last_activity_ts);
-            if idle >= config.cache_idle_warn_secs {
-                println!(
-                    "[squeez: cache idle {}s — 5-min ephemeral cache may have expired; \
-                     next turn will re-create context at full write cost]",
-                    idle
-                );
-            }
-        }
-        // Cache-read:I/O ratio warning (G1): when cache_read >> actual I/O
-        // tokens the context has grown very large (long CLAUDE.md, many files
-        // loaded). Threshold 50× — the openwatch Wave 3 session hit 49×.
-        // Fire once per session via nudged_keys; skip when data is absent.
-        if ctx.real_cache_read_tokens > 10_000
-            && !ctx.nudged_keys.iter().any(|k| k == "cache_ratio_warn")
-        {
-            let io = ctx.real_ctx_tokens.saturating_sub(ctx.real_cache_read_tokens).max(1);
-            if ctx.real_cache_read_tokens / io >= 50 {
-                ctx.nudged_keys.push("cache_ratio_warn".to_string());
-                println!(
-                    "[squeez: HIGH CACHE RATIO — cache_read {}K vs I/O {}K (~{}×) — \
-                     context is very large; consider /compact or trimming CLAUDE.md]",
-                    ctx.real_cache_read_tokens / 1000,
-                    io / 1000,
-                    ctx.real_cache_read_tokens / io,
-                );
-            }
+    }
+    // Cache-read:I/O ratio warning (G1): when cache_read >> actual I/O
+    // tokens the context has grown very large (long CLAUDE.md, many files
+    // loaded). Threshold 50× — the openwatch Wave 3 session hit 49×.
+    // Fire once per session via nudged_keys; skip when data is absent.
+    if ctx.real_cache_read_tokens > 10_000
+        && !ctx.nudged_keys.iter().any(|k| k == "cache_ratio_warn")
+    {
+        let io = ctx.real_ctx_tokens.saturating_sub(ctx.real_cache_read_tokens).max(1);
+        if ctx.real_cache_read_tokens / io >= 50 {
+            ctx.nudged_keys.push("cache_ratio_warn".to_string());
+            let w = format!(
+                "[squeez: HIGH CACHE RATIO — cache_read {}K vs I/O {}K (~{}×) — \
+                 context is very large; consider /compact or trimming CLAUDE.md]",
+                ctx.real_cache_read_tokens / 1000,
+                io / 1000,
+                ctx.real_cache_read_tokens / io,
+            );
+            println!("{}", w);
+            overhead_lines.push(w);
         }
     }
     // Warnings queued by observer paths with no stdout channel of their own
@@ -346,9 +381,11 @@ pub fn run(cmd_str: &str) -> i32 {
     // the next bash output is the first surface the model actually reads.
     for w in ctx.drain_warnings() {
         println!("{}", w);
+        overhead_lines.push(w);
     }
     if let Some(ref marker) = retrieve_marker {
         println!("{}", marker);
+        overhead_lines.push(marker.clone());
     }
     if net_win_gate {
         // Gated passthrough: the header would cost more than compression
@@ -387,6 +424,7 @@ pub fn run(cmd_str: &str) -> i32 {
         );
         for n in &nudges {
             println!("{}", n);
+            overhead_lines.push(n.clone());
         }
         // Quota/plan-limit escalation (CF-3) for bash output (curl 429s etc.).
         // Queued warnings print on the next wrap call.
@@ -400,6 +438,19 @@ pub fn run(cmd_str: &str) -> i32 {
         let mut stats = crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp);
         stats.record(cmd_name, input_tokens as u64, emitted_tokens as u64);
         stats.save(&sessions_dir_pp);
+    }
+
+    // ── Overhead accounting (E1) ─────────────────────────────────────────
+    // Tally what this call actually cost the model to read in squeez-authored
+    // lines, independent of the compression accounting above.
+    if !overhead_lines.is_empty() {
+        let overhead_est = crate::tokens::estimate(&overhead_lines.join("\n")) as u64;
+        if overhead_est > 0 {
+            if let Some(mut current) = session::CurrentSession::load(&sessions_dir_pp) {
+                current.overhead_tokens = current.overhead_tokens.saturating_add(overhead_est);
+                current.save(&sessions_dir_pp);
+            }
+        }
     }
 
     exit_code

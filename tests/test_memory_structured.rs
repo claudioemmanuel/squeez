@@ -35,6 +35,7 @@ fn finalize_session(sessions: &std::path::Path, memory: &std::path::Path, events
         compact_warned: false,
         state_warned: false,
         start_ts,
+        overhead_tokens: 0,
     };
     prior.save(sessions);
     for ev in events {

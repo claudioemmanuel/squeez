@@ -13,7 +13,8 @@ const DEFAULT_CONFIG_INI: &str = "\
 # https://github.com/claudioemmanuel/squeez\n\
 \n\
 enabled = true\n\
-show_header = true\n\
+# Header: always | net (only when compression nets a win) | off\n\
+show_header = net\n\
 \n\
 # Persona: off | lite | full | ultra\n\
 # full  = caveman mode (~75% token cut, drop articles, fragments OK)\n\

@@ -56,6 +56,7 @@ fn test_init_finalizes_prior_session_to_memory() {
         compact_warned: false,
         state_warned: false,
         start_ts,
+        overhead_tokens: 0,
     };
     prior.save(&sessions);
     squeez::session::append_event(
@@ -118,6 +119,7 @@ fn test_init_empty_session_log_no_panic() {
         compact_warned: false,
         state_warned: false,
         start_ts: 1_774_224_000,
+        overhead_tokens: 0,
     };
     prior.save(&sessions);
     std::fs::write(sessions.join(prior_file), b"").unwrap();

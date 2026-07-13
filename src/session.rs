@@ -103,6 +103,11 @@ pub struct CurrentSession {
     pub compact_warned: bool,
     pub state_warned: bool,
     pub start_ts: u64,
+    /// Cumulative token cost of squeez-authored emissions (header, retrieve
+    /// marker, warnings, nudges) — the overhead side of the honest net-win
+    /// ledger. Independent of `tokens_saved` so `net_saved` can go negative
+    /// when overhead outweighs compression (E1).
+    pub overhead_tokens: u64,
 }
 
 impl CurrentSession {
@@ -122,12 +127,13 @@ impl CurrentSession {
             compact_warned: crate::json_util::map_bool(&map, "compact_warned").unwrap_or(false),
             state_warned: crate::json_util::map_bool(&map, "state_warned").unwrap_or(false),
             start_ts: crate::json_util::map_u64(&map, "start_ts").unwrap_or(0),
+            overhead_tokens: crate::json_util::map_u64(&map, "overhead_tokens").unwrap_or(0),
         })
     }
 
     pub fn save(&self, sessions_dir: &Path) {
         let json = format!(
-            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"tokens_saved\":{},\"total_calls\":{},\"compact_warned\":{},\"state_warned\":{},\"start_ts\":{}}}",
+            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"tokens_saved\":{},\"total_calls\":{},\"compact_warned\":{},\"state_warned\":{},\"start_ts\":{},\"overhead_tokens\":{}}}",
             crate::json_util::escape_str(&self.session_file),
             self.total_tokens,
             self.tokens_saved,
@@ -135,6 +141,7 @@ impl CurrentSession {
             self.compact_warned,
             self.state_warned,
             self.start_ts,
+            self.overhead_tokens,
         );
         let path = sessions_dir.join("current.json");
         let tmp = path.with_extension("json.tmp");

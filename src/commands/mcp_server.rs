@@ -769,10 +769,13 @@ fn tool_session_efficiency() -> String {
     let budget = cfg.compact_threshold_tokens * 5 / 4;
     let total_in = ctx.tokens_bash + ctx.tokens_read + ctx.tokens_other;
     let dedup_hits = ctx.exact_dedup_hits + ctx.fuzzy_dedup_hits;
-    // Use real tokens_saved from CurrentSession for accurate compression ratio.
-    let tokens_saved = session::CurrentSession::load(&session::sessions_dir())
-        .map(|c| c.tokens_saved)
-        .unwrap_or(0);
+    // Use real tokens_saved/overhead_tokens from CurrentSession for accurate
+    // compression ratio and honest net accounting (E1).
+    let current = session::CurrentSession::load(&session::sessions_dir());
+    let tokens_saved = current.as_ref().map(|c| c.tokens_saved).unwrap_or(0);
+    let overhead_tokens = current.as_ref().map(|c| c.overhead_tokens).unwrap_or(0);
+    // Signed: squeez-authored overhead can outweigh what compression saved.
+    let net_saved = tokens_saved as i64 - overhead_tokens as i64;
     let total_out = total_in.saturating_sub(tokens_saved);
     let score = crate::economy::efficiency::compute(
         total_in,
@@ -783,7 +786,12 @@ fn tool_session_efficiency() -> String {
         ctx.call_counter,
         budget,
     );
-    crate::economy::efficiency::format_efficiency(&score)
+    format!(
+        "{}\n\nOverhead tokens (squeez-authored):  {}\nNet saved (tokens_saved - overhead):  {}",
+        crate::economy::efficiency::format_efficiency(&score),
+        overhead_tokens,
+        net_saved,
+    )
 }
 
 /// Item 2: cumulative cross-session per-handler compression table.

@@ -3,7 +3,12 @@ use crate::commands::persona::Persona;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub enabled: bool,
-    pub show_header: bool,
+    /// Header visibility: "always" | "net" | "off". `net` (default) follows
+    /// the net-win gate (R4) — header suppressed when compression saved less
+    /// than `net_win_min_tokens`. `always` prints it unconditionally (gate
+    /// still governs savings accounting, just not header visibility). `off`
+    /// never prints it; follow-up markers/warnings still print.
+    pub show_header: String,
     pub max_lines: usize,
     pub dedup_min: usize,
     pub git_log_max_commits: usize,
@@ -186,7 +191,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: true,
-            show_header: true,
+            show_header: "net".to_string(),
             max_lines: 120,
             dedup_min: 2,
             git_log_max_commits: 20,
@@ -282,7 +287,12 @@ impl Config {
                 let (k, v) = (k.trim(), v.trim());
                 match k {
                     "enabled" => c.enabled = v == "true",
-                    "show_header" => c.show_header = v == "true",
+                    "show_header" => {
+                        c.show_header = match v {
+                            "always" | "net" | "off" => v.to_string(),
+                            _ => "net".to_string(),
+                        };
+                    }
                     "max_lines" => c.max_lines = v.parse().unwrap_or(c.max_lines),
                     "dedup_min" => c.dedup_min = v.parse().unwrap_or(c.dedup_min),
                     "git_log_max_commits" => {

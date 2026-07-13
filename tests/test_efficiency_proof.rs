@@ -3,9 +3,9 @@ use squeez::commands::benchmark::{
 };
 
 #[test]
-fn efficiency_proof_returns_five_cases() {
+fn efficiency_proof_returns_six_cases() {
     let results = run_efficiency_proof();
-    assert_eq!(results.len(), 5, "expected exactly 5 proof cases, got {}", results.len());
+    assert_eq!(results.len(), 6, "expected exactly 6 proof cases, got {}", results.len());
 
     let expected_labels = [
         "sig_mode_rust_1000",
@@ -13,6 +13,7 @@ fn efficiency_proof_returns_five_cases() {
         "sig_mode_delta_vs_pipeline",
         "structured_vs_prose",
         "hypothesis_c6_vs_c0",
+        "header_overhead_50call_session",
     ];
     for label in &expected_labels {
         assert!(
@@ -61,11 +62,12 @@ fn efficiency_json_envelope_is_valid() {
         "sig_mode_delta_vs_pipeline",
         "structured_vs_prose",
         "hypothesis_c6_vs_c0",
+        "header_overhead_50call_session",
     ] {
         assert!(json.contains(label), "JSON missing label: {}", label);
     }
 
-    for feature in &["US-001", "US-003", "US-004"] {
+    for feature in &["US-001", "US-003", "US-004", "E1"] {
         assert!(json.contains(feature), "JSON missing feature: {}", feature);
     }
 

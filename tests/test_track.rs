@@ -22,6 +22,7 @@ fn seed_session(dir: &PathBuf, filename: &str) {
         compact_warned: false,
         state_warned: false,
         start_ts: 1_000,
+        overhead_tokens: 0,
     };
     s.save(dir);
 }

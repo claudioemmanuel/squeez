@@ -3,7 +3,13 @@
 // `handle_request` and verifies that the response wire format is something
 // an MCP client could plausibly parse (no need for an actual MCP runtime).
 
+use std::sync::Mutex;
+
 use squeez::commands::mcp_server::handle_request;
+
+// SQUEEZ_DIR is process-global — serialise every test that mutates it so
+// parallel `cargo test` threads don't race.
+static ENV_GUARD: Mutex<()> = Mutex::new(());
 
 fn assert_jsonrpc_response(resp: &str, expected_id: &str) {
     assert!(resp.starts_with('{'), "should be a JSON object");
@@ -116,4 +122,55 @@ fn session_summary_tool_works() {
     assert!(resp.contains("\"content\""));
     // Returns at minimum the session_file / call_counter / tokens_bash labels.
     assert!(resp.contains("session_file") || resp.contains("call_counter"));
+}
+
+/// E1: `squeez_session_efficiency` must surface the honest overhead ledger —
+/// cumulative squeez-authored token cost and the signed net_saved (tokens
+/// saved minus overhead), which can go negative when overhead outweighs
+/// compression.
+#[test]
+fn session_efficiency_exposes_overhead_tokens() {
+    let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+
+    let dir = std::env::temp_dir().join(format!(
+        "squeez_mcp_efficiency_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+
+    let s = squeez::session::CurrentSession {
+        session_file: "test.jsonl".to_string(),
+        total_tokens: 1000,
+        tokens_saved: 200,
+        total_calls: 10,
+        compact_warned: false,
+        state_warned: false,
+        start_ts: 1_000,
+        overhead_tokens: 777,
+    };
+    s.save(&sessions);
+
+    let prev = std::env::var("SQUEEZ_DIR").ok();
+    std::env::set_var("SQUEEZ_DIR", &dir);
+
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\
+\"params\":{\"name\":\"squeez_session_efficiency\",\"arguments\":{}}}";
+    let resp = handle_request(req).expect("must respond");
+
+    match prev {
+        Some(v) => std::env::set_var("SQUEEZ_DIR", v),
+        None => std::env::remove_var("SQUEEZ_DIR"),
+    }
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert_jsonrpc_response(&resp, "9");
+    assert!(resp.contains("Overhead tokens"), "missing overhead label: {}", resp);
+    assert!(resp.contains("777"), "missing overhead value: {}", resp);
+    assert!(resp.contains("Net saved"), "missing net_saved label: {}", resp);
+    // net_saved = tokens_saved(200) - overhead_tokens(777) = -577
+    assert!(resp.contains("-577"), "missing signed net_saved: {}", resp);
 }

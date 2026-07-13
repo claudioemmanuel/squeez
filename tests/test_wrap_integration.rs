@@ -4,16 +4,116 @@ fn bin() -> String {
     env!("CARGO_BIN_EXE_squeez").to_string()
 }
 
+/// Unique, isolated SQUEEZ_DIR for a subprocess `wrap` test (sessions +
+/// memory dirs pre-created so wrap never falls back to the real ~/.claude
+/// state).
+fn tmp_squeez_dir(label: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "squeez_wrap_it_{}_{}",
+        label,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(dir.join("sessions")).unwrap();
+    std::fs::create_dir_all(dir.join("memory")).unwrap();
+    dir
+}
+
 #[test]
 fn wrap_runs_and_shows_header() {
+    // Net-win gate (R4/E1) suppresses the header on a no-op compression by
+    // default; this smoke test only checks the header pipeline runs at all,
+    // so disable the gate rather than couple it to gate behavior (see the
+    // net-win tests below for that).
+    let dir = tmp_squeez_dir("smoke");
+    std::fs::write(dir.join("config.ini"), "net_win_min_tokens = 0\n").unwrap();
+
     let out = Command::new(bin())
         .args(["wrap", "echo hello"])
+        .env("SQUEEZ_DIR", &dir)
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("hello"));
     assert!(stdout.contains("# squeez"));
     assert_eq!(out.status.code(), Some(0));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ── Net-win gate / show_header tri-state (E1) ───────────────────────────────
+
+#[test]
+fn net_win_gate_suppresses_header_on_noop_call() {
+    // Default config: net_win_min_tokens=24, show_header=net. A trivial,
+    // uncompressible command saves 0 tokens — the gate must suppress the
+    // header (raw output still passes through unchanged).
+    let dir = tmp_squeez_dir("noop_default");
+
+    let out = Command::new(bin())
+        .args(["wrap", "echo hello"])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hello"));
+    assert!(
+        !stdout.contains("# squeez"),
+        "expected no header on a no-win call, got: {stdout}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn show_header_always_restores_header_on_noop_call() {
+    // show_header=always must print the header even though the same no-op
+    // call would otherwise be gated by net_win_min_tokens.
+    let dir = tmp_squeez_dir("always");
+    std::fs::write(dir.join("config.ini"), "show_header = always\n").unwrap();
+
+    let out = Command::new(bin())
+        .args(["wrap", "echo hello"])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hello"));
+    assert!(
+        stdout.contains("# squeez"),
+        "expected header with show_header=always, got: {stdout}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn show_header_off_suppresses_header_even_with_gate_disabled() {
+    // show_header=off must suppress the header even when net_win_min_tokens=0
+    // disables the gate itself (i.e. the "net" gate would otherwise show it) —
+    // isolating this assertion to the show_header switch.
+    let dir = tmp_squeez_dir("off");
+    std::fs::write(
+        dir.join("config.ini"),
+        "show_header = off\nnet_win_min_tokens = 0\n",
+    )
+    .unwrap();
+
+    let out = Command::new(bin())
+        .args(["wrap", "echo hello"])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hello"));
+    assert!(
+        !stdout.contains("# squeez"),
+        "expected no header with show_header=off, got: {stdout}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
