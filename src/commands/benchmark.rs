@@ -413,6 +413,51 @@ fn make_go_test_ndjson_failures() -> String {
     out
 }
 
+fn make_eslint_json_failures() -> String {
+    let mut out = String::from("[");
+    let comps = [
+        "Card", "Form", "Table", "Nav", "Footer", "Header", "Input", "Select", "Checkbox", "Radio",
+        "Badge", "Alert", "Toast", "Tooltip", "Drawer", "Tabs", "Avatar", "Spinner", "Modal", "Accordion",
+    ];
+    let mut first = true;
+    for comp in &comps {
+        for suffix in &["", ".test", ".stories"] {
+            if !first {
+                out.push(',');
+            }
+            first = false;
+            out.push_str(&format!(
+                "{{\"filePath\":\"/repo/src/components/{}{}.tsx\",\"messages\":[],\"errorCount\":0,\"warningCount\":0}}",
+                comp, suffix
+            ));
+        }
+    }
+    out.push_str(",{\"filePath\":\"/repo/src/api/client.ts\",\"errorCount\":2,\"warningCount\":1,\"messages\":[");
+    out.push_str("{\"ruleId\":\"no-unused-vars\",\"severity\":2,\"message\":\"'x' is defined but never used.\",\"line\":10,\"column\":5},");
+    out.push_str("{\"ruleId\":\"no-unused-vars\",\"severity\":2,\"message\":\"'y' is defined but never used.\",\"line\":25,\"column\":7},");
+    out.push_str("{\"ruleId\":\"eqeqeq\",\"severity\":1,\"message\":\"Expected '===' and instead saw '=='.\",\"line\":40,\"column\":12}");
+    out.push_str("]}");
+    out.push(']');
+    out
+}
+
+fn make_ruff_json_failures() -> String {
+    let mut out = String::from("[");
+    out.push_str("{\"code\":\"F401\",\"filename\":\"/repo/src/main.py\",\"location\":{\"row\":1,\"column\":1},\"message\":\"`os` imported but unused\"},");
+    out.push_str("{\"code\":\"F401\",\"filename\":\"/repo/src/main.py\",\"location\":{\"row\":2,\"column\":1},\"message\":\"`sys` imported but unused\"},");
+    out.push_str("{\"code\":\"E501\",\"filename\":\"/repo/src/main.py\",\"location\":{\"row\":40,\"column\":89},\"message\":\"line too long (92 characters, exceeds 88 limit set in pyproject.toml)\"},");
+    out.push_str("{\"code\":\"F841\",\"filename\":\"/repo/src/utils.py\",\"location\":{\"row\":15,\"column\":5},\"message\":\"local variable 'tmp' is assigned to but never used\"},");
+    for i in 0..25 {
+        out.push_str(&format!(
+            "{{\"code\":\"E501\",\"filename\":\"/repo/src/legacy/module_{}.py\",\"location\":{{\"row\":{},\"column\":89}},\"message\":\"line too long (92 characters, exceeds 88 limit set in pyproject.toml)\"}},",
+            i, 40 + i
+        ));
+    }
+    out.push_str("{\"code\":\"F401\",\"filename\":\"/repo/src/legacy/module_0.py\",\"location\":{\"row\":1,\"column\":1},\"message\":\"`typing.Optional` imported but unused\"}");
+    out.push(']');
+    out
+}
+
 fn make_agent_heavy() -> String {
     let mut out = String::new();
     // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
@@ -1422,6 +1467,27 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
             "redundancy::TestFuzzyMatch".to_string(),
             "got 0.72, want 0.85".to_string(),
         ],
+        quality_mode: QualityMode::Keywords,
+    });
+    // eslint_json_failures / ruff_json_failures: exercise
+    // src/commands/reporters/{eslint_json,ruff_json}.rs -- rule grouping.
+    s.push(Scenario {
+        name: "eslint_json_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "eslint . --format json".to_string() },
+        content: make_eslint_json_failures(),
+        required_keywords: vec![
+            "src/api/client.ts".to_string(),
+            "no-unused-vars".to_string(),
+        ],
+        quality_mode: QualityMode::Keywords,
+    });
+    s.push(Scenario {
+        name: "ruff_json_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "ruff check . --output-format json".to_string() },
+        content: make_ruff_json_failures(),
+        required_keywords: vec!["src/main.py".to_string(), "F401".to_string()],
         quality_mode: QualityMode::Keywords,
     });
     // curl HTML response: minified SSR page — validates NetworkHandler HTML stripping.

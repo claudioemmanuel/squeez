@@ -47,7 +47,7 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
             }
         }
         "playwright" => Box::new(PlaywrightHandler),
-        "tsc" | "eslint" | "biome" => Box::new(TypescriptHandler),
+        "tsc" | "eslint" | "biome" | "ruff" => Box::new(TypescriptHandler),
         "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => Box::new(BuildHandler),
         "next" => {
             if cmd.contains("build") || cmd.contains("dev") || cmd.contains("start") {

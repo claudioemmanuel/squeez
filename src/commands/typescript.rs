@@ -1,3 +1,4 @@
+use crate::commands::reporters;
 use crate::commands::Handler;
 use crate::config::Config;
 use crate::strategies::{smart_filter, truncation};
@@ -5,7 +6,10 @@ use crate::strategies::{smart_filter, truncation};
 pub struct TypescriptHandler;
 
 impl Handler for TypescriptHandler {
-    fn compress(&self, _cmd: &str, lines: Vec<String>, _config: &Config) -> Vec<String> {
+    fn compress(&self, cmd: &str, lines: Vec<String>, _config: &Config) -> Vec<String> {
+        if let Some(condensed) = reporters::detect_and_condense(cmd, &lines) {
+            return condensed;
+        }
         let lines = smart_filter::apply(lines);
         let filtered: Vec<String> = lines
             .into_iter()
