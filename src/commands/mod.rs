@@ -15,6 +15,7 @@ pub mod data_tool;
 pub mod database;
 pub mod docker;
 pub mod filter_stdin;
+pub mod flag_force;
 pub mod fs;
 pub mod generic;
 pub mod git;

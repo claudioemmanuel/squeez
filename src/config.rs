@@ -196,6 +196,17 @@ pub struct Config {
     /// match the built-in allow-list (e.g. a wrapped `git commit` alias that
     /// prints something you rely on). Default: empty.
     pub success_collapse_deny: Vec<String>,
+    // ── Flag forcing (E3) ──────────────────────────────────────────────────────
+    /// `off` disables both tiers. `env` (default) sets safe formatting env
+    /// vars (LC_ALL/GIT_PAGER/NO_COLOR/FORCE_COLOR) via `Command::env()` --
+    /// never changes command semantics. `full` additionally appends a
+    /// machine-readable-output flag (e.g. `--json`) for runners
+    /// `commands::reporters` has a structured parser for, gated on no shell
+    /// metacharacters and a one-shot fallback if the tool rejects the flag.
+    pub flag_force: String,
+    /// Command prefixes to exclude from arg-tier flag forcing even under
+    /// `flag_force = full`. Default: empty.
+    pub flag_force_deny: Vec<String>,
 }
 
 impl Default for Config {
@@ -284,6 +295,8 @@ impl Default for Config {
             ],
             success_collapse: true,
             success_collapse_deny: Vec::new(),
+            flag_force: "env".to_string(),
+            flag_force_deny: Vec::new(),
         }
     }
 }
@@ -479,6 +492,17 @@ impl Config {
                     "success_collapse" => c.success_collapse = v == "true",
                     "success_collapse_deny" => {
                         c.success_collapse_deny =
+                            v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                    }
+                    "flag_force" => {
+                        c.flag_force = match v.to_lowercase().as_str() {
+                            "off" => "off".to_string(),
+                            "full" => "full".to_string(),
+                            _ => "env".to_string(),
+                        }
+                    }
+                    "flag_force_deny" => {
+                        c.flag_force_deny =
                             v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
                     }
                     _ => {}

@@ -223,6 +223,12 @@ pub struct SessionContext {
     pub last_agent_tag: String,
     /// `call_n` at which `last_agent_tag` was last actually printed.
     pub last_agent_tag_call_n: u64,
+    // ── Flag-forcing escape memo (E3) ────────────────────────────────────────
+    /// Base command strings whose arg-tier flag-forced variant failed once
+    /// (e.g. an injected `--json` the tool didn't recognize) -- session-long
+    /// like the skill store, so a repeated call never re-attempts the same
+    /// doomed injection. Bounded at MAX_FLAG_FORCE_FAILED entries.
+    pub flag_force_failed: Vec<String>,
     // ── Tunables (phase 5) — set from Config at session start, not persisted ─
     pub max_call_log: usize,
     pub recent_window: usize,
@@ -277,6 +283,7 @@ impl Default for SessionContext {
             last_budget_tag_call_n: 0,
             last_agent_tag: String::new(),
             last_agent_tag_call_n: 0,
+            flag_force_failed: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
             similarity_threshold: DEFAULT_SIMILARITY_THRESHOLD,
@@ -1002,7 +1009,8 @@ impl SessionContext {
 \"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
-\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{}}}",
+\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\
+\"flag_force_failed\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -1061,6 +1069,7 @@ impl SessionContext {
             self.last_budget_tag_call_n,
             json_util::escape_str(&self.last_agent_tag),
             self.last_agent_tag_call_n,
+            json_util::str_array(&self.flag_force_failed),
         )
     }
 
@@ -1242,6 +1251,9 @@ impl SessionContext {
         c.last_agent_tag = json_util::map_str(&map, "last_agent_tag").unwrap_or_default();
         c.last_agent_tag_call_n =
             json_util::map_u64(&map, "last_agent_tag_call_n").unwrap_or(0);
+
+        // Flag-force escape memo (E3) — optional for backward compat.
+        c.flag_force_failed = json_util::map_str_array(&map, "flag_force_failed");
 
         c
     }

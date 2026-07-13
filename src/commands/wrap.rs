@@ -30,6 +30,114 @@ fn shell_command(cmd: &str) -> Command {
     }
 }
 
+/// Result of spawning and fully draining one command. `Fatal` carries the
+/// process exit code `run()` should return immediately (spawn/pipe error,
+/// timeout) — distinct from `Ok`'s `exit_code`, which is the CHILD's own
+/// exit status and gets fed into the normal compression pipeline.
+enum SpawnOutcome {
+    Ok { exit_code: i32, combined: String },
+    Fatal(i32),
+}
+
+/// Spawns `cmd_str` via the platform shell with `env_vars` applied
+/// (`Command::env()` — never changes the command's own text/semantics),
+/// drains stdout+stderr on background threads to avoid pipe-buffer
+/// deadlock, and waits up to 120s. Factored out of `run()` so flag-forcing
+/// (E3) can call it a second time for the one-shot un-forced fallback
+/// without duplicating the spawn/drain/timeout logic.
+fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)]) -> SpawnOutcome {
+    let mut cmd = shell_command(cmd_str);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("squeez: {}", e);
+            return SpawnOutcome::Fatal(1);
+        }
+    };
+
+    // Store PID for signal forwarding (Unix only)
+    #[cfg(unix)]
+    CHILD_PID.store(child.id() as i32, Ordering::SeqCst);
+
+    // Drain stdout/stderr on background threads to prevent pipe-buffer deadlock.
+    // This MUST happen before the try_wait loop — if we wait first, the child can
+    // block writing to a full pipe and never exit, causing a deadlock.
+    let stdout_pipe = match child.stdout.take() {
+        Some(p) => p,
+        None => {
+            eprintln!("squeez: failed to capture stdout");
+            return SpawnOutcome::Fatal(1);
+        }
+    };
+    let stderr_pipe = match child.stderr.take() {
+        Some(p) => p,
+        None => {
+            eprintln!("squeez: failed to capture stderr");
+            return SpawnOutcome::Fatal(1);
+        }
+    };
+    // Cap capture at 10 MB per stream to prevent OOM on runaway output.
+    const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
+    let stdout_thread = thread::spawn(move || {
+        let mut buf = Vec::new();
+        stdout_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
+        buf
+    });
+    let stderr_thread = thread::spawn(move || {
+        let mut buf = Vec::new();
+        stderr_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
+        buf
+    });
+
+    // Poll for exit with 120s timeout
+    let call_start = Instant::now();
+    let timeout = Duration::from_secs(120);
+    let exit_code = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break s.code().unwrap_or(1),
+            Ok(None) => {
+                if call_start.elapsed() >= timeout {
+                    #[cfg(unix)]
+                    unsafe {
+                        libc::kill(-(child.id() as i32), libc::SIGTERM);
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    let _ = child.kill();
+                    eprintln!("squeez: command timed out after 120s");
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    return SpawnOutcome::Fatal(124);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                eprintln!("squeez: wait error: {}", e);
+                return SpawnOutcome::Fatal(1);
+            }
+        }
+    };
+
+    // Pipes are closed (child exited), join safely
+    let stdout_bytes = stdout_thread.join().unwrap_or_default();
+    let stderr_bytes = stderr_thread.join().unwrap_or_default();
+
+    // Merge stderr + stdout
+    let mut combined = String::new();
+    combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
+    combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
+
+    SpawnOutcome::Ok { exit_code, combined }
+}
+
 pub fn run(cmd_str: &str) -> i32 {
     #[cfg(unix)]
     setup_signals();
@@ -60,93 +168,61 @@ pub fn run(cmd_str: &str) -> i32 {
 
     let start = Instant::now();
 
-    // Spawn via platform shell to handle pipes, &&, redirections, builtins
-    let mut cmd = shell_command(cmd_str);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
+    // ── Flag forcing (E3) ────────────────────────────────────────────────
+    // Tier "env" (default): safe formatting env vars only, applied via
+    // Command::env() below — never changes what the command does. Tier
+    // "full" additionally appends a machine-readable-output flag for a
+    // known reporter-backed runner, gated on no shell metacharacters, no
+    // deny-list match, and no prior failure this session.
+    let flag_force_tier = config.flag_force.as_str();
+    let env_vars: &[(&str, &str)] = if flag_force_tier == "off" {
+        &[]
+    } else {
+        crate::commands::flag_force::ENV_VARS
+    };
+    let mut spawn_cmd = cmd_str.to_string();
+    let mut forced_label: Option<String> = None;
+    if flag_force_tier == "full"
+        && !crate::commands::flag_force::has_shell_metachars(cmd_str)
+        && !config
+            .flag_force_deny
+            .iter()
+            .any(|d| !d.is_empty() && cmd_str.starts_with(d.as_str()))
+        && !ctx.flag_force_failed.iter().any(|f| f == cmd_str)
     {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
+        if let Some(inj) = crate::commands::flag_force::arg_injection(cmd_str) {
+            spawn_cmd = inj.cmd;
+            forced_label = Some(inj.label);
+        }
     }
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("squeez: {}", e);
-            return 1;
-        }
-    };
 
-    // Store PID for signal forwarding (Unix only)
-    #[cfg(unix)]
-    CHILD_PID.store(child.id() as i32, Ordering::SeqCst);
-
-    // Drain stdout/stderr on background threads to prevent pipe-buffer deadlock.
-    // This MUST happen before the try_wait loop — if we wait first, the child can
-    // block writing to a full pipe and never exit, causing a deadlock.
-    let stdout_pipe = match child.stdout.take() {
-        Some(p) => p,
-        None => {
-            eprintln!("squeez: failed to capture stdout");
-            return 1;
-        }
-    };
-    let stderr_pipe = match child.stderr.take() {
-        Some(p) => p,
-        None => {
-            eprintln!("squeez: failed to capture stderr");
-            return 1;
-        }
-    };
-    // Cap capture at 10 MB per stream to prevent OOM on runaway output.
-    const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
-    let stdout_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        stdout_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
-        buf
-    });
-    let stderr_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        stderr_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
-        buf
-    });
-
-    // Poll for exit with 120s timeout
-    let timeout = Duration::from_secs(120);
-    let exit_code = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s.code().unwrap_or(1),
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    #[cfg(unix)]
-                    unsafe {
-                        libc::kill(-(child.id() as i32), libc::SIGTERM);
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
-                    let _ = child.kill();
-                    eprintln!("squeez: command timed out after 120s");
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                    return 124;
+    let (exit_code, combined) = match spawn_and_capture(&spawn_cmd, env_vars) {
+        SpawnOutcome::Fatal(code) => return code,
+        SpawnOutcome::Ok { exit_code, combined } => {
+            if forced_label.is_some()
+                && exit_code != 0
+                && crate::commands::flag_force::looks_like_unrecognized_option(&combined)
+            {
+                // Escape: the injected flag was rejected by the tool. Re-run
+                // the ORIGINAL command once and remember not to retry this
+                // exact command again this session (bounded FIFO memo).
+                forced_label = None;
+                ctx.flag_force_failed.push(cmd_str.to_string());
+                const MAX_FLAG_FORCE_FAILED: usize = 32;
+                if ctx.flag_force_failed.len() > MAX_FLAG_FORCE_FAILED {
+                    ctx.flag_force_failed.remove(0);
                 }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                eprintln!("squeez: wait error: {}", e);
-                return 1;
+                match spawn_and_capture(cmd_str, env_vars) {
+                    SpawnOutcome::Fatal(code) => return code,
+                    SpawnOutcome::Ok { exit_code, combined } => (exit_code, combined),
+                }
+            } else {
+                (exit_code, combined)
             }
         }
     };
-
-    // Pipes are closed (child exited), join safely
-    let stdout_bytes = stdout_thread.join().unwrap_or_default();
-    let stderr_bytes = stderr_thread.join().unwrap_or_default();
 
     let elapsed_ms = start.elapsed().as_millis();
-
-    // Merge stderr + stdout
-    let mut combined = String::new();
-    combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
-    combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
 
     // Content-class calibrated estimate (R2); flat path via class_density=false.
     let input_tokens = if config.class_density {
@@ -273,7 +349,7 @@ pub fn run(cmd_str: &str) -> i32 {
 
     let compact_warning = record_bash_event(
         cmd_str, input_tokens, emitted_tokens, &files, &errors, &git_events, &test_sum, &config,
-        ctx.real_ctx_tokens,
+        ctx.real_ctx_tokens, forced_label.as_deref().unwrap_or(""),
     );
 
     let reduction = if input_tokens > 0 {
@@ -344,10 +420,16 @@ pub fn run(cmd_str: &str) -> i32 {
         } else {
             String::new()
         };
+        // Flag-forcing provenance (E3): only shown when the forced variant
+        // actually ran (the escape fallback clears forced_label on rejection).
+        let forced_tag = match &forced_label {
+            Some(label) => format!(" [forced: {}]", label),
+            None => String::new(),
+        };
         let header = format!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}",
+            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}{}",
             cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
-            intensity_tag, budget_tag, agent_tag, enterprise_tag
+            intensity_tag, budget_tag, agent_tag, enterprise_tag, forced_tag
         );
         println!("{}", header);
         overhead_lines.push(header);
@@ -613,6 +695,7 @@ fn record_bash_event(
     test_summary: &str,
     config: &Config,
     real_ctx_tokens: u64,
+    forced: &str,
 ) -> Option<String> {
     let dir = session::sessions_dir();
     let mut current = session::CurrentSession::load(&dir)?;
@@ -624,13 +707,14 @@ fn record_bash_event(
 
     let event = format!(
         "{{\"type\":\"bash\",\"cmd\":\"{}\",\"in_tk\":{},\"out_tk\":{},\
-\"files\":{},\"errors\":{},\"git\":{},\"test_summary\":\"{}\",\"ts\":{}}}",
+\"files\":{},\"errors\":{},\"git\":{},\"test_summary\":\"{}\",\"forced\":\"{}\",\"ts\":{}}}",
         json_util::escape_str(cmd),
         in_tk, out_tk,
         json_util::str_array(files),
         json_util::str_array(errors),
         json_util::str_array(git),
         json_util::escape_str(test_summary),
+        json_util::escape_str(forced),
         session::unix_now(),
     );
     session::append_event(&dir, &current.session_file, &event);

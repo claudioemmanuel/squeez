@@ -31,6 +31,7 @@ enum Kind {
     Lang,
     List,
     Header,
+    FlagForce,
 }
 
 impl Kind {
@@ -44,6 +45,7 @@ impl Kind {
             Kind::Lang => "en|pt-BR",
             Kind::List => "comma-separated list",
             Kind::Header => "always|net|off",
+            Kind::FlagForce => "off|env|full",
         }
     }
 }
@@ -114,6 +116,8 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("bash_risk_patterns", Kind::List),
     ("success_collapse", Kind::Bool),
     ("success_collapse_deny", Kind::List),
+    ("flag_force", Kind::FlagForce),
+    ("flag_force_deny", Kind::List),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -194,6 +198,8 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "bash_risk_patterns" => c.bash_risk_patterns.join(","),
         "success_collapse" => c.success_collapse.to_string(),
         "success_collapse_deny" => c.success_collapse_deny.join(","),
+        "flag_force" => c.flag_force.clone(),
+        "flag_force_deny" => c.flag_force_deny.join(","),
         _ => return None,
     };
     Some(v)
@@ -219,6 +225,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
         Kind::Lang => matches!(v.to_lowercase().as_str(), "en" | "pt-br"),
         Kind::List => !v.is_empty(),
         Kind::Header => matches!(v.to_lowercase().as_str(), "always" | "net" | "off"),
+        Kind::FlagForce => matches!(v.to_lowercase().as_str(), "off" | "env" | "full"),
     };
     if !ok {
         return Err(format!(
@@ -229,7 +236,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
     // Normalize a couple of kinds so the written form matches what the loader
     // and the rest of the codebase expect.
     let normalized = match kind {
-        Kind::Persona | Kind::Header => v.to_lowercase(),
+        Kind::Persona | Kind::Header | Kind::FlagForce => v.to_lowercase(),
         Kind::Lang => {
             if v.eq_ignore_ascii_case("pt-br") {
                 "pt-BR".to_string()
