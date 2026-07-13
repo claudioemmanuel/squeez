@@ -56,9 +56,18 @@ for f in "$FIXTURES"/*.txt; do
 
     after=$(( ${#compressed} / 4 ))
     pct=$(( 100 - (after * 100 / before) ))
-    # mdcompress fixtures: prose compression is naturally lighter (~15-30%)
+    # mdcompress fixtures: prose compression is naturally lighter (~10-30%).
+    # Floor was 15 until E6 (bench/substitutions_snapshot.json): EN
+    # letter/word substitutions (with->w/, function->fn, etc.) were pruned
+    # from ultra_subs because they measured COSTS/NEUTRAL against real
+    # tokenizers (o200k_base/cl100k_base) -- but they DID shrink raw char
+    # count, which is all this script's chars/4 proxy sees. Removing them
+    # correctly dropped mdcompress_en_prose.txt's proxy-measured ratio from
+    # ~18% to 14% even though real token savings are unaffected or better.
+    # 10 keeps a real floor (catches genuine no-ops) without re-penalizing
+    # that honest, tokenizer-validated fix.
     threshold=30
-    if [ "$hint" = "mdcompress" ]; then threshold=15; fi
+    if [ "$hint" = "mdcompress" ]; then threshold=10; fi
     status="✅"; [ "$pct" -lt "$threshold" ] && { status="❌"; FAIL=$((FAIL+1)); }
     [ "$ms" -gt 100 ] && { status="❌ slow"; FAIL=$((FAIL+1)); }
     TOTAL=$((TOTAL+1))

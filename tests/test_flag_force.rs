@@ -61,9 +61,18 @@ fn tier_env_sets_safe_formatting_vars() {
     let dir = tmp_squeez_dir("env_on");
     std::fs::write(dir.join("config.ini"), "net_win_min_tokens = 0\n").unwrap();
 
+    // Clear these from the test process's own ambient environment first --
+    // some dev/agent shells (this one included) already export NO_COLOR=1/
+    // FORCE_COLOR=0, which would let the child inherit the "right" value
+    // even if squeez's own env-tier logic were broken, masking a real
+    // regression as a false-positive pass.
     let out = Command::new(bin())
         .args(["wrap", "echo \"NO_COLOR=[$NO_COLOR] FORCE_COLOR=[$FORCE_COLOR] LC_ALL=[$LC_ALL] GIT_PAGER=[$GIT_PAGER]\""])
         .env("SQUEEZ_DIR", &dir)
+        .env_remove("NO_COLOR")
+        .env_remove("FORCE_COLOR")
+        .env_remove("LC_ALL")
+        .env_remove("GIT_PAGER")
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -80,9 +89,17 @@ fn tier_off_sets_no_env_vars() {
     let dir = tmp_squeez_dir("off");
     std::fs::write(dir.join("config.ini"), "net_win_min_tokens = 0\nflag_force = off\n").unwrap();
 
+    // Explicitly clear these from the test process's own ambient
+    // environment before spawning -- some dev/agent shells (this one
+    // included) already export NO_COLOR=1/FORCE_COLOR=0 for their own
+    // reasons, which the child would otherwise inherit regardless of
+    // squeez's tier=off logic, making the assertion below environment-
+    // dependent instead of actually testing what squeez does.
     let out = Command::new(bin())
         .args(["wrap", "echo \"NO_COLOR=[$NO_COLOR]\""])
         .env("SQUEEZ_DIR", &dir)
+        .env_remove("NO_COLOR")
+        .env_remove("FORCE_COLOR")
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
