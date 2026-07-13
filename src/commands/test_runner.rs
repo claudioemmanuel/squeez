@@ -1,3 +1,4 @@
+use crate::commands::reporters;
 use crate::commands::Handler;
 use crate::config::Config;
 use crate::strategies::{dedup, smart_filter, truncation};
@@ -5,7 +6,12 @@ use crate::strategies::{dedup, smart_filter, truncation};
 pub struct TestRunnerHandler;
 
 impl Handler for TestRunnerHandler {
-    fn compress(&self, _cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
+    fn compress(&self, cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
+        // Structured reporters need the raw shape (blank lines are structural
+        // delimiters, not noise) — try them before smart_filter strips anything.
+        if let Some(condensed) = reporters::detect_and_condense(cmd, &lines) {
+            return condensed;
+        }
         let lines = smart_filter::apply(lines);
         let filtered: Vec<String> = lines
             .into_iter()

@@ -304,6 +304,41 @@ fn make_jest_failures() -> String {
     out
 }
 
+fn make_cargo_test_failures() -> String {
+    let mut out = String::new();
+    out.push_str("running 203 tests\n");
+    for i in 0..200 {
+        let module = ["parser", "config", "cache", "hash", "wrap"][i % 5];
+        out.push_str(&format!("test {}::test_case_{} ... ok\n", module, i));
+    }
+    out.push_str("test context::redundancy::test_fuzzy_match ... FAILED\n");
+    out.push_str("test economy::preservation::test_threshold ... FAILED\n");
+    out.push_str("test session::test_overhead_accounting ... FAILED\n");
+    out.push_str("\nfailures:\n\n");
+    out.push_str("---- context::redundancy::test_fuzzy_match stdout ----\n");
+    out.push_str("thread 'context::redundancy::test_fuzzy_match' panicked at src/context/redundancy.rs:88:9:\n");
+    out.push_str("assertion `left == right` failed\n");
+    out.push_str("  left: 0.72\n");
+    out.push_str(" right: 0.85\n");
+    out.push_str("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n");
+    out.push_str("---- economy::preservation::test_threshold stdout ----\n");
+    out.push_str("thread 'economy::preservation::test_threshold' panicked at src/economy/preservation.rs:41:5:\n");
+    out.push_str("assertion failed: score >= QUALITY_PASS_THRESHOLD\n");
+    out.push_str("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n");
+    out.push_str("---- session::test_overhead_accounting stdout ----\n");
+    out.push_str("thread 'session::test_overhead_accounting' panicked at src/session.rs:120:13:\n");
+    out.push_str("assertion `left == right` failed\n");
+    out.push_str("  left: 60\n");
+    out.push_str(" right: 45\n");
+    out.push_str("note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n");
+    out.push_str("\nfailures:\n");
+    out.push_str("    context::redundancy::test_fuzzy_match\n");
+    out.push_str("    economy::preservation::test_threshold\n");
+    out.push_str("    session::test_overhead_accounting\n\n");
+    out.push_str("test result: FAILED. 200 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s\n");
+    out
+}
+
 fn make_agent_heavy() -> String {
     let mut out = String::new();
     // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
@@ -1266,6 +1301,21 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         content: make_jest_failures(),
         required_keywords: vec!["FAIL".to_string(), "failed".to_string()],
         quality_mode: QualityMode::Signal,
+    });
+    // cargo_test_failures: exercises the structured reporter in
+    // src/commands/reporters/cargo_test.rs — format changes shape (FAIL n/m
+    // header + per-test panic detail) so quality is Keywords, not Signal.
+    s.push(Scenario {
+        name: "cargo_test_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "cargo test".to_string() },
+        content: make_cargo_test_failures(),
+        required_keywords: vec![
+            "context::redundancy::test_fuzzy_match".to_string(),
+            "economy::preservation::test_threshold".to_string(),
+            "session::test_overhead_accounting".to_string(),
+        ],
+        quality_mode: QualityMode::Keywords,
     });
     // curl HTML response: minified SSR page — validates NetworkHandler HTML stripping.
     // Quality: Keywords only (tags are stripped; no surviving HTML terms expected).
