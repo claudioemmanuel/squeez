@@ -39,6 +39,13 @@ fn detect(cmd: &str) -> Box<dyn Handler> {
             }
         }
         "jest" | "vitest" | "pytest" | "py.test" | "nextest" => Box::new(TestRunnerHandler),
+        "go" => {
+            if cmd.split_whitespace().any(|a| a == "test") {
+                Box::new(TestRunnerHandler)
+            } else {
+                Box::new(GenericHandler)
+            }
+        }
         "playwright" => Box::new(PlaywrightHandler),
         "tsc" | "eslint" | "biome" => Box::new(TypescriptHandler),
         "make" | "cmake" | "gradle" | "mvn" | "xcodebuild" => Box::new(BuildHandler),

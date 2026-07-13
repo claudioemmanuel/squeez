@@ -379,6 +379,40 @@ fn make_jest_json_failures() -> String {
     out
 }
 
+fn make_go_test_ndjson_failures() -> String {
+    let mut out = String::new();
+    let pkgs = [
+        "github.com/example/svc/auth",
+        "github.com/example/svc/billing",
+        "github.com/example/svc/cache",
+        "github.com/example/svc/config",
+        "github.com/example/svc/hash",
+        "github.com/example/svc/router",
+        "github.com/example/svc/search",
+        "github.com/example/svc/session",
+    ];
+    for pkg in &pkgs {
+        for i in 0..20 {
+            let name = format!("TestCase{}", i);
+            out.push_str(&format!(
+                "{{\"Action\":\"run\",\"Package\":\"{}\",\"Test\":\"{}\"}}\n",
+                pkg, name
+            ));
+            out.push_str(&format!(
+                "{{\"Action\":\"pass\",\"Package\":\"{}\",\"Test\":\"{}\",\"Elapsed\":0.01}}\n",
+                pkg, name
+            ));
+        }
+        out.push_str(&format!("{{\"Action\":\"pass\",\"Package\":\"{}\",\"Elapsed\":0.2}}\n", pkg));
+    }
+    out.push_str("{\"Action\":\"run\",\"Package\":\"github.com/example/svc/redundancy\",\"Test\":\"TestFuzzyMatch\"}\n");
+    out.push_str("{\"Action\":\"output\",\"Package\":\"github.com/example/svc/redundancy\",\"Test\":\"TestFuzzyMatch\",\"Output\":\"--- FAIL: TestFuzzyMatch (0.00s)\\n\"}\n");
+    out.push_str("{\"Action\":\"output\",\"Package\":\"github.com/example/svc/redundancy\",\"Test\":\"TestFuzzyMatch\",\"Output\":\"    redundancy_test.go:88: got 0.72, want 0.85\\n\"}\n");
+    out.push_str("{\"Action\":\"fail\",\"Package\":\"github.com/example/svc/redundancy\",\"Test\":\"TestFuzzyMatch\",\"Elapsed\":0.00}\n");
+    out.push_str("{\"Action\":\"fail\",\"Package\":\"github.com/example/svc/redundancy\",\"Elapsed\":0.01}\n");
+    out
+}
+
 fn make_agent_heavy() -> String {
     let mut out = String::new();
     // Simulate an agent-heavy Claude Code session: many sub-agent spawns, each producing
@@ -1374,6 +1408,19 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         required_keywords: vec![
             "API client should retry on 503".to_string(),
             "formatCurrency should handle negative values".to_string(),
+        ],
+        quality_mode: QualityMode::Keywords,
+    });
+    // go_test_ndjson_failures: exercises src/commands/reporters/go_test_ndjson.rs
+    // -- one JSON event per line, package/test aggregation.
+    s.push(Scenario {
+        name: "go_test_ndjson_failures".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "go test -json ./...".to_string() },
+        content: make_go_test_ndjson_failures(),
+        required_keywords: vec![
+            "redundancy::TestFuzzyMatch".to_string(),
+            "got 0.72, want 0.85".to_string(),
         ],
         quality_mode: QualityMode::Keywords,
     });
