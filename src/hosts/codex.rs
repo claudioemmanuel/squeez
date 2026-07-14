@@ -69,6 +69,9 @@ if not isinstance(hooks, dict):
     hooks = {}
     settings["hooks"] = hooks
 
+def is_managed_hook(command, script_name):
+    return os.path.normpath(str(command)) == os.path.normpath(os.path.join(hooks_dir, script_name))
+
 def ensure_entry(event, matcher, script_name, timeout_ms):
     arr = hooks.get(event)
     if not isinstance(arr, list):
@@ -77,7 +80,7 @@ def ensure_entry(event, matcher, script_name, timeout_ms):
     for m in arr:
         try:
             for h in m.get("hooks", []):
-                if "squeez" in str(h.get("command", "")):
+                if is_managed_hook(h.get("command", ""), script_name):
                     return
         except Exception:
             continue
@@ -110,6 +113,7 @@ const UNPATCH_SCRIPT: &str = r#"
 import json, os, shutil, sys
 
 path = sys.argv[1]
+hooks_dir = sys.argv[2]
 if not os.path.exists(path):
     sys.exit(0)
 try:
@@ -123,6 +127,12 @@ except Exception as e:
 if not isinstance(settings, dict):
     sys.exit(0)
 
+managed = {
+    os.path.normpath(os.path.join(hooks_dir, "codex-session-start.sh")),
+    os.path.normpath(os.path.join(hooks_dir, "codex-pretooluse.sh")),
+    os.path.normpath(os.path.join(hooks_dir, "codex-posttooluse.sh")),
+}
+
 hooks = settings.get("hooks")
 if isinstance(hooks, dict):
     for event in ("SessionStart", "PreToolUse", "PostToolUse"):
@@ -130,7 +140,7 @@ if isinstance(hooks, dict):
         if isinstance(arr, list):
             hooks[event] = [
                 m for m in arr
-                if not any("squeez" in str(h.get("command", "")) for h in m.get("hooks", []))
+                if not any(os.path.normpath(str(h.get("command", ""))) in managed for h in m.get("hooks", []))
             ]
             if not hooks[event]:
                 del hooks[event]
@@ -231,12 +241,18 @@ impl HostAdapter for CodexCliAdapter {
 
     fn uninstall(&self) -> std::io::Result<()> {
         let hooks_dir = Self::hooks_dir();
-        if hooks_dir.exists() {
-            let _ = std::fs::remove_dir_all(&hooks_dir);
-        }
         let hooks_json = Self::hooks_json_path();
         if hooks_json.exists() {
-            Self::run_python(UNPATCH_SCRIPT, &[hooks_json.to_str().unwrap_or("")])?;
+            Self::run_python(
+                UNPATCH_SCRIPT,
+                &[
+                    hooks_json.to_str().unwrap_or(""),
+                    hooks_dir.to_str().unwrap_or(""),
+                ],
+            )?;
+        }
+        if hooks_dir.exists() {
+            let _ = std::fs::remove_dir_all(&hooks_dir);
         }
         let agents = Self::agents_md_path();
         if agents.exists() {
@@ -273,9 +289,8 @@ impl HostAdapter for CodexCliAdapter {
         if summaries.is_empty() {
             block.push_str("- No prior sessions recorded yet.\n");
         }
-        // Soft budget hint — updatedInput is explicitly unsupported in Codex
-        // and read_file/grep have no hook surface (openai/codex#18491), so we
-        // nudge the model via AGENTS.md prose.
+        // Runtime coverage for non-shell local tools is not yet confirmed here,
+        // so Read/Grep budget enforcement remains a conservative prose hint.
         block.push_str(&format!(
             "\n## Tool-output budget (soft enforcement)\nWhen using read_file / grep, cap output to ~{} lines unless the user explicitly asks for more.\nWhen using apply_patch on large files, target minimal diffs instead of rewriting whole files.\n",
             cfg.read_max_lines
@@ -294,15 +309,16 @@ impl HostAdapter for CodexCliAdapter {
 }
 
 fn strip_squeez_block(s: &str) -> String {
-    if !s.contains("<!-- squeez:start -->") {
+    let Some(start) = s.find("<!-- squeez:start -->") else {
         return s.to_string();
-    }
-    let start = s.find("<!-- squeez:start -->").unwrap_or(0);
-    let end = s
+    };
+    let after_start = start + "<!-- squeez:start -->".len();
+    let end = s[after_start..]
         .find("<!-- squeez:end -->")
-        .map(|i| i + "<!-- squeez:end -->".len() + 1)
-        .unwrap_or(start);
-    format!("{}{}", &s[..start], &s[end.min(s.len())..])
+        .map(|i| after_start + i + "<!-- squeez:end -->".len())
+        .map(|i| if s.as_bytes().get(i) == Some(&b'\n') { i + 1 } else { i })
+        .unwrap_or(s.len());
+    format!("{}{}", &s[..start], &s[end..])
 }
 
 #[cfg(test)]
@@ -316,5 +332,20 @@ mod tests {
         assert!(!out.contains("<!-- squeez:start -->"));
         assert!(out.contains("# repo rules"));
         assert!(out.contains("## after"));
+    }
+
+    #[test]
+    fn strip_squeez_block_removes_unterminated_block_to_eof() {
+        let s = "# repo rules\n<!-- squeez:start -->\npartial block\n";
+        assert_eq!(strip_squeez_block(s), "# repo rules\n");
+    }
+
+    #[test]
+    fn strip_squeez_block_ignores_orphan_end_before_real_block() {
+        let s = "<!-- squeez:end -->\nkeep\n<!-- squeez:start -->\ndrop\n<!-- squeez:end -->\nafter\n";
+        let out = strip_squeez_block(s);
+        assert!(out.contains("<!-- squeez:end -->\nkeep\n"));
+        assert!(out.ends_with("after\n"));
+        assert!(!out.contains("drop"));
     }
 }
