@@ -2,11 +2,11 @@
 # squeez Codex CLI PreToolUse hook — rewrites bash/shell commands with
 # `squeez wrap` before execution.
 #
-# Hook surface as of Codex 0.123.0: apply_patch now emits PreToolUse/PostToolUse
-# (openai/codex#18391), but updatedInput is explicitly rejected by the runtime
-# and read_file/grep still have no hook surface (openai/codex#18491).
-# Soft budget for read_file/grep is communicated via ~/.codex/AGENTS.md,
-# written by `squeez init --host=codex`.
+# Hook surface as of Codex 0.144.0: apply_patch and ordinary local function
+# tools emit hooks, and PreToolUse updatedInput rewrites are supported when
+# paired with permissionDecision=allow. This hook intentionally rewrites only
+# shell-like tools; Read/Grep limits remain soft guidance in ~/.codex/AGENTS.md
+# until their live tool shapes are verified.
 #
 # Registered in ~/.codex/hooks.json under hooks.PreToolUse.
 set -euo pipefail
@@ -42,7 +42,7 @@ if not cmd or not isinstance(cmd, str):
 squeez = os.environ['SQUEEZ_BIN']
 if cmd.startswith(squeez) or 'squeez wrap' in cmd:
     sys.exit(0)
-if cmd.startswith('--no-squeez'):
+if cmd == '--no-squeez' or cmd.startswith('--no-squeez '):
     inp['command'] = cmd[len('--no-squeez'):].lstrip()
     print(json.dumps({
         'hookSpecificOutput': {
@@ -65,7 +65,6 @@ inp['command'] = squeez + ' wrap ' + shlex.quote(cmd)
 # Current Codex requires the rewrite nested under hookSpecificOutput with
 # permissionDecision 'allow'; the older top-level {'decision','updatedInput'}
 # shape is rejected ('hook returned invalid pre-tool-use JSON output').
-# updatedInput for non-Bash tools is still unsupported (openai/codex#18491).
 print(json.dumps({
     'hookSpecificOutput': {
         'hookEventName': 'PreToolUse',
