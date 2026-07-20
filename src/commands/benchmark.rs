@@ -1305,6 +1305,65 @@ fn make_agent_directory_output() -> String {
     out
 }
 
+/// Bare `az` output: a single-line ~50 KB JSON object (az emits JSON by default
+/// with no format flag). Deep and non-uniform → TOON declines → validates the
+/// content-sniff keys+ids condensation in CloudHandler (S2.2). Carries exact ids
+/// (work-item id, commit sha, version) the sketch must preserve.
+fn make_az_json() -> String {
+    let mut out = String::with_capacity(52_000);
+    out.push_str("{\"id\":98765432,\"rev\":7,\"fields\":{\"System.Title\":\"Fix pipeline\",");
+    out.push_str("\"System.State\":\"Active\",\"System.AssignedTo\":\"dev@vibra.com\"},");
+    out.push_str("\"commit\":\"a1b2c3d4e5f6789\",\"version\":\"v1.37.1\",\"_links\":{");
+    for i in 0..1200 {
+        out.push_str(&format!(
+            "\"rel_{}\":{{\"href\":\"https://dev.azure.com/org/proj/_apis/wit/workItems/{}\"}},",
+            i,
+            10000 + i
+        ));
+    }
+    out.push_str("\"self\":{\"href\":\"https://dev.azure.com/org\"}}}");
+    out
+}
+
+/// Bare `curl` success body: a single-line ~40 KB JSON API response with no
+/// --json flag. Validates the NetworkHandler content-sniff condensation (S2.2).
+fn make_curl_json() -> String {
+    let mut out = String::with_capacity(42_000);
+    out.push_str("{\"status\":\"ok\",\"request_id\":\"deadbeef12345678cafe\",\"data\":[");
+    for i in 0..900 {
+        out.push_str(&format!(
+            "{{\"user_id\":{},\"email\":\"user{}@example.com\",\"token\":\"tok_{:08x}\",\"active\":true}},",
+            1000 + i,
+            i,
+            i * 7919
+        ));
+    }
+    out.push_str("{\"user_id\":0,\"email\":\"x@x\",\"token\":\"tok_00000000\",\"active\":false}]}");
+    out
+}
+
+/// `next build` output: route table plus chunk sizes and a couple of warnings.
+/// Validates routing of `next build` to the next_build handler (pairs with S4.1).
+fn make_next_build() -> String {
+    let mut out = String::with_capacity(8_000);
+    out.push_str("   ▲ Next.js 16.0.1\n\n   Creating an optimized production build ...\n");
+    out.push_str(" ✓ Compiled successfully\n   Linting and checking validity of types ...\n");
+    out.push_str(" ✓ Collecting page data\n ✓ Generating static pages (48/48)\n\n");
+    out.push_str("Route (app)                              Size     First Load JS\n");
+    for i in 0..48 {
+        out.push_str(&format!(
+            "┌ ○ /route/segment-{:<20} {:>4} kB       {:>4} kB\n",
+            i,
+            2 + i % 30,
+            90 + i % 40
+        ));
+    }
+    out.push_str("+ First Load JS shared by all            88.4 kB\n\n");
+    out.push_str("warning: Using edge runtime on a page currently disables static generation\n");
+    out.push_str("○  (Static)   prerendered as static content\n");
+    out
+}
+
 // ─── Scenario construction ────────────────────────────────────────────────────
 
 fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
@@ -1508,6 +1567,35 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         kind: ScenarioKind::Filter { hint: "bash".to_string() },
         content: make_agent_directory_output(),
         required_keywords: vec!["app".to_string()],
+        quality_mode: QualityMode::Keywords,
+    });
+    // az_json: bare `az` single-line ~50 KB JSON (no flag) — validates the S2.2
+    // content-sniff condensation that keeps exact ids for a deep object TOON declines.
+    s.push(Scenario {
+        name: "az_json".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "az pipelines runs show".to_string() },
+        content: make_az_json(),
+        required_keywords: vec!["a1b2c3d4e5f6789".to_string()],
+        quality_mode: QualityMode::Keywords,
+    });
+    // curl_json: bare `curl` single-line ~40 KB success body (no --json flag) —
+    // validates the S2.2 NetworkHandler content-sniff condensation.
+    s.push(Scenario {
+        name: "curl_json".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "curl https://api.example.com/users".to_string() },
+        content: make_curl_json(),
+        required_keywords: vec!["deadbeef12345678cafe".to_string()],
+        quality_mode: QualityMode::Keywords,
+    });
+    // next_build: `next build` route table + chunk sizes — validates S4.1 routing.
+    s.push(Scenario {
+        name: "next_build_output".to_string(),
+        category: "bash_output".to_string(),
+        kind: ScenarioKind::Filter { hint: "next build".to_string() },
+        content: make_next_build(),
+        required_keywords: vec!["First Load JS".to_string()],
         quality_mode: QualityMode::Keywords,
     });
 
