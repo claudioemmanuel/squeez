@@ -263,8 +263,9 @@ impl HostAdapter for GeminiCliAdapter {
         block.push_str("## squeez — session context\n");
         let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
         block.push_str(&format!(
-            "Context budget: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}\n",
+            "Context budget: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}\n",
             budget_k,
+            cfg.compression_status_label(),
             persona::as_str(cfg.persona)
         ));
         for s in summaries {

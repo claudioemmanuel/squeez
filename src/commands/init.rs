@@ -153,9 +153,10 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     let summaries = memory::read_last_n(memory_dir, 3);
     println!("─── squeez active ─────────────────────────────────────────");
     println!(
-        "{}: ~{}K tokens | Compression: ON | Memory: ON | Persona: {}",
+        "{}: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}",
         budget_label,
         budget_k,
+        config.compression_status_label(),
         persona::as_str(config.persona)
     );
     for (i, s) in summaries.iter().enumerate() {

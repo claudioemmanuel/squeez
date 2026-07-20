@@ -547,11 +547,36 @@ impl Config {
     pub fn should_wrap_bash(&self, cmd: &str) -> bool {
         self.enabled && self.wrap_bash && !self.is_bypassed(cmd) && !self.is_risky(cmd)
     }
+
+    /// Compression status for session banners. Derived from the real config so
+    /// a disabled pipeline can never report itself as ON — `enabled=false` sat
+    /// unnoticed for days behind a hardcoded "Compression: ON" banner.
+    pub fn compression_status_label(&self) -> String {
+        if !self.enabled {
+            "OFF (enabled=false — run `squeez config set enabled true`)".to_string()
+        } else if !self.wrap_bash {
+            "PARTIAL (wrap_bash=false)".to_string()
+        } else {
+            "ON".to_string()
+        }
+    }
 }
 
 #[cfg(test)]
 mod wrap_safety_tests {
     use super::*;
+
+    #[test]
+    fn compression_status_reflects_config() {
+        let mut c = Config::default();
+        assert_eq!(c.compression_status_label(), "ON");
+        c.wrap_bash = false;
+        assert_eq!(c.compression_status_label(), "PARTIAL (wrap_bash=false)");
+        c.enabled = false;
+        assert!(c.compression_status_label().starts_with("OFF (enabled=false"));
+        c.wrap_bash = true;
+        assert!(c.compression_status_label().starts_with("OFF (enabled=false"));
+    }
 
     #[test]
     fn risky_commands_are_not_wrapped() {
