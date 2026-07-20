@@ -39,7 +39,21 @@ pub fn budget_for(cfg: &Config, real_ctx_window: u64) -> u64 {
     if real_ctx_window > 0 {
         return real_ctx_window;
     }
-    cfg.compact_threshold_tokens.saturating_mul(5) / 4
+    // `compact_threshold_tokens == 0` is the explicit "misconfigured budget"
+    // sentinel → keep the always-Ultra safety fallback.
+    if cfg.compact_threshold_tokens == 0 {
+        return 0;
+    }
+    // Nothing pinned and nothing observed yet: floor the window at the modern
+    // Claude minimum (200K) instead of the legacy compact-threshold formula,
+    // which yielded ~112K for the default 90K threshold and made squeez warn
+    // "critical context" and over-compress on 200K/1M-window models before any
+    // transcript signal arrived. The real window still wins the moment it's
+    // detected; an explicit context_window_tokens still overrides everything.
+    cfg.compact_threshold_tokens
+        .saturating_mul(5)
+        .saturating_div(4)
+        .max(crate::context::transcript::STANDARD_WINDOW)
 }
 
 /// Legacy constants kept for any callers that imported them by name before phase 5.
@@ -200,6 +214,20 @@ mod tests {
         // Misconfigured (budget=0) — old behavior preserved.
         assert_eq!(derive(0, &c), Intensity::Ultra);
         assert_eq!(derive(1000, &c), Intensity::Ultra);
+    }
+
+    #[test]
+    fn default_budget_floors_at_modern_window() {
+        // With nothing pinned/observed, the fallback budget is the modern 200K
+        // window minimum, not the legacy ~112K (which fired false "critical
+        // context" warnings on 200K/1M models). Default compact_threshold is
+        // 90K → legacy formula 112.5K → floored to 200K.
+        let mut c = cfg();
+        c.context_window_tokens = 0;
+        c.compact_threshold_tokens = 90_000;
+        assert_eq!(budget(&c), crate::context::transcript::STANDARD_WINDOW);
+        // 100K used is 50% of 200K → still Full, not the old always-critical.
+        assert_eq!(derive(100_000, &c), Intensity::Full);
     }
 
     #[test]
