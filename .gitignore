@@ -13,3 +13,6 @@ bench/report_context.md
 docs/
 # fablize skill progress files (session-local harness state)
 .fablize/
+
+# compress-md backups (generated when squeez compresses a markdown file)
+*.original.md
