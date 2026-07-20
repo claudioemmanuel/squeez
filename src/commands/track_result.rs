@@ -197,18 +197,11 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         }
         // Sub-agent oversized-result guard (transcript audit OF-1): a large
         // result returned into the parent rides in the prefix for every
-        // remaining turn. Audit case: one 24.5K-token plan ≈ 9% of all
-        // cache-read tokens for the session.
-        if tool == "SubagentStop"
-            && cfg.subagent_result_warn_tokens > 0
-            && tokens as usize > cfg.subagent_result_warn_tokens
-        {
-            ctx.queue_warning(&format!(
-                "sub-agent returned ~{}K tokens into the parent context — \
-                 prefer writing detail to a file and returning a ≤2K summary + path",
-                (tokens / 1000).max(1)
-            ));
-        }
+        // remaining turn. The advisory now rides in `additionalContext` emitted
+        // by `compress-output SubagentStop` (immediate at Stop, no dependence on
+        // a following bash call) rather than a queued bash warning — see
+        // compress_output::subagent_advisory. Kept out of this path to avoid
+        // double-delivery of the same nudge.
         // Cross-agent duplicate file reads (audit finding E1 / C2): when
         // multiple parallel agents independently read the same codebase files,
         // each re-creates context for content already available. Detect via
@@ -434,19 +427,26 @@ mod tests {
     }
 
     #[test]
-    fn subagent_big_result_queues_warning() {
+    fn subagent_big_result_does_not_queue_bash_warning() {
+        // The oversized-subagent advisory moved to `additionalContext` emitted by
+        // `compress-output SubagentStop` (see compress_output::subagent_advisory),
+        // so track-result must NOT also queue a bash warning for it — that would
+        // double-deliver the same nudge. A plain oversized return with no
+        // agent_id/files leaves pending_warnings empty here.
         let dir = tmp();
         let cfg = Config::default(); // subagent_result_warn_tokens = 3000
-        // ~16K chars ≈ 4K tokens > 3K threshold.
-        let big = "word ".repeat(3_300);
+        let big = "word ".repeat(3_300); // ~16K chars ≈ 4K tokens > 3K
         let json = format!(
             r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
             big.trim()
         );
         run_with_dir_cfg("SubagentStop", &json, &dir, &cfg);
         let ctx = SessionContext::load(&dir);
-        assert_eq!(ctx.pending_warnings.len(), 1);
-        assert!(ctx.pending_warnings[0].contains("sub-agent returned"));
+        assert!(
+            !ctx.pending_warnings.iter().any(|w| w.contains("sub-agent returned")),
+            "oversized advisory must not ride the bash queue: {:?}",
+            ctx.pending_warnings
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

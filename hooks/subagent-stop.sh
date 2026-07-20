@@ -37,6 +37,11 @@ except Exception:
 
 if [ -n "$wrapped" ]; then
     printf '%s' "$wrapped" | "$SQUEEZ" track-result SubagentStop 2>/dev/null || true
+    # Emit an `additionalContext` advisory when the sub-agent returned an
+    # oversized result. SubagentStop cannot rewrite the returned message (no
+    # updatedToolOutput for Stop-family events), so this only nudges future
+    # sub-agents to return a summary + file path. stdout is read by the host.
+    printf '%s' "$wrapped" | "$SQUEEZ" compress-output SubagentStop 2>/dev/null || true
 fi
 
 # Track sub-agent spawn cost (~200K tokens/spawn heuristic, size=0 for now)

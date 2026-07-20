@@ -31,10 +31,55 @@ pub fn run(tool: &str) -> i32 {
 }
 
 pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32 {
+    // SubagentStop can't rewrite the sub-agent's returned message (the platform
+    // has no `updatedToolOutput` for Stop-family events — verified against the
+    // hooks reference), so token-saving condensation is impossible here: the
+    // message flows to the parent unchanged. The one supported lever is
+    // `additionalContext` — used to append a one-shot behavioral nudge steering
+    // future sub-agents to return a small summary + file path instead of a wall
+    // of text. Never touches the message itself.
+    if tool == "SubagentStop" {
+        if let Some(msg) = subagent_advisory(raw, cfg) {
+            println!("{}", render_additional_context("SubagentStop", &msg));
+        }
+        return 0;
+    }
     if let Some(out) = compute_rewrite(raw, tool, sessions_dir, cfg) {
         println!("{}", render_updated_output(raw, tool, &out));
     }
     0
+}
+
+/// Behavioral advisory for an oversized sub-agent return. `None` unless the
+/// returned content exceeds `subagent_result_warn_tokens` (0 disables). The
+/// message rides in `additionalContext`, not the sub-agent output — it cannot
+/// shrink this return, only discourage the next one from being huge.
+pub fn subagent_advisory(raw: &str, cfg: &Config) -> Option<String> {
+    if cfg.subagent_result_warn_tokens == 0 {
+        return None;
+    }
+    let content = extract_content(raw).filter(|c| !c.trim().is_empty())?;
+    let tokens = content.len() / 4;
+    if tokens <= cfg.subagent_result_warn_tokens {
+        return None;
+    }
+    Some(format!(
+        "[squeez: sub-agent returned ~{}K tokens into the parent context, which \
+         rides in the prefix every remaining turn — next time have the sub-agent \
+         write detail to a file and return a <=2K summary + path]",
+        (tokens / 1000).max(1)
+    ))
+}
+
+/// Render an `additionalContext` hookSpecificOutput payload for a Stop-family
+/// event (SubagentStop/Stop). Unlike `updatedToolOutput`, this appends context
+/// rather than replacing tool output.
+fn render_additional_context(event: &str, msg: &str) -> String {
+    format!(
+        r#"{{"hookSpecificOutput":{{"hookEventName":"{}","additionalContext":"{}"}}}}"#,
+        event,
+        json_escape(msg)
+    )
 }
 
 /// Core logic: returns the rewritten content string if compression applies,
@@ -653,5 +698,50 @@ mod tests {
     fn strip_edit_preamble_helper_handles_missing_anchor() {
         assert!(strip_edit_preamble("just a plain message").is_none());
         assert!(strip_edit_preamble("").is_none());
+    }
+
+    #[test]
+    fn subagent_advisory_fires_above_threshold_only() {
+        let cfg = Config::default(); // subagent_result_warn_tokens = 3000
+        // ~5K tokens (20K chars) > 3K → advisory.
+        let big = "word ".repeat(4_000);
+        let json = format!(
+            r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
+            big.trim()
+        );
+        let a = subagent_advisory(&json, &cfg).expect("advisory expected");
+        assert!(a.contains("sub-agent returned"));
+        assert!(a.contains("summary + path"));
+        // Small return → no advisory.
+        let small = r#"{"tool_name":"SubagentStop","tool_result":{"content":"done: no issues"}}"#;
+        assert!(subagent_advisory(small, &cfg).is_none());
+    }
+
+    #[test]
+    fn subagent_advisory_disabled_when_threshold_zero() {
+        let mut cfg = Config::default();
+        cfg.subagent_result_warn_tokens = 0;
+        let big = "word ".repeat(4_000);
+        let json = format!(
+            r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
+            big.trim()
+        );
+        assert!(subagent_advisory(&json, &cfg).is_none());
+    }
+
+    #[test]
+    fn subagent_stop_emits_additional_context_not_updated_output() {
+        // SubagentStop uses additionalContext (append), never updatedToolOutput
+        // (replace) — the sub-agent message can't be rewritten.
+        let big = "word ".repeat(4_000);
+        let msg = subagent_advisory(
+            &format!(r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#, big.trim()),
+            &Config::default(),
+        )
+        .unwrap();
+        let out = render_additional_context("SubagentStop", &msg);
+        assert!(out.contains(r#""hookEventName":"SubagentStop""#));
+        assert!(out.contains(r#""additionalContext""#));
+        assert!(!out.contains("updatedToolOutput"));
     }
 }
