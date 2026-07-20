@@ -69,6 +69,9 @@ fn detect(cmd: &str) -> (Box<dyn Handler>, &'static str) {
         "next" => {
             if cmd.contains("build") || cmd.contains("dev") || cmd.contains("start") {
                 (Box::new(NextBuildHandler), "next_build")
+            } else if cmd.contains("lint") {
+                // `next lint` wraps eslint — route to the eslint/tsc handler.
+                (Box::new(TypescriptHandler), "typescript")
             } else {
                 (Box::new(GenericHandler), "generic")
             }

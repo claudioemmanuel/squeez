@@ -132,3 +132,21 @@ fn unknown_command_still_returns_output() {
     );
     assert!(!out.is_empty(), "unknown commands should fall through to GenericHandler");
 }
+
+#[test]
+fn next_lint_routes_to_typescript_handler() {
+    // `next lint` wraps eslint; with eslint --format json output the
+    // structured reporter must condense it (GenericHandler would pass the
+    // raw JSON through untouched).
+    let json = r#"[{"filePath":"/app/page.tsx","messages":[{"ruleId":"no-unused-vars","severity":2,"message":"'x' is defined but never used.","line":3,"column":7}],"errorCount":1,"warningCount":0}]"#;
+    let out = filter::compress("next lint --format json", lines(json), &cfg());
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("no-unused-vars"),
+        "eslint reporter should keep the rule id, got: {joined}"
+    );
+    assert!(
+        !joined.contains("filePath\":"),
+        "raw JSON should have been condensed, got: {joined}"
+    );
+}

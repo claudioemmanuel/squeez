@@ -14,7 +14,9 @@ const MAX_RULE_GROUPS_PER_FILE: usize = 20;
 const MAX_CLEAN_FILES_NAMED: usize = 20;
 
 pub fn condense(cmd: &str, lines: &[String]) -> Option<Vec<String>> {
-    if !cmd.to_ascii_lowercase().contains("eslint") {
+    let lower = cmd.to_ascii_lowercase();
+    // `next lint` wraps eslint and emits the same JSON with --format json.
+    if !lower.contains("eslint") && !lower.contains("next lint") {
         return None;
     }
     let joined = lines.join("\n");
