@@ -203,6 +203,14 @@ pub struct SessionContext {
     pub image_fp: Vec<u64>,
     /// `call_n` of the FIRST sighting for each image fingerprint.
     pub image_call: Vec<u64>,
+    // ── Repeated-screenshot advisory (S3.2) ─────────────────────────────────
+    /// FNV-1a-64 of the normalized URL (host + path, no query/fragment) for each
+    /// browser screenshot/navigate seen this session. Parallel to `shot_url_ts`.
+    /// Never touches image bytes — this is a pure policy nudge to prefer
+    /// read_page over re-screenshotting an already-loaded page.
+    pub shot_url_fp: Vec<u64>,
+    /// Unix timestamp of the most recent screenshot for each `shot_url_fp`.
+    pub shot_url_ts: Vec<u64>,
     // ── Workflow abuse prevention ────────────────────────────────────────────
     /// Unix timestamp of the last track_result call. Used to detect idle
     /// periods where the 5-min ephemeral cache may have expired. 0 = no
@@ -275,6 +283,8 @@ impl Default for SessionContext {
             calls_minute_ts: 0,
             pending_warnings: Vec::new(),
             image_fp: Vec::new(),
+            shot_url_fp: Vec::new(),
+            shot_url_ts: Vec::new(),
             image_call: Vec::new(),
             last_activity_ts: 0,
             subagent_file_map_ids: Vec::new(),
@@ -392,6 +402,34 @@ impl SessionContext {
         self.image_fp.push(fp);
         self.image_call.push(call_n);
         call_n
+    }
+
+    /// Record a browser screenshot of `url` at time `now`. Returns
+    /// `Some(elapsed_secs)` exactly once per URL per session when the same page
+    /// is screenshotted again within `window_secs` of the previous shot — the
+    /// caller turns that into a one-shot advisory to prefer `read_page` over
+    /// re-capturing an already-loaded page. Never touches image bytes.
+    /// `window_secs == 0` disables the advisory. The URL store is capped.
+    pub fn record_screenshot(&mut self, url: &str, now: u64, window_secs: u64) -> Option<u64> {
+        const MAX_SHOT_URLS: usize = 64;
+        let fp = normalize_url_fp(url);
+        if let Some(i) = self.shot_url_fp.iter().position(|&f| f == fp) {
+            let prev = self.shot_url_ts[i];
+            self.shot_url_ts[i] = now;
+            let elapsed = now.saturating_sub(prev);
+            if window_secs > 0 && elapsed <= window_secs && self.mark_nudged(&format!("shot:{fp}")) {
+                return Some(elapsed);
+            }
+            None
+        } else {
+            if self.shot_url_fp.len() >= MAX_SHOT_URLS {
+                self.shot_url_fp.remove(0);
+                self.shot_url_ts.remove(0);
+            }
+            self.shot_url_fp.push(fp);
+            self.shot_url_ts.push(now);
+            None
+        }
     }
 
     /// Queue a warning for the next `squeez wrap` invocation to print.
@@ -871,6 +909,27 @@ pub fn is_quota_error(s: &str) -> bool {
         || l.contains("plan limit")
 }
 
+// ── Screenshot URL normalization (S3.2) ─────────────────────────────────────
+
+/// Strip a URL down to `host/path` (drop scheme, `www.`, query, fragment, and a
+/// trailing slash) so `https://app.co/x?t=1#a` and `http://app.co/x` compare
+/// equal — a re-screenshot after a benign query/hash change is still a repeat.
+pub fn normalize_url_path(url: &str) -> String {
+    let u = url.trim();
+    let after_scheme = u.split("://").nth(1).unwrap_or(u);
+    let no_query = after_scheme
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let no_www = no_query.strip_prefix("www.").unwrap_or(no_query);
+    no_www.trim_end_matches('/').to_string()
+}
+
+/// FNV-1a-64 of the normalized `host/path` — the per-URL screenshot key.
+pub fn normalize_url_fp(url: &str) -> u64 {
+    crate::context::hash::fnv1a_64(normalize_url_path(url).as_bytes())
+}
+
 // ── Error normalization ────────────────────────────────────────────────────
 
 /// Normalize an error string before hashing for fingerprinting:
@@ -1008,6 +1067,7 @@ impl SessionContext {
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
 \"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
+\"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
 \"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\
 \"flag_force_failed\":{}}}",
@@ -1062,6 +1122,8 @@ impl SessionContext {
             json_util::str_array(&self.pending_warnings),
             json_util::u64_array(&self.image_fp),
             json_util::u64_array(&self.image_call),
+            json_util::u64_array(&self.shot_url_fp),
+            json_util::u64_array(&self.shot_url_ts),
             self.last_activity_ts,
             json_util::str_array(&self.subagent_file_map_ids),
             json_util::str_array(&self.subagent_file_map_paths),
@@ -1235,6 +1297,13 @@ impl SessionContext {
         let im_len = im_fp.len().min(im_call.len());
         c.image_fp = im_fp.iter().take(im_len).copied().collect();
         c.image_call = im_call.iter().take(im_len).copied().collect();
+        // Repeated-screenshot advisory (S3.2) — optional for backward compat;
+        // absent keys deserialize to empty, so old context.json loads cleanly.
+        let su_fp = json_util::map_u64_array(&map, "shot_url_fp");
+        let su_ts = json_util::map_u64_array(&map, "shot_url_ts");
+        let su_len = su_fp.len().min(su_ts.len());
+        c.shot_url_fp = su_fp.iter().take(su_len).copied().collect();
+        c.shot_url_ts = su_ts.iter().take(su_len).copied().collect();
 
         // Workflow abuse prevention — optional for backward compat.
         c.last_activity_ts = json_util::map_u64(&map, "last_activity_ts").unwrap_or(0);
@@ -1548,5 +1617,50 @@ mod tests {
         assert_eq!(loaded.call_log.len(), 1);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normalize_url_path_strips_scheme_query_and_www() {
+        assert_eq!(normalize_url_path("https://app.co/x?t=1#a"), "app.co/x");
+        assert_eq!(normalize_url_path("http://app.co/x"), "app.co/x");
+        assert_eq!(normalize_url_path("https://www.app.co/x/"), "app.co/x");
+        // Benign query/hash change compares equal.
+        assert_eq!(normalize_url_fp("https://app.co/x?a=1"), normalize_url_fp("http://app.co/x#top"));
+    }
+
+    #[test]
+    fn record_screenshot_warns_once_within_window() {
+        let mut c = SessionContext::default();
+        // First visit: no warning, just records.
+        assert_eq!(c.record_screenshot("https://app.co/dash", 1000, 300), None);
+        // Repeat within window → warn once, elapsed reported.
+        assert_eq!(c.record_screenshot("https://app.co/dash?x=1", 1100, 300), Some(100));
+        // Second repeat: same URL, still within window, but already nudged → silent.
+        assert_eq!(c.record_screenshot("https://app.co/dash", 1150, 300), None);
+        // A different URL is independent.
+        assert_eq!(c.record_screenshot("https://app.co/other", 1200, 300), None);
+    }
+
+    #[test]
+    fn record_screenshot_silent_outside_window_and_when_disabled() {
+        let mut c = SessionContext::default();
+        assert_eq!(c.record_screenshot("https://app.co/p", 1000, 300), None);
+        // 400s later — outside the 300s window → no warning.
+        assert_eq!(c.record_screenshot("https://app.co/p", 1400, 300), None);
+        // window_secs=0 disables entirely.
+        let mut d = SessionContext::default();
+        assert_eq!(d.record_screenshot("https://app.co/p", 1000, 0), None);
+        assert_eq!(d.record_screenshot("https://app.co/p", 1010, 0), None);
+    }
+
+    #[test]
+    fn old_context_json_without_shot_fields_loads_clean() {
+        // Backward-compat: a context.json written before S3.2 has no shot_url_*
+        // keys; it must deserialize with empty arrays and no panic.
+        let json = r#"{"session_file":"s.jsonl","call_counter":2,"image_fp":[1],"image_call":[1]}"#;
+        let c = SessionContext::from_json(json);
+        assert_eq!(c.call_counter, 2);
+        assert!(c.shot_url_fp.is_empty());
+        assert!(c.shot_url_ts.is_empty());
     }
 }

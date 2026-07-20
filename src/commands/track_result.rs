@@ -91,6 +91,31 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         }
     }
 
+    // Repeated-screenshot advisory (S3.2): navigating to an already-loaded page
+    // and re-capturing it is a measured token drain (5/20 shots in the audited
+    // session were navigate→screenshot of a URL already open). When the same
+    // normalized URL is navigated again within the window, queue a one-shot nudge
+    // toward read_page. URL-only; never touches image bytes.
+    if cfg.screenshot_repeat_window_secs > 0
+        && (tool.contains("navigate") || tool.ends_with("new_page"))
+    {
+        if let Some(url) = extract_string_field(raw, "url") {
+            let url = unescape(&url);
+            if let Some(elapsed) = ctx.record_screenshot(
+                &url,
+                ctx.last_activity_ts,
+                cfg.screenshot_repeat_window_secs,
+            ) {
+                let host_path = crate::context::cache::normalize_url_path(&url);
+                ctx.queue_warning(&format!(
+                    "revisiting {} ({}s since last visit) — page likely still loaded; \
+                     prefer read_page/DOM over a fresh navigate+screenshot",
+                    host_path, elapsed
+                ));
+            }
+        }
+    }
+
     // Explicit tool targets carry the tool's access semantics: an Edit/Write
     // target is a WRITE. This powers the A2 stale-state guard in
     // compress_output — a file flagged Write must never have its next re-read
@@ -387,6 +412,24 @@ mod tests {
         run_with_dir_cfg("Read", &json, &dir, &Config::default());
         let ctx = SessionContext::load(&dir);
         assert_eq!(ctx.real_ctx_tokens, 184_620);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn repeated_navigate_queues_screenshot_advisory() {
+        let dir = tmp();
+        let cfg = Config::default(); // screenshot_repeat_window_secs = 300
+        let json = r#"{"tool_name":"mcp__claude-in-chrome__navigate","tool_input":{"url":"https://app.co/dash"}}"#;
+        // First navigate: records, no warning.
+        run_with_dir_cfg("mcp__claude-in-chrome__navigate", json, &dir, &cfg);
+        let ctx = SessionContext::load(&dir);
+        assert!(ctx.pending_warnings.is_empty(), "first visit must be silent");
+        // Second navigate to the same URL (within window) → one advisory.
+        run_with_dir_cfg("mcp__claude-in-chrome__navigate", json, &dir, &cfg);
+        let ctx = SessionContext::load(&dir);
+        assert_eq!(ctx.pending_warnings.len(), 1, "expected one advisory: {:?}", ctx.pending_warnings);
+        assert!(ctx.pending_warnings[0].contains("app.co/dash"));
+        assert!(ctx.pending_warnings[0].contains("read_page"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

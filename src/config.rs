@@ -105,6 +105,12 @@ pub struct Config {
     /// disable the byte trigger. Benign outputs get the same `BENIGN_MULTIPLIER`
     /// relaxation as the line threshold.
     pub summarize_threshold_bytes: usize,
+    /// Advisory window for the repeated-screenshot nudge (S3.2). When the same
+    /// browser URL is navigated/screenshotted again within this many seconds,
+    /// squeez queues a one-shot hint to prefer `read_page` over re-capturing an
+    /// already-loaded page. Default 300 (5 min). 0 disables the nudge. Never
+    /// touches image bytes.
+    pub screenshot_repeat_window_secs: u64,
     /// Strip the verbose `"Here's the result of running cat -n on a snippet of
     /// the edited file:"` preamble from Edit/Write tool results. Default: true.
     pub strip_edit_preamble: bool,
@@ -272,6 +278,7 @@ impl Default for Config {
             handler_stats_enabled: true,
             read_summarize_threshold_lines: 150,
             summarize_threshold_bytes: 24576,
+            screenshot_repeat_window_secs: 300,
             strip_edit_preamble: true,
             context_window_tokens: 0,
             tokenizer_scale: 1.0,
@@ -446,6 +453,10 @@ impl Config {
                     "summarize_threshold_bytes" => {
                         c.summarize_threshold_bytes =
                             v.parse().unwrap_or(c.summarize_threshold_bytes)
+                    }
+                    "screenshot_repeat_window_secs" => {
+                        c.screenshot_repeat_window_secs =
+                            v.parse().unwrap_or(c.screenshot_repeat_window_secs)
                     }
                     "strip_edit_preamble" => c.strip_edit_preamble = v == "true",
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
