@@ -307,9 +307,18 @@ pub fn run(cmd_str: &str) -> i32 {
     // regardless of this call. Redundancy hits are exempt: the marker is a
     // cross-call pointer, not a marginal compression win, and must keep its
     // header context.
-    let net_win_gate = config.net_win_min_tokens > 0
-        && !redundancy_hit
-        && input_tokens.saturating_sub(output_tokens) < config.net_win_min_tokens;
+    // Degenerate compression: a handler/filter stripped the output to nothing
+    // (e.g. output that was entirely progress/spinner/timestamp lines) while the
+    // command DID produce content. Emitting the empty result would drop that
+    // content outright and the header would claim a false -100%. Treat it as a
+    // non-win passthrough so the verbatim original is emitted and the misleading
+    // header is suppressed. Redundancy/success-collapse always leave a non-empty
+    // marker, so they never land here.
+    let degenerate_empty = output_str.trim().is_empty() && !combined.trim().is_empty();
+    let net_win_gate = degenerate_empty
+        || (config.net_win_min_tokens > 0
+            && !redundancy_hit
+            && input_tokens.saturating_sub(output_tokens) < config.net_win_min_tokens);
     // Session accounting records what is actually emitted — zero savings on
     // a gated passthrough.
     let emitted_tokens = if net_win_gate { input_tokens } else { output_tokens };
@@ -366,8 +375,12 @@ pub fn run(cmd_str: &str) -> i32 {
         ctx.real_ctx_tokens, forced_label.as_deref().unwrap_or(""),
     );
 
+    // Report the tokens actually emitted, not the discarded compressed count.
+    // On a gated/degenerate passthrough the verbatim original is what the model
+    // receives (emitted_tokens == input_tokens), so a "→0 (-100%)" header would
+    // be a lie; emitted_tokens keeps the header honest (→input, -0%).
     let reduction = if input_tokens > 0 {
-        100usize.saturating_sub(output_tokens * 100 / input_tokens)
+        100usize.saturating_sub(emitted_tokens * 100 / input_tokens)
     } else {
         0
     };
@@ -442,7 +455,7 @@ pub fn run(cmd_str: &str) -> i32 {
         };
         let header = format!(
             "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}{}",
-            cmd_name, input_tokens, output_tokens, reduction, elapsed_ms,
+            cmd_name, input_tokens, emitted_tokens, reduction, elapsed_ms,
             intensity_tag, budget_tag, agent_tag, enterprise_tag, forced_tag
         );
         println!("{}", header);

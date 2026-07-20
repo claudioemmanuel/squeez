@@ -68,6 +68,45 @@ fn net_win_gate_suppresses_header_on_noop_call() {
 }
 
 #[test]
+fn degenerate_empty_compression_emits_original_not_nothing() {
+    // Regression: when a handler/filter strips the output to nothing (here an
+    // all-`hint:` payload smart_filter drops entirely) but the command DID
+    // produce content, wrap must emit the verbatim original — never a lone
+    // header claiming -100% with no output.
+    let dir = tmp_squeez_dir("degenerate");
+    std::fs::write(dir.join("config.ini"), "show_header = always\n").unwrap();
+
+    let payload = "hint: first suggestion line here now\\n\
+                   hint: second suggestion line here too\\n\
+                   hint: third suggestion also present here\\n";
+    let out = Command::new(bin())
+        .args(["wrap", &format!("printf '{}'", payload)])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Content preserved verbatim.
+    assert!(
+        stdout.contains("hint: first suggestion line here now"),
+        "expected original content, got: {stdout}"
+    );
+    assert!(stdout.contains("hint: third suggestion also present here"));
+    // Under show_header=always the header still prints, but it must be HONEST:
+    // the verbatim original was emitted, so it reports input→input (-0%), never
+    // a "→0 tokens (-100%)" that contradicts the content right below it.
+    assert!(
+        !stdout.contains("-100%"),
+        "expected honest header, not a false -100%, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("(-0%)"),
+        "expected -0% honest passthrough header, got: {stdout}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn show_header_always_restores_header_on_noop_call() {
     // show_header=always must print the header even though the same no-op
     // call would otherwise be gated by net_win_min_tokens.
