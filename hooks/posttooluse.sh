@@ -3,7 +3,7 @@
 # content is redundant or oversized (Claude Code v2.1.119+ updatedToolOutput).
 # Bash compression is handled at PreToolUse via `squeez wrap`; this hook covers
 # Read / Grep / Glob whose output bypasses the wrap mechanism.
-SQUEEZ="$HOME/.claude/squeez/bin/squeez"
+SQUEEZ="${SQUEEZ_BIN:-$HOME/.claude/squeez/bin/squeez}"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
     [ -n "$_sq" ] && SQUEEZ="$_sq"
@@ -21,18 +21,32 @@ except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown")
 
+# Claude Code sends the output under top-level `tool_response`; `tool_result`
+# is kept as a fallback for other hosts / older payloads. Shapes handled:
+# plain string, {content: str}, {content: [{type:text,text:…}]}, and the Read
+# shape {type:text, file:{content: …}} — mirrors track_result.rs extract_content.
 size=$(printf '%s' "$input" | python3 -c "
 import sys, json
+def text_len(c):
+    if c is None:
+        return 0
+    if isinstance(c, str):
+        return len(c)
+    if isinstance(c, list):
+        return sum(len(b.get('text', '')) for b in c if isinstance(b, dict))
+    if isinstance(c, dict):
+        if 'content' in c:
+            return text_len(c['content'])
+        if isinstance(c.get('file'), dict):
+            return text_len(c['file'].get('content'))
+        if 'text' in c:
+            return text_len(c.get('text'))
+        return 0
+    return len(str(c))
 try:
     d = json.load(sys.stdin)
-    content = d.get('tool_result', {})
-    if isinstance(content, dict):
-        content = str(content.get('content', ''))
-    elif content is None:
-        content = ''
-    else:
-        content = str(content)
-    print(len(content))
+    r = d.get('tool_response', d.get('tool_result', {}))
+    print(text_len(r))
 except Exception:
     print(0)
 " 2>/dev/null || echo 0)

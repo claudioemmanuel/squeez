@@ -7,7 +7,7 @@
 # message so the parent agent can dedup against what the sub-agent already saw.
 set -euo pipefail
 
-SQUEEZ="$HOME/.claude/squeez/bin/squeez"
+SQUEEZ="${SQUEEZ_BIN:-$HOME/.claude/squeez/bin/squeez}"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
     [ -n "$_sq" ] && SQUEEZ="$_sq"

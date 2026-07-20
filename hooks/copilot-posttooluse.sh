@@ -20,18 +20,30 @@ except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown")
 
+# Tolerant extraction: tries tool_response (Claude Code convention) then
+# tool_result; handles string, {content: str|blocks}, and nested file.content.
 size=$(printf '%s' "$input" | python3 -c "
 import sys, json
+def text_len(c):
+    if c is None:
+        return 0
+    if isinstance(c, str):
+        return len(c)
+    if isinstance(c, list):
+        return sum(len(b.get('text', '')) for b in c if isinstance(b, dict))
+    if isinstance(c, dict):
+        if 'content' in c:
+            return text_len(c['content'])
+        if isinstance(c.get('file'), dict):
+            return text_len(c['file'].get('content'))
+        if 'text' in c:
+            return text_len(c.get('text'))
+        return 0
+    return len(str(c))
 try:
     d = json.load(sys.stdin)
-    content = d.get('tool_result', {})
-    if isinstance(content, dict):
-        content = str(content.get('content', ''))
-    elif content is None:
-        content = ''
-    else:
-        content = str(content)
-    print(len(content))
+    r = d.get('tool_response', d.get('tool_result', {}))
+    print(text_len(r))
 except Exception:
     print(0)
 " 2>/dev/null || echo 0)
