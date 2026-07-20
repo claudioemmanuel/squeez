@@ -234,9 +234,20 @@ pub fn run(cmd_str: &str) -> i32 {
     let orig_line_count = lines.len();
     let benign = context::summarize::is_benign(&lines);
 
-    // ── Summarize fallback for huge outputs (pre-handler) ──────────────
-    // Decision based on raw line count so handlers can't hide huge inputs.
-    let mut compressed = if context::summarize::should_apply(&lines, &eff_cfg) {
+    // ── Structured test reporters take precedence over summarize ───────
+    // A large test run (many suites, high context → Ultra) would otherwise trip
+    // the summarize line threshold and get a lossy generic summary, discarding
+    // the reporter's exact "N passed (M suites)" / failures-only condensation —
+    // which is both more accurate AND smaller. Try the reporters on the raw
+    // lines first; only fall through to summarize/filter when none recognizes
+    // the shape.
+    let mut compressed = if let Some(condensed) =
+        crate::commands::reporters::detect_and_condense(cmd_str, &lines)
+    {
+        condensed
+    } else if context::summarize::should_apply(&lines, &eff_cfg) {
+        // ── Summarize fallback for huge outputs (pre-handler) ──────────────
+        // Decision based on raw line count so handlers can't hide huge inputs.
         let fmt = {
             use context::summarize::SummaryFormat;
             use context::intensity::Intensity;

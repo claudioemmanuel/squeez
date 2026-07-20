@@ -129,6 +129,50 @@ fn show_header_always_restores_header_on_noop_call() {
 }
 
 #[test]
+fn test_reporter_wins_over_summarize_on_large_multi_suite_run() {
+    // Regression (S1.7): a large multi-suite `cargo test` run trips the summarize
+    // line threshold (especially under Ultra) and would get a lossy generic
+    // summary, discarding the reporter's exact "N passed (M suites)". The
+    // structured reporter must take precedence. Force the threshold low so
+    // summarize would fire, and confirm the reporter output appears instead.
+    let dir = tmp_squeez_dir("reporter_precedence");
+    std::fs::write(dir.join("config.ini"), "summarize_threshold_lines = 20\n").unwrap();
+
+    // Build a 3-suite, 60-test all-pass cargo output as a fixture file.
+    let fixture = dir.join("cargo_out.txt");
+    let mut body = String::from("   Compiling squeez v0.2.1\n");
+    for s in 0..3 {
+        body.push_str(&format!("     Running tests/test_suite{s}.rs\n\nrunning 20 tests\n"));
+        for i in 0..20 {
+            body.push_str(&format!("test suite{s}::case_{i} ... ok\n"));
+        }
+        body.push_str(
+            "\ntest result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; \
+             0 filtered out; finished in 0.05s\n\n",
+        );
+    }
+    std::fs::write(&fixture, &body).unwrap();
+
+    // Command name must be `cargo` to dispatch to the test_runner handler; the
+    // real cargo binary is only touched by the harmless `--version` probe.
+    let out = Command::new(bin())
+        .args([
+            "wrap",
+            &format!("cargo --version >/dev/null 2>&1; cat {}", fixture.display()),
+        ])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("ok 60 passed (3 suites"),
+        "expected reporter summary, got: {stdout}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn show_header_off_suppresses_header_even_with_gate_disabled() {
     // show_header=off must suppress the header even when net_win_min_tokens=0
     // disables the gate itself (i.e. the "net" gate would otherwise show it) —
