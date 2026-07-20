@@ -1,3 +1,4 @@
+use crate::commands::cloud;
 use crate::commands::Handler;
 use crate::config::Config;
 use crate::strategies::{smart_filter, truncation};
@@ -5,7 +6,7 @@ use crate::strategies::{smart_filter, truncation};
 pub struct NetworkHandler;
 
 impl Handler for NetworkHandler {
-    fn compress(&self, _cmd: &str, lines: Vec<String>, _config: &Config) -> Vec<String> {
+    fn compress(&self, _cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
         let lines = smart_filter::apply(lines);
 
         if lines
@@ -13,6 +14,16 @@ impl Handler for NetworkHandler {
             .any(|l| l.contains("\"errors\"") && l.contains("\"message\""))
         {
             return extract_graphql_error(&lines);
+        }
+
+        // Large JSON body (curl/wget with no --json flag) that carries tens of KB
+        // on one line → condense to a keys+ids sketch. Error bodies are handled
+        // above; this catches success payloads that would otherwise flood context.
+        let joined = lines.join("\n");
+        if config.summarize_threshold_bytes > 0
+            && cloud::sniff_large_json(&joined, config.summarize_threshold_bytes)
+        {
+            return cloud::summarize_json_object(&joined);
         }
 
         // HTML response: strip tags so 50 lines of minified HTML don't flood context.
@@ -99,4 +110,38 @@ fn extract_graphql_error(lines: &[String]) -> Vec<String> {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn large_json_body_condensed() {
+        let blob = format!(
+            "{{\"id\":\"deadbeef123\",\"items\":[1,2,3],\"pad\":\"{}\"}}",
+            "y".repeat(40000)
+        );
+        let out = NetworkHandler.compress("curl https://api.example.com/data", vec![blob], &Config::default());
+        let joined = out.join("\n");
+        assert!(joined.contains("condensed"), "{joined}");
+        assert!(joined.contains("deadbeef123"), "{joined}");
+    }
+
+    #[test]
+    fn small_json_body_untouched() {
+        let out = NetworkHandler.compress(
+            "curl https://api.example.com/x",
+            vec!["{\"ok\":true}".to_string()],
+            &Config::default(),
+        );
+        assert!(!out.join("\n").contains("condensed"));
+    }
+
+    #[test]
+    fn graphql_error_still_extracted() {
+        let line = "{\"errors\":[{\"message\":\"boom\",\"code\":\"BAD\"}]}".to_string();
+        let out = NetworkHandler.compress("curl https://gql", vec![line], &Config::default());
+        assert!(out.join("\n").contains("GraphQL Error"));
+    }
 }
