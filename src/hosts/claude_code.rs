@@ -27,6 +27,19 @@ const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
 /// `/squeez` slash command — drives `squeez config` in natural language.
 const SQUEEZ_COMMAND: &str = include_str!("../../assets/squeez-command.md");
 
+/// Embedded hook sources keyed by installed filename — lets `squeez doctor`
+/// detect drift between the running binary and the installed hook scripts.
+pub fn hooks_manifest() -> [(&'static str, &'static str); 6] {
+    [
+        ("pretooluse.sh", PRETOOLUSE_SCRIPT),
+        ("session-start.sh", SESSION_START_SCRIPT),
+        ("posttooluse.sh", POSTTOOLUSE_SCRIPT),
+        ("subagent-stop.sh", SUBAGENT_STOP_SCRIPT),
+        ("precompact.sh", PRECOMPACT_SCRIPT),
+        ("postcompact.sh", POSTCOMPACT_SCRIPT),
+    ]
+}
+
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
 /// Load-merge-write with atomic rename. Idempotent via substring match on
 /// "squeez" in existing command strings.

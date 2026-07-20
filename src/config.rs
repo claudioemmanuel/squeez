@@ -123,6 +123,10 @@ pub struct Config {
     /// Lower than `nudge_error_threshold` because quota errors are never
     /// transient. 0 = disabled. Default: 2.
     pub quota_error_threshold: u32,
+    /// Days after which `squeez doctor` flags handler_stats/tokens_est as
+    /// stale relative to newer session activity (tracking dead while sessions
+    /// run). 0 = disable the freshness check. Default: 3.
+    pub doctor_stale_days: u64,
     // ── Workflow abuse prevention (audit findings) ───────────────────────────
     /// Seconds of inactivity before warning that the 5-min ephemeral cache may
     /// have expired. Warn at 4.5 min so the user can act before the rebuild hits.
@@ -265,6 +269,7 @@ impl Default for Config {
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
             quota_error_threshold: 2,
+            doctor_stale_days: 3,
             cache_idle_warn_secs: 270,
             parallel_agent_burst_window_secs: 120,
             parallel_agent_burst_threshold: 5,
@@ -445,6 +450,9 @@ impl Config {
                     "quota_error_threshold" => {
                         c.quota_error_threshold =
                             v.parse().unwrap_or(c.quota_error_threshold)
+                    }
+                    "doctor_stale_days" => {
+                        c.doctor_stale_days = v.parse().unwrap_or(c.doctor_stale_days)
                     }
                     "cache_idle_warn_secs" => {
                         c.cache_idle_warn_secs =

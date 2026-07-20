@@ -159,6 +159,15 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
         config.compression_status_label(),
         persona::as_str(config.persona)
     );
+    // Cheap doctor subset: surface a dead/degraded pipeline at session start
+    // instead of letting it run silently (hooks drift, unregistered, disabled).
+    let settings = std::path::Path::new(&crate::session::home_dir())
+        .join(".claude")
+        .join("settings.json");
+    if let Some(w) = crate::commands::doctor::quick_check(&crate::session::squeez_dir(), &settings, config)
+    {
+        println!("{}", w);
+    }
     for (i, s) in summaries.iter().enumerate() {
         println!("{}", s.display_line());
         // Show next_steps only for the most recent session (index 0 = most recent).

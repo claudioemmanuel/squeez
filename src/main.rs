@@ -88,6 +88,9 @@ fn main() {
             // to session memory + the protocol payload. See `commands/mcp_server.rs`.
             std::process::exit(squeez::commands::mcp_server::run());
         }
+        Some("doctor") => {
+            std::process::exit(squeez::commands::doctor::run());
+        }
         Some("calibrate") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::economy::calibrate::run(&rest));
@@ -126,6 +129,7 @@ fn main() {
             eprintln!("       squeez filter-test                — run inline tests from .squeez/filters.ini");
             eprintln!("       squeez compact-summary           — PostCompact hook: re-inject session state");
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
+            eprintln!("       squeez doctor                    — self-health check (hooks, config, tracking)");
             eprintln!("       squeez budget-params <tool>        — output JSON budget patch for tool");
             eprintln!("       squeez --version");
             std::process::exit(1);

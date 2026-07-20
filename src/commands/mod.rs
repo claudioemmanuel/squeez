@@ -14,6 +14,7 @@ pub mod config_cmd;
 pub mod data_tool;
 pub mod database;
 pub mod discover;
+pub mod doctor;
 pub mod docker;
 pub mod filter_stdin;
 pub mod flag_force;
