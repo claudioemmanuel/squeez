@@ -98,6 +98,13 @@ pub struct Config {
     /// of 300, leaving them uncompressed. Set to 0 to fall back to the global
     /// `summarize_threshold_lines`.
     pub read_summarize_threshold_lines: usize,
+    /// Byte-size trigger for summarize, independent of line count. A single-line
+    /// 50 KB JSON blob (e.g. `az`/`curl` output) has `lines.len() == 1` and slips
+    /// past every line-based threshold. When total output bytes exceed this, the
+    /// summary fires regardless of line count. Default 24576 (24 KB). Set to 0 to
+    /// disable the byte trigger. Benign outputs get the same `BENIGN_MULTIPLIER`
+    /// relaxation as the line threshold.
+    pub summarize_threshold_bytes: usize,
     /// Strip the verbose `"Here's the result of running cat -n on a snippet of
     /// the edited file:"` preamble from Edit/Write tool results. Default: true.
     pub strip_edit_preamble: bool,
@@ -264,6 +271,7 @@ impl Default for Config {
             nudge_cmd_repeat_threshold: 4,
             handler_stats_enabled: true,
             read_summarize_threshold_lines: 150,
+            summarize_threshold_bytes: 24576,
             strip_edit_preamble: true,
             context_window_tokens: 0,
             tokenizer_scale: 1.0,
@@ -434,6 +442,10 @@ impl Config {
                     "read_summarize_threshold_lines" => {
                         c.read_summarize_threshold_lines =
                             v.parse().unwrap_or(c.read_summarize_threshold_lines)
+                    }
+                    "summarize_threshold_bytes" => {
+                        c.summarize_threshold_bytes =
+                            v.parse().unwrap_or(c.summarize_threshold_bytes)
                     }
                     "strip_edit_preamble" => c.strip_edit_preamble = v == "true",
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",

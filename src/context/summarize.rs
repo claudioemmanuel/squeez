@@ -71,7 +71,7 @@ pub fn is_benign(lines: &[String]) -> bool {
 /// preserves more verbatim text in the common "long but successful build"
 /// case while keeping the eager trigger for debugging output.
 pub fn should_apply(lines: &[String], cfg: &Config) -> bool {
-    apply_threshold(lines, cfg.summarize_threshold_lines)
+    apply_threshold(lines, cfg.summarize_threshold_lines, cfg.summarize_threshold_bytes)
 }
 
 /// Same as `should_apply` but lets the caller override the base threshold for
@@ -86,16 +86,30 @@ pub fn should_apply_for_tool(lines: &[String], cfg: &Config, tool: &str) -> bool
             .min(cfg.summarize_threshold_lines),
         _ => cfg.summarize_threshold_lines,
     };
-    apply_threshold(lines, base)
+    apply_threshold(lines, base, cfg.summarize_threshold_bytes)
 }
 
-fn apply_threshold(lines: &[String], base: usize) -> bool {
-    let threshold = if is_benign(lines) {
-        base.saturating_mul(BENIGN_MULTIPLIER)
-    } else {
-        base
-    };
-    lines.len() > threshold
+/// Fires when EITHER the line count or the total byte size crosses its threshold.
+/// The byte trigger catches single-line JSON blobs (`az`, `curl`) that carry
+/// tens of KB in one line and would otherwise slip past every line threshold.
+/// Both thresholds get the same `BENIGN_MULTIPLIER` relaxation for benign output.
+/// `byte_base == 0` disables the byte trigger.
+fn apply_threshold(lines: &[String], base: usize, byte_base: usize) -> bool {
+    let mult = if is_benign(lines) { BENIGN_MULTIPLIER } else { 1 };
+    let line_threshold = base.saturating_mul(mult);
+    if lines.len() > line_threshold {
+        return true;
+    }
+    if byte_base > 0 {
+        let byte_threshold = byte_base.saturating_mul(mult);
+        // +1 per line approximates the newline joiner dropped by the line split.
+        let total_bytes: usize =
+            lines.iter().map(|l| l.len() + 1).sum::<usize>().saturating_sub(1);
+        if total_bytes > byte_threshold {
+            return true;
+        }
+    }
+    false
 }
 
 /// Build a dense ≤40-line summary from a large output (Prose shape).
@@ -292,6 +306,43 @@ mod tests {
         // 250 benign lines → exceeds 200 → applies
         let big: Vec<String> = (0..250).map(|i| format!("line {}", i)).collect();
         assert!(should_apply(&big, &c));
+    }
+
+    #[test]
+    fn byte_trigger_fires_on_single_line_json_blob() {
+        // 60 KB JSON on ONE line: line count (1) never crosses any line threshold,
+        // but the byte trigger fires. Benign → byte threshold doubles to 48 KB.
+        let c = cfg(); // summarize_threshold_bytes = 24576 (default)
+        let blob = format!("[{}]", "1,".repeat(30_000)); // ~60 KB, benign, 1 line
+        assert!(blob.len() > 49_152);
+        assert!(should_apply(&[blob], &c));
+    }
+
+    #[test]
+    fn byte_trigger_ignores_small_multiline_output() {
+        // 200 benign lines, ~10 KB total: under the doubled 200-line threshold AND
+        // under the doubled 48 KB byte threshold → no regression, no summary.
+        let c = cfg();
+        let lines: Vec<String> = (0..200).map(|i| format!("line number {}", i)).collect();
+        assert!(lines.iter().map(|l| l.len() + 1).sum::<usize>() < 24_576);
+        assert!(!should_apply(&lines, &c));
+    }
+
+    #[test]
+    fn byte_trigger_disabled_when_zero() {
+        let mut c = cfg();
+        c.summarize_threshold_bytes = 0;
+        let blob = format!("[{}]", "1,".repeat(30_000)); // 60 KB, 1 line, benign
+        assert!(!should_apply(&[blob], &c));
+    }
+
+    #[test]
+    fn byte_trigger_eager_for_non_benign_blob() {
+        // 30 KB single line WITH an error marker → non-benign → byte threshold
+        // stays at 24576 (not doubled) → 30 KB fires.
+        let c = cfg();
+        let blob = format!("{{\"msg\":\"error: boom\",\"data\":\"{}\"}}", "x".repeat(30_000));
+        assert!(should_apply(&[blob], &c));
     }
 
     #[test]
