@@ -31,6 +31,11 @@ squeez protocol (read once per session):
 6. Context critical (≥75% budget or ≤10 calls left): write `.claude/session_state.md`
    (## Current Objective / ## Files Read / ## Decisions / ## Next Steps) then
    `/clear` or `/compact [focus]`. State file ~2K tokens vs 10K+ for compaction.
+7. Browser verify: screenshots cost ~20-90K tokens each and cannot be
+   compressed. Prefer read_page/DOM text; never navigate+screenshot a URL
+   already loaded unless pixels changed.
+8. Do not self-pipe test/build output (`npm test | tail`). Run plain —
+   squeez condenses failures-only; piping starves its structured reporters.
 ";
 
 /// Specification of the structured markers squeez may inject into output.
