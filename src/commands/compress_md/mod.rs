@@ -129,9 +129,38 @@ pub fn run_all_quietly() -> i32 {
         if !f.exists() {
             continue;
         }
+        // Never auto-rewrite a version-controlled file. Project CLAUDE.md /
+        // AGENTS.md are usually git-tracked; silently mutating them at
+        // session-start (and leaving a stray <stem>.original.md untracked)
+        // surprised users across sessions. The explicit `compress-md <file>`
+        // CLI still honors a deliberate request — this guard is auto-path only.
+        if is_git_tracked(f) {
+            continue;
+        }
         let _ = process_file(f, Mode::Ultra, false, true, locale);
     }
     0
+}
+
+/// True when `path` is tracked in a git repository. Shells out to git (zero-dep
+/// constraint keeps us from linking a git library); if git is absent or the
+/// path is outside any repo, returns false so the caller proceeds — the guard
+/// only ever *prevents* a write, never forces one.
+fn is_git_tracked(path: &Path) -> bool {
+    let (dir, file) = match (path.parent(), path.file_name()) {
+        (Some(d), Some(f)) if !d.as_os_str().is_empty() => (d, f),
+        _ => return false,
+    };
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(file)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn print_help() {
@@ -840,6 +869,25 @@ mod tests {
     fn count_code_blocks_pairs_fences() {
         let s = "intro\n```\ncode\n```\nmid\n```rust\nx\n```\n";
         assert_eq!(count_code_blocks(s), 2);
+    }
+
+    #[test]
+    fn is_git_tracked_true_for_tracked_untracked_and_absent() {
+        // This crate's own Cargo.toml is version-controlled → tracked.
+        let cwd = std::env::current_dir().unwrap();
+        assert!(is_git_tracked(&cwd.join("Cargo.toml")));
+        // A brand-new file in a temp dir (outside any repo path we track) → false,
+        // so the auto-compress guard never blocks a genuinely-untracked file.
+        let tmp = std::env::temp_dir().join(format!(
+            "squeez_untracked_{}.md",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&tmp, "hi").unwrap();
+        assert!(!is_git_tracked(&tmp));
+        std::fs::remove_file(&tmp).ok();
     }
 
     #[test]
