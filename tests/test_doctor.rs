@@ -148,6 +148,27 @@ fn zeroed_tokens_est_warns_tracking_dead() {
 }
 
 #[test]
+fn wrapped_bash_accounting_keeps_freshness_healthy() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    std::fs::write(
+        dir.join("sessions").join("2026-07-20-13.jsonl"),
+        concat!(
+            "{\"type\":\"bash\",\"cmd\":\"git status\",\"in_tk\":98,\"out_tk\":98,\"ts\":1}\n",
+            "{\"type\":\"tool\",\"tool\":\"Bash\",\"tokens_est\":0,\"ts\":1}\n",
+        ),
+    )
+    .unwrap();
+    let (lines, has_fail) = doctor::run_with(&dir, &settings, &Config::default());
+    assert!(!has_fail, "expected no FAIL, got: {lines:?}");
+    assert!(
+        lines.iter().any(|line| line.contains("freshness: tracking artifacts are current")),
+        "got: {lines:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn quick_check_silent_when_healthy_and_loud_when_disabled() {
     let dir = tmp();
     let settings = healthy_install(&dir);

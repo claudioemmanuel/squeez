@@ -103,9 +103,26 @@ fn newest_session(sessions: &Path) -> Option<SystemTime> {
     newest
 }
 
-/// True if any of the newest session logs carries a nonzero tokens_est —
-/// distinguishes "accounting alive" from the all-zeros drift outage.
-fn tokens_est_alive(sessions: &Path) -> bool {
+fn has_nonzero_u64_field(line: &str, field: &str) -> bool {
+    let needle = format!("\"{field}\":");
+    line.split(&needle)
+        .nth(1)
+        .and_then(|rest| {
+            rest.trim_start()
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse::<u64>()
+                .ok()
+        })
+        .is_some_and(|value| value > 0)
+}
+
+/// True if any of the newest session logs carries a nonzero accounting record.
+/// `tokens_est` covers PostToolUse records. Wrapped Bash commands are already
+/// measured by `squeez wrap` before PostToolUse and use `in_tk` / `out_tk`
+/// instead, so treating their zero-valued PostToolUse marker as the only
+/// signal would report a healthy Bash-only session as dead.
+fn accounting_alive(sessions: &Path) -> bool {
     let mut files: Vec<(SystemTime, std::path::PathBuf)> = std::fs::read_dir(sessions)
         .into_iter()
         .flatten()
@@ -120,17 +137,11 @@ fn tokens_est_alive(sessions: &Path) -> bool {
     files.sort_by(|a, b| b.0.cmp(&a.0));
     files.iter().take(2).any(|(_, p)| {
         std::fs::read_to_string(p).is_ok_and(|s| {
-            s.lines().any(|l| {
-                l.split("\"tokens_est\":")
-                    .nth(1)
-                    .and_then(|rest| {
-                        rest.trim_start()
-                            .split(|c: char| !c.is_ascii_digit())
-                            .next()?
-                            .parse::<u64>()
-                            .ok()
-                    })
-                    .is_some_and(|v| v > 0)
+            s.lines().any(|line| {
+                has_nonzero_u64_field(line, "tokens_est")
+                    || (line.contains("\"type\":\"bash\"")
+                        && (has_nonzero_u64_field(line, "in_tk")
+                            || has_nonzero_u64_field(line, "out_tk")))
             })
         })
     })
@@ -155,7 +166,7 @@ fn check_freshness(squeez_dir: &Path, cfg: &Config) -> CheckLine {
              bash wrap not running (check `squeez should-wrap`, config, hooks)",
         );
     }
-    if !tokens_est_alive(&sessions) {
+    if !accounting_alive(&sessions) {
         return warn(
             "freshness: recent session logs have only tokens_est:0 — \
              accounting broken (posttooluse payload extraction)",
