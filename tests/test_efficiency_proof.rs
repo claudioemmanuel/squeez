@@ -155,3 +155,43 @@ fn sig_mode_rust_savings_above_floor() {
         entry.reduction_pct
     );
 }
+
+// ── showcase view ────────────────────────────────────────────────────────────
+
+#[test]
+fn showcase_names_resolve_to_real_scenarios() {
+    // A showcase entry that matches nothing would silently shrink the table
+    // and inflate its total — the exact failure mode a labelled best-case view
+    // has to be protected against.
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_squeez"))
+        .args(["benchmark", "--showcase"])
+        .output()
+        .expect("run benchmark --showcase");
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    for name in [
+        "xcode_build",
+        "summarize_huge",
+        "read_reread_distant",
+        "ps_aux",
+        "high_context_adaptive",
+        "crosscall_redundancy_3x",
+    ] {
+        assert!(text.contains(name), "showcase dropped '{name}':\n{text}");
+    }
+}
+
+#[test]
+fn showcase_states_that_it_is_not_the_average() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_squeez"))
+        .args(["benchmark", "--showcase"])
+        .output()
+        .expect("run benchmark --showcase");
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    assert!(text.contains("NOT the suite average"), "missing the label:\n{text}");
+    assert!(
+        text.contains("Full suite, every scenario including the ones it cannot win"),
+        "the honest average must be printed alongside:\n{text}"
+    );
+}

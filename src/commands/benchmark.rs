@@ -2694,6 +2694,7 @@ pub fn run(args: &[String]) -> i32 {
     let mut baseline_mode = false;
     let mut hypothesis_mode = false;
     let mut efficiency_proof_mode = false;
+    let mut showcase_mode = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -2703,6 +2704,7 @@ pub fn run(args: &[String]) -> i32 {
             "--baseline" => baseline_mode = true,
             "--hypothesis" => hypothesis_mode = true,
             "--efficiency-proof" => efficiency_proof_mode = true,
+            "--showcase" => showcase_mode = true,
             "--output" | "-o" => {
                 i += 1;
                 output_file = args.get(i).cloned();
@@ -2813,6 +2815,8 @@ pub fn run(args: &[String]) -> i32 {
     }
     if json_mode {
         println!("{}", json);
+    } else if showcase_mode {
+        print_showcase(&report);
     } else if baseline_mode {
         print_baseline_comparison(&report);
     } else {
@@ -2820,6 +2824,86 @@ pub fn run(args: &[String]) -> i32 {
     }
 
     if report.quality_fail_count > 0 { 1 } else { 0 }
+}
+
+/// Scenarios shown by `--showcase`, in display order.
+///
+/// These are the workloads squeez handles best, chosen from the same audited
+/// suite everything else runs against — none is written for the showcase, and
+/// none is excluded from the full run. They are the honest answer to "what
+/// does this look like when it goes well", which is a fair question to ask of
+/// a tool as long as the answer says that is what it is.
+const SHOWCASE: &[&str] = &[
+    "xcode_build",
+    "summarize_huge",
+    "read_reread_distant",
+    "ps_aux",
+    "high_context_adaptive",
+    "crosscall_redundancy_3x",
+];
+
+/// Best-case view, explicitly labelled as one.
+///
+/// The full-suite average is measured in the same run and printed alongside,
+/// so the selected number can never be mistaken for the average. Cherry-picking
+/// is only dishonest when it is silent.
+fn print_showcase(report: &BenchmarkReport) {
+    let picked: Vec<&ScenarioResult> = SHOWCASE
+        .iter()
+        .filter_map(|name| report.results.iter().find(|r| &r.name == name))
+        .collect();
+
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════════════════╗");
+    println!("║   squeez — best case. Selected scenarios, NOT the suite average.       ║");
+    println!("╚═══════════════════════════════════════════════════════════════════════╝");
+    println!();
+    println!(
+        "{:<28} {:>10} {:>10} {:>11} {:>9}",
+        "SCENARIO", "BEFORE", "AFTER", "REDUCTION", "QUALITY"
+    );
+    println!("{}", "─".repeat(72));
+
+    let mut before = 0usize;
+    let mut after = 0usize;
+    for r in &picked {
+        before += r.baseline_tokens;
+        after += r.compressed_tokens;
+        println!(
+            "{:<28} {:>8}tk {:>8}tk {:>10.1}% {:>8.0}%",
+            r.name,
+            r.baseline_tokens,
+            r.compressed_tokens,
+            r.reduction_pct,
+            r.quality_score * 100.0
+        );
+    }
+    println!("{}", "─".repeat(72));
+    println!(
+        "{:<28} {:>8}tk {:>8}tk {:>10.1}%",
+        "SELECTED TOTAL",
+        before,
+        after,
+        reduction_pct(before, after)
+    );
+
+    println!();
+    println!("HOW TO READ THIS");
+    println!(
+        "  Selected {} of {} scenarios — the ones squeez is strongest on.",
+        picked.len(),
+        report.results.len()
+    );
+    println!(
+        "  Full suite, every scenario including the ones it cannot win: {:.1}%",
+        report.total_reduction_pct
+    );
+    println!("  Quote the full-suite number as the headline. This table is the ceiling,");
+    println!("  not the average — say so wherever you use it.");
+    println!();
+    println!("  Reproduce: squeez benchmark            (full suite)");
+    println!("             squeez benchmark --showcase (this table)");
+    println!();
 }
 
 /// Print an A/B comparison table: SCENARIO | BASELINE | SQUEEZ | SAVINGS.
@@ -2892,6 +2976,7 @@ fn print_help() {
     eprintln!("  --scenario, -s <name>   Run only scenarios whose name/category contains <name>");
     eprintln!("  --iterations, -n <n>    Iterations per scenario (default: 5)");
     eprintln!("  --baseline              Show A/B comparison (C0 baseline vs C4 squeez)");
+    eprintln!("  --showcase              Best-case table, labelled as such (prints the full-suite average too)");
     eprintln!("  --hypothesis            Run C0–C6 hypothesis grid (7 deterministic scenarios)");
     eprintln!("  --efficiency-proof      Prove US-001/US-003/US-004 savings (exit 0=all pass)");
     eprintln!("  --json                  Print JSON report to stdout");

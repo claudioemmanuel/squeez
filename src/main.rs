@@ -118,7 +118,7 @@ fn main() {
             eprintln!("       squeez track <tool> <bytes>");
             eprintln!("       squeez track-result <tool> (reads stdin)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
-            eprintln!("       squeez benchmark [--json] [--output <file>] [--scenario <name>]");
+            eprintln!("       squeez benchmark [--json] [--showcase] [--output <file>] [--scenario <name>]");
             eprintln!("       squeez config <get|set|list|reset|path> ... — inspect/change settings");
             eprintln!("       squeez setup [--host=<slug>]");
             eprintln!("       squeez uninstall [--host=<slug>]");
