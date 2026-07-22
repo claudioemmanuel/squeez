@@ -3,3 +3,7 @@ Copyright 2026 Claudio Emmanuel
 
 This product includes software developed by Claudio Emmanuel
 (https://github.com/claudioemmanuel/squeez).
+
+The ADHD output-shaping ruleset in assets/focus_adhd.md and
+assets/focus_adhd_pt_br.md is adapted from the "i-have-adhd" skill by ayghri
+(https://github.com/ayghri/i-have-adhd), licensed under the MIT License.

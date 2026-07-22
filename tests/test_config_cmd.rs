@@ -43,6 +43,22 @@ fn set_then_get_round_trips() {
 }
 
 #[test]
+fn focus_normalizes_and_rejects_junk() {
+    let dir = tmp_dir("focus");
+    assert!(run(&dir, &["set", "focus", "ADHD"]).status.success());
+    let out = run(&dir, &["get", "focus"]);
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "adhd");
+
+    let out = run(&dir, &["set", "focus", "focused"]);
+    assert!(!out.status.success(), "unknown focus value must exit non-zero");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("off|adhd"));
+
+    assert!(run(&dir, &["set", "focus", "off"]).status.success());
+    let out = run(&dir, &["get", "focus"]);
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "off");
+}
+
+#[test]
 fn invalid_key_exits_non_zero() {
     let dir = tmp_dir("badkey");
     let out = run(&dir, &["set", "no_such_key", "1"]);

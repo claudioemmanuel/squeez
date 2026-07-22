@@ -69,6 +69,41 @@ fn disabled_config_is_a_fail() {
 }
 
 #[test]
+fn focus_puts_failures_first_and_ends_with_one_action() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    let cfg = Config::from_str("enabled = false\nfocus = adhd\n");
+    let (lines, has_fail) = doctor::run_with(&dir, &settings, &cfg);
+    assert!(has_fail);
+    // Line 0 is the version header; the first check line must be the failure.
+    assert!(lines[1].starts_with("[FAIL]"), "got: {lines:?}");
+    let last = lines.last().unwrap();
+    assert!(last.starts_with("Next: "), "got: {last}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn focus_off_keeps_original_doctor_order() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    let cfg = Config::from_str("enabled = false\n");
+    let (lines, _) = doctor::run_with(&dir, &settings, &cfg);
+    assert!(lines[1].starts_with("[ok]"), "got: {lines:?}");
+    assert!(!lines.iter().any(|l| l.starts_with("Next: ")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn healthy_install_under_focus_says_nothing_to_fix() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    let cfg = Config::from_str("focus = adhd\n");
+    let (lines, _) = doctor::run_with(&dir, &settings, &cfg);
+    assert_eq!(lines.last().unwrap(), "Next: nothing to fix — pipeline healthy.");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn tampered_hook_is_stale() {
     let dir = tmp();
     let settings = healthy_install(&dir);

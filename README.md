@@ -113,6 +113,7 @@ squeez update --insecure  # skip checksum (not recommended)
 | **Token estimate** | Compression-timing decisions use a content-class calibrated estimate: output is classified Dense/Prose/Mixed and counted at chars/2.0, chars/3.7, or the code- and CJK-aware char-class estimator — dense tool output really runs ~1.9 chars/token in production, not chars/4. Flat legacy path stays available via `class_density = false`. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
 | **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
+| **ADHD focus mode** | `focus = adhd` shapes output *structure* rather than length: next action first, numbered steps, one-line state restatement, advisories capped at 5, `squeez doctor` sorted failures-first with a single closing command. Stacks with any persona. |
 | **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
 | **Session memory** | On `SessionStart`, injects a structured summary of the previous session: files investigated, learned facts (errors + git events), completed work (builds, test passes), and next steps (unresolved errors, failing tests). Summaries carry temporal validity (`valid_from`/`valid_to`). |
 | **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob, Monitor, SubagentStop) feeds a `SessionContext` so squeez knows what the agent has already seen. Read/Grep/Glob/Monitor outputs are also rewritten via `updatedToolOutput` (Claude Code v2.1.119+) when content is redundant or oversized. |
@@ -423,6 +424,7 @@ memory_retention_days = 30
 
 # ── Output / persona ───────────────────────────────────────────
 persona          = ultra    # off | lite | full | ultra
+focus            = off      # off | adhd — output *structure*, orthogonal to persona
 auto_compress_md = true     # run compress-md on every session start
 lang             = en       # compress-md locale: en | pt (pt-BR) — more languages extensible
 
@@ -474,6 +476,33 @@ Pre-0.3 squeez was effectively always-Ultra. The new behavior preserves more ver
 Three intensity levels (`lite`, `full`, `ultra`) and `off`. Default is `ultra`. The persona prompt is injected into:
 - The Claude Code session banner (printed at `SessionStart`)
 - The `<!-- squeez:start -->…<!-- squeez:end -->` block in `~/.copilot/copilot-instructions.md` for Copilot CLI
+
+### ADHD focus mode
+
+`focus = adhd` is a second, independent axis. Persona decides *how terse* the
+prose is; focus decides *how it is ordered*. They stack — `persona = ultra` plus
+`focus = adhd` keeps maximum compression while forcing action-first structure.
+
+Turning it on changes three surfaces:
+
+1. **The model's prose** — a 10-rule block (EN or pt-BR, per `lang`) rides
+   alongside the persona block: lead with the next action, number multi-step
+   work, restate state in one line, concrete time estimates, cap lists at 5, no
+   preamble or closing pleasantries.
+2. **The session banner** — the pending next step becomes line 1, remaining
+   steps are numbered, one prior session is shown instead of three, and the
+   stats line sinks to the bottom (state, not an action).
+3. **Advisories and doctor** — `[squeez: …]` bursts are capped at 5 per command
+   with an honest `+N more advisories suppressed` tail, and `squeez doctor`
+   sorts failures first and ends with one command to run.
+
+```bash
+squeez config set focus adhd    # then `squeez init` to rewrite the memory block
+squeez config set focus off     # back to the default ordering
+```
+
+The ruleset is adapted from the MIT-licensed
+[i-have-adhd](https://github.com/ayghri/i-have-adhd) skill by ayghri.
 
 ---
 

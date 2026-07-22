@@ -27,6 +27,7 @@ enum Kind {
     U64,
     F32,
     Persona,
+    Focus,
     Summary,
     Lang,
     List,
@@ -41,6 +42,7 @@ impl Kind {
             Kind::Usize | Kind::U32 | Kind::U64 => "integer",
             Kind::F32 => "float",
             Kind::Persona => "off|lite|full|ultra",
+            Kind::Focus => "off|adhd",
             Kind::Summary => "prose|structured|auto",
             Kind::Lang => "en|pt-BR",
             Kind::List => "comma-separated list",
@@ -69,6 +71,7 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("redundancy_cache_enabled", Kind::Bool),
     ("summarize_threshold_lines", Kind::Usize),
     ("persona", Kind::Persona),
+    ("focus", Kind::Focus),
     ("auto_compress_md", Kind::Bool),
     ("lang", Kind::Lang),
     ("agent_warn_threshold_pct", Kind::F32),
@@ -154,6 +157,7 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "redundancy_cache_enabled" => c.redundancy_cache_enabled.to_string(),
         "summarize_threshold_lines" => c.summarize_threshold_lines.to_string(),
         "persona" => crate::commands::persona::as_str(c.persona).to_string(),
+        "focus" => crate::commands::focus::as_str(c.focus).to_string(),
         "auto_compress_md" => c.auto_compress_md.to_string(),
         "lang" => c.lang.clone(),
         "agent_warn_threshold_pct" => c.agent_warn_threshold_pct.to_string(),
@@ -227,6 +231,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
         Kind::U64 => v.parse::<u64>().is_ok(),
         Kind::F32 => v.parse::<f32>().is_ok(),
         Kind::Persona => matches!(v.to_lowercase().as_str(), "off" | "lite" | "full" | "ultra"),
+        Kind::Focus => matches!(v.to_lowercase().as_str(), "off" | "adhd"),
         Kind::Summary => matches!(v, "prose" | "structured" | "auto"),
         Kind::Lang => matches!(v.to_lowercase().as_str(), "en" | "pt-br"),
         Kind::List => !v.is_empty(),
@@ -242,7 +247,7 @@ fn validate(key: &str, value: &str) -> Result<String, String> {
     // Normalize a couple of kinds so the written form matches what the loader
     // and the rest of the codebase expect.
     let normalized = match kind {
-        Kind::Persona | Kind::Header | Kind::FlagForce => v.to_lowercase(),
+        Kind::Persona | Kind::Focus | Kind::Header | Kind::FlagForce => v.to_lowercase(),
         Kind::Lang => {
             if v.eq_ignore_ascii_case("pt-br") {
                 "pt-BR".to_string()

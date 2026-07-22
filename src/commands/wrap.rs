@@ -519,7 +519,9 @@ pub fn run(cmd_str: &str) -> i32 {
     // Warnings queued by observer paths with no stdout channel of their own
     // (track-result quota escalation, SubagentStop size guard) drain here —
     // the next bash output is the first surface the model actually reads.
-    for w in ctx.drain_warnings() {
+    // focus=adhd caps the burst at 5 lines (rule 9).
+    let drained = crate::commands::focus::cap_advisories(ctx.drain_warnings(), config.focus);
+    for w in drained {
         println!("{}", w);
         overhead_lines.push(w);
     }

@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::commands::focus;
 use crate::commands::persona;
 use crate::config::Config;
 use crate::memory::Summary;
@@ -389,7 +390,9 @@ impl HostAdapter for ClaudeCodeAdapter {
         std::fs::create_dir_all(&claude_dir)?;
 
         let persona_text = persona::text_with_lang(cfg.persona, &cfg.lang);
-        if persona_text.is_empty() {
+        // persona=off + focus=off means there is nothing to inject at all;
+        // focus alone is still worth a block.
+        if persona_text.is_empty() && cfg.focus == focus::Focus::Off {
             return Ok(());
         }
 
@@ -403,12 +406,21 @@ impl HostAdapter for ClaudeCodeAdapter {
         }
         block.push_str("## squeez — always-on compression\n\n");
         block.push_str(&format!(
-            "Persona: {} | Bash compression: ON | Memory: ON\n\n",
-            persona::as_str(cfg.persona)
+            "Persona: {}{} | Bash compression: ON | Memory: ON\n\n",
+            persona::as_str(cfg.persona),
+            focus::banner_suffix(cfg.focus)
         ));
         block.push_str(persona_text);
         if !persona_text.ends_with('\n') {
             block.push('\n');
+        }
+        let focus_text = focus::text_with_lang(cfg.focus, &cfg.lang);
+        if !focus_text.is_empty() {
+            block.push('\n');
+            block.push_str(focus_text);
+            if !focus_text.ends_with('\n') {
+                block.push('\n');
+            }
         }
         block.push_str("<!-- squeez:end -->\n");
 

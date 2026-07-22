@@ -178,8 +178,35 @@ pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<S
         env!("CARGO_PKG_VERSION"),
         squeez_dir.display()
     )];
-    lines.extend(checks.into_iter().map(|c| c.line));
+    let mut check_lines: Vec<String> = checks.into_iter().map(|c| c.line).collect();
+    if cfg.focus == crate::commands::focus::Focus::Adhd {
+        // Broken first, healthy last — and one command to run at the end.
+        check_lines.sort_by_key(|l| match () {
+            _ if l.starts_with("[FAIL]") => 0,
+            _ if l.starts_with("[WARN]") => 1,
+            _ => 2,
+        });
+        let next = check_lines
+            .iter()
+            .find(|l| l.starts_with("[FAIL]") || l.starts_with("[WARN]"))
+            .and_then(|l| backticked_cmd(l))
+            .map(|c| format!("Next: {}", c))
+            .unwrap_or_else(|| "Next: nothing to fix — pipeline healthy.".to_string());
+        lines.extend(check_lines);
+        lines.push(next);
+    } else {
+        lines.extend(check_lines);
+    }
     (lines, has_fail)
+}
+
+/// First `backticked` command in a check line — the fix each failing check
+/// already names, lifted out so focus mode can end with a single action.
+fn backticked_cmd(line: &str) -> Option<String> {
+    let start = line.find('`')? + 1;
+    let rest = &line[start..];
+    let end = rest.find('`')?;
+    Some(rest[..end].to_string())
 }
 
 /// Cheap subset for the SessionStart banner (no session-log scan): returns a

@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::commands::focus;
 use crate::commands::persona;
 use crate::config::Config;
 use crate::memory::Summary;
@@ -106,10 +107,11 @@ impl HostAdapter for OpenCodeAdapter {
         block.push_str("## squeez — session context\n");
         let budget_k = cfg.compact_threshold_tokens * 5 / 4 / 1000;
         block.push_str(&format!(
-            "Context budget: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}\n",
+            "Context budget: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}{}\n",
             budget_k,
             cfg.compression_status_label(),
-            persona::as_str(cfg.persona)
+            persona::as_str(cfg.persona),
+            focus::banner_suffix(cfg.focus)
         ));
         for s in summaries {
             block.push_str(&format!("- {}\n", s.display_line()));
@@ -121,6 +123,11 @@ impl HostAdapter for OpenCodeAdapter {
         if !persona_text.is_empty() {
             block.push('\n');
             block.push_str(persona_text);
+        }
+        let focus_text = focus::text_with_lang(cfg.focus, &cfg.lang);
+        if !focus_text.is_empty() {
+            block.push('\n');
+            block.push_str(focus_text);
         }
         block.push_str("<!-- squeez:end -->\n");
 

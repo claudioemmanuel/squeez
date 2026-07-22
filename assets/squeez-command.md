@@ -35,11 +35,14 @@ How to respond to the user's request:
      `set ultra_trigger_pct 0.5`.
    - "switch persona to lite/full/ultra" / "turn the persona off" →
      `set persona <lite|full|ultra|off>`.
+   - "adhd mode" / "focus mode" / "keep me on track" / "one thing at a time" →
+     `set focus adhd` (orthogonal to persona — compression level is unchanged).
+   - "stop adhd mode" / "normal mode" → `set focus off`.
    - "use Portuguese" → `set lang pt-BR`; "English" → `set lang en`.
    - "turn squeez off" → `set enabled false`; back on → `set enabled true`.
    - "stop the nudges" → `set nudge_enabled false`.
 3. After changing a value, confirm what you set and the new value.
-4. **Important — persona / lang timing.** These two are injected into the
+4. **Important — persona / focus / lang timing.** These are injected into the
    `~/.claude/CLAUDE.md` squeez block at SessionStart, not read live. After
    changing either, run `squeez init` to rewrite the block now, and tell the
    user the change fully lands on the next session / after `/compact`. All other

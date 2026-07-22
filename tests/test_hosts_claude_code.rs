@@ -370,3 +370,39 @@ fn claude_code_install_is_idempotent_for_new_hooks() {
         }
     });
 }
+
+#[test]
+fn claude_code_injects_focus_block_after_persona() {
+    with_home(|home| {
+        let a = ClaudeCodeAdapter;
+        let cfg = squeez::config::Config::from_str("persona = ultra\nfocus = adhd\n");
+        a.inject_memory(&cfg, &[]).unwrap();
+        let body = std::fs::read_to_string(home.join(".claude/CLAUDE.md")).unwrap();
+        assert!(body.contains("Persona: ultra | Focus: adhd"), "status line:\n{body}");
+        let persona_at = body.find("squeez persona: ultra").expect("persona block");
+        let focus_at = body.find("squeez focus: adhd").expect("focus block");
+        assert!(persona_at < focus_at, "focus block must follow the persona block");
+        assert!(body.find("<!-- squeez:end -->").unwrap() > focus_at);
+    });
+}
+
+#[test]
+fn claude_code_injects_focus_block_with_persona_off() {
+    with_home(|home| {
+        let a = ClaudeCodeAdapter;
+        let cfg = squeez::config::Config::from_str("persona = off\nfocus = adhd\n");
+        a.inject_memory(&cfg, &[]).unwrap();
+        let body = std::fs::read_to_string(home.join(".claude/CLAUDE.md")).unwrap();
+        assert!(body.contains("squeez focus: adhd"), "focus lost when persona=off:\n{body}");
+    });
+}
+
+#[test]
+fn claude_code_writes_nothing_when_persona_and_focus_are_off() {
+    with_home(|home| {
+        let a = ClaudeCodeAdapter;
+        let cfg = squeez::config::Config::from_str("persona = off\nfocus = off\n");
+        a.inject_memory(&cfg, &[]).unwrap();
+        assert!(!home.join(".claude/CLAUDE.md").exists());
+    });
+}

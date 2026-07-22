@@ -9,6 +9,14 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+### Added
+- feat(focus): ADHD output-shaping axis (`focus = off|adhd`), orthogonal to
+  `persona` — injects a 10-rule block (EN / pt-BR) into the session banner and
+  every host memory block, reorders the banner action-first, caps advisory
+  bursts at 5, and sorts `squeez doctor` failures first with one closing
+  command. Ruleset adapted from the MIT-licensed
+  [i-have-adhd](https://github.com/ayghri/i-have-adhd) skill by ayghri.
+
 ## [1.38.0] - 2026-07-20
 
 ### Added

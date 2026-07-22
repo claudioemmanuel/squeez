@@ -1,3 +1,4 @@
+use crate::commands::focus::Focus;
 use crate::commands::persona::Persona;
 
 #[derive(Debug, Clone)]
@@ -25,6 +26,9 @@ pub struct Config {
     pub summarize_threshold_lines: usize,
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
+    /// Output *structure* axis, orthogonal to `persona` (which sets terseness):
+    /// `adhd` shapes banner, advisories and the model's prose next-action-first.
+    pub focus: Focus,
     pub auto_compress_md: bool,
     pub lang: String,
     // ── Token economy (phase 7) ───────────────────────────────────────────
@@ -250,6 +254,7 @@ impl Default for Config {
             redundancy_cache_enabled: true,
             summarize_threshold_lines: 300,
             persona: Persona::Ultra,
+            focus: Focus::Off,
             auto_compress_md: true,
             lang: "en".to_string(),
             agent_warn_threshold_pct: 0.50,
@@ -368,6 +373,7 @@ impl Config {
                             v.parse().unwrap_or(c.summarize_threshold_lines)
                     }
                     "persona" => c.persona = crate::commands::persona::from_str(v),
+                    "focus" => c.focus = crate::commands::focus::from_str(v),
                     "auto_compress_md" => c.auto_compress_md = v == "true",
                     "lang" => c.lang = v.to_string(),
                     "agent_warn_threshold_pct" => {

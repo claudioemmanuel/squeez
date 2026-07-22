@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    commands::{compress_md, persona},
+    commands::{compress_md, focus, persona},
     config::Config,
     json_util, memory,
     session::{self, CurrentSession},
@@ -105,6 +105,53 @@ pub fn run_for_host(host_name: &str) -> i32 {
     code
 }
 
+/// Body of the session banner, between the top rule and the persona block.
+///
+/// `focus = adhd` reorders it action-first: the pending next step leads, the
+/// stats line (state, not an action) sinks to the bottom, and only the most
+/// recent prior session is shown — working memory is small. With focus off the
+/// original order is reproduced byte-for-byte.
+pub fn banner_body(
+    config: &Config,
+    summaries: &[memory::Summary],
+    stats_line: String,
+    degraded: Option<String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    if config.focus == focus::Focus::Adhd {
+        let steps: Vec<&str> = summaries
+            .first()
+            .map(|s| s.next_steps.iter().take(3).map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+        out.push(match steps.first() {
+            Some(first) => format!("Next: {}", first),
+            None => "Next: no pending step — name what to work on.".to_string(),
+        });
+        if let Some(w) = degraded {
+            out.push(w);
+        }
+        for (i, s) in steps.iter().enumerate().skip(1) {
+            out.push(format!("  {}. {}", i + 1, s));
+        }
+        out.extend(summaries.iter().map(|s| s.display_line()));
+        out.push(stats_line);
+    } else {
+        out.push(stats_line);
+        if let Some(w) = degraded {
+            out.push(w);
+        }
+        for (i, s) in summaries.iter().enumerate() {
+            out.push(s.display_line());
+            // Show next_steps only for the most recent session (index 0 = most recent).
+            if i == 0 && !s.next_steps.is_empty() {
+                let items: Vec<&str> = s.next_steps.iter().take(3).map(|s| s.as_str()).collect();
+                out.push(format!("  Next steps: {}", items.join(" | ")));
+            }
+        }
+    }
+    out
+}
+
 /// Testable version with explicit directories.
 pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) -> i32 {
     // 1. Finalise previous session → memory (best-effort)
@@ -150,36 +197,39 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     } else {
         "Context budget"
     };
-    let summaries = memory::read_last_n(memory_dir, 3);
+    // focus=adhd reorders the banner action-first and shows one prior session
+    // instead of three (working memory is small; stats are not an action).
+    let adhd = config.focus == focus::Focus::Adhd;
+    let summaries = memory::read_last_n(memory_dir, if adhd { 1 } else { 3 });
     println!("─── squeez active ─────────────────────────────────────────");
-    println!(
-        "{}: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}",
+    let stats_line = format!(
+        "{}: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}{}",
         budget_label,
         budget_k,
         config.compression_status_label(),
-        persona::as_str(config.persona)
+        persona::as_str(config.persona),
+        focus::banner_suffix(config.focus),
     );
     // Cheap doctor subset: surface a dead/degraded pipeline at session start
     // instead of letting it run silently (hooks drift, unregistered, disabled).
     let settings = std::path::Path::new(&crate::session::home_dir())
         .join(".claude")
         .join("settings.json");
-    if let Some(w) = crate::commands::doctor::quick_check(&crate::session::squeez_dir(), &settings, config)
-    {
-        println!("{}", w);
-    }
-    for (i, s) in summaries.iter().enumerate() {
-        println!("{}", s.display_line());
-        // Show next_steps only for the most recent session (index 0 = most recent).
-        if i == 0 && !s.next_steps.is_empty() {
-            let items: Vec<&str> = s.next_steps.iter().take(3).map(|s| s.as_str()).collect();
-            println!("  Next steps: {}", items.join(" | "));
-        }
+    let degraded =
+        crate::commands::doctor::quick_check(&crate::session::squeez_dir(), &settings, config);
+
+    for l in banner_body(config, &summaries, stats_line, degraded) {
+        println!("{}", l);
     }
     let persona_text = persona::text(config.persona);
     if !persona_text.is_empty() {
         println!();
         print!("{}", persona_text);
+    }
+    let focus_text = focus::text_with_lang(config.focus, &config.lang);
+    if !focus_text.is_empty() {
+        println!();
+        print!("{}", focus_text);
     }
     // Enterprise-mode hint: when running through Bedrock/Vertex/OTEL,
     // every saved token converts directly to USD on the workspace bill.
