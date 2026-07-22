@@ -74,10 +74,10 @@ pub fn run(args: &[String]) -> i32 {
         i += 1;
     }
 
-    let locale = {
-        let code = lang_cli.unwrap_or_else(|| crate::config::Config::load().lang);
-        Locale::from_code(&code)
-    };
+    // Explicit --lang is an assertion about the file and wins. Without it the
+    // locale is sniffed per file (see locale::detect) — config `lang` describes
+    // the prose squeez writes, not the prose it is about to rewrite.
+    let locale: Option<&'static Locale> = lang_cli.map(|code| Locale::from_code(&code));
 
     let files: Vec<PathBuf> = if all {
         all_targets()
@@ -122,8 +122,6 @@ pub fn run(args: &[String]) -> i32 {
 /// Quiet bulk-compression entry used by `init` when auto_compress_md=true.
 /// Never errors out the caller; failures are silent.
 pub fn run_all_quietly() -> i32 {
-    let cfg = crate::config::Config::load();
-    let locale = Locale::from_code(&cfg.lang);
     let files = all_targets();
     for f in &files {
         if !f.exists() {
@@ -137,7 +135,7 @@ pub fn run_all_quietly() -> i32 {
         if is_git_tracked(f) {
             continue;
         }
-        let _ = process_file(f, Mode::Ultra, false, true, locale);
+        let _ = process_file(f, Mode::Ultra, false, true, None);
     }
     0
 }
@@ -205,9 +203,10 @@ fn process_file(
     mode: Mode,
     dry_run: bool,
     quiet: bool,
-    locale: &'static Locale,
+    locale: Option<&'static Locale>,
 ) -> Result<(), String> {
     let original = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let locale = locale.unwrap_or_else(|| locale::detect(&original));
     let result = compress_text_with_locale(&original, mode, locale);
 
     if !result.safe {
