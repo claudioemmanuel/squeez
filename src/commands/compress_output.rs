@@ -209,16 +209,29 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
             let fuzzy_blocked = hit.similarity.is_some() && (edited_since_seen || is_mcp);
             if !fuzzy_blocked {
+                // Name the call that matched, not just the current tool: for
+                // Read/Grep/Glob the label carries the target, so the model can
+                // tell "this file holds the same bytes as that one" apart from
+                // "this is the same file". Falls back to the tool name for
+                // labels that carry no target (bash, MCP, legacy entries).
+                let target = hit
+                    .label
+                    .strip_prefix(tool)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!(" ({})", t))
+                    .unwrap_or_default();
                 let note = match hit.similarity {
                     None => format!(
-                        "[squeez: identical to {} #{} — output omitted]",
-                        tool, hit.call_n
+                        "[squeez: identical to {} #{}{} — output omitted]",
+                        tool, hit.call_n, target
                     ),
                     Some(j) => format!(
-                        "[squeez: ~{}% similar to {} #{} — re-read if needed]",
+                        "[squeez: ~{}% similar to {} #{}{} — re-read if needed]",
                         (j * 100.0).round() as u32,
                         tool,
-                        hit.call_n
+                        hit.call_n,
+                        target
                     ),
                 };
                 ctx.exact_dedup_hits += 1;
@@ -248,7 +261,7 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     // Record content so future calls can dedup against it. The read store
     // reuses the call_n minted here, so one Read consumes one call number.
     if cfg.redundancy_cache_enabled {
-        let call_n = context::redundancy::record(&mut ctx, tool, &lines);
+        let call_n = context::redundancy::record(&mut ctx, &dedup_label(tool, raw), &lines);
         if let Some((path, fp)) = read_dedup_key {
             ctx.read_dedup_record(&path, fp, call_n);
         }
@@ -391,6 +404,41 @@ fn extract_content(raw: &str) -> Option<String> {
         rest = &rest[idx + 7..];
     }
     if out.is_empty() { None } else { Some(out) }
+}
+
+/// Label recorded in the call log for a tool result.
+///
+/// For Read/Glob/Grep the output alone does not identify the call: two files
+/// can hold byte-identical content, and two greps can return the same hit set.
+/// Appending the target makes the dedup marker unambiguous. `CallEntry` keeps
+/// only the first 40 chars, so a long path contributes its tail — the part
+/// that identifies it — rather than a shared `/Users/...` prefix.
+fn dedup_label(tool: &str, raw: &str) -> String {
+    let target = match tool {
+        "Read" | "Glob" => extract_string_field(raw, "file_path").map(|p| unescape(&p)),
+        "Grep" => extract_string_field(raw, "pattern").map(|p| unescape(&p)),
+        _ => None,
+    };
+    match target {
+        Some(t) if !t.is_empty() => format!("{} {}", tool, truncate_target(&t)),
+        _ => tool.to_string(),
+    }
+}
+
+/// Keep the identifying tail of a target within the 40-char `cmd_short` cap,
+/// cutting at a path separator so the result reads as a path and not as a
+/// word sliced in half.
+fn truncate_target(t: &str) -> String {
+    const KEEP: usize = 40 - 6; // cap, minus "Read " + the ellipsis
+    if t.chars().count() <= KEEP {
+        return t.to_string();
+    }
+    let skip = t.chars().count() - KEEP;
+    let tail: String = t.chars().skip(skip).collect();
+    match tail.find('/') {
+        Some(i) => format!("…{}", &tail[i..]),
+        None => format!("…{}", tail),
+    }
 }
 
 fn extract_string_field(raw: &str, key: &str) -> Option<String> {

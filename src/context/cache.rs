@@ -336,6 +336,11 @@ pub struct SimilarMatch {
     pub call_n: u64,
     pub short_hash: String,
     pub similarity: f32,
+    /// Label of the call that matched (`CallEntry::cmd_short`). Carried out so
+    /// the replacement marker can name what it collapsed against — two
+    /// different files can hold byte-identical content, and a marker that only
+    /// says "#N" leaves the model unable to tell which one it saw.
+    pub cmd_short: String,
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -595,6 +600,7 @@ impl SessionContext {
                     call_n: entry.call_n,
                     short_hash: entry.short_hash.clone(),
                     similarity: sim,
+                    cmd_short: entry.cmd_short.clone(),
                 });
             }
         }

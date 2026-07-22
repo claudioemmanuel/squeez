@@ -238,3 +238,36 @@ fn precompact_raises_the_floor() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── marker identity ─────────────────────────────────────────────────────────
+
+/// Read payload with independent path and body (unlike `read_json`, whose body
+/// embeds the path).
+fn payload(path: &str, content: &str) -> String {
+    let escaped = content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    format!(r#"{{"tool_name":"Read","file_path":"{path}","tool_result":{{"content":"{escaped}"}}}}"#)
+}
+
+#[test]
+fn marker_names_the_file_it_matched() {
+    // Two DIFFERENT files holding byte-identical content, read back to back.
+    // The windowed dedup keys on output hash + length only, so the second read
+    // collapses. That is a legitimate saving — the model does hold those bytes
+    // — but only if the marker says WHICH read it matched. Without the name the
+    // model cannot tell that beta.rs merely has the same content as alpha.rs,
+    // and its only recovery is a re-read, which costs more than was saved.
+    let dir = tmp();
+    let cfg = Config::default();
+    let body = "fn same() {}\nfn body() {}\nfn here() {}\nfn too() {}";
+
+    assert!(compute_rewrite(&payload("/tmp/alpha.rs", body), "Read", &dir, &cfg).is_none());
+
+    let out = compute_rewrite(&payload("/tmp/beta.rs", body), "Read", &dir, &cfg);
+    if let Some(marker) = out {
+        assert!(
+            marker.contains("alpha.rs"),
+            "collapsed against another file without naming it: {marker}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

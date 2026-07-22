@@ -18,6 +18,11 @@ pub struct RedundancyHit {
     /// (where `j` is the Jaccard score in [SIMILARITY_THRESHOLD, 1.0]),
     /// `None` if it was an exact hash+length match.
     pub similarity: Option<f32>,
+    /// Label of the call that matched. For Read/Grep/Glob this carries the
+    /// target (path or pattern), so the marker can name what it collapsed
+    /// against — output identity alone is ambiguous, since two different files
+    /// can hold byte-identical content.
+    pub label: String,
 }
 
 /// Compute the canonical hash + length from a pre-joined string.
@@ -41,6 +46,7 @@ pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
             short_hash: entry.short_hash.clone(),
             call_n: entry.call_n,
             similarity: None,
+            label: entry.cmd_short.clone(),
         });
     }
     // Fuzzy path: shingle-Jaccard against recent calls. Skip for short outputs
@@ -57,6 +63,7 @@ pub fn check(ctx: &SessionContext, output: &[String]) -> Option<RedundancyHit> {
         short_hash: m.short_hash,
         call_n: m.call_n,
         similarity: Some(m.similarity),
+        label: m.cmd_short,
     })
 }
 
