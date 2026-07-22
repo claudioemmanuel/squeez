@@ -26,6 +26,47 @@ pub fn memory_dir() -> PathBuf {
     squeez_dir().join("memory")
 }
 
+/// Atomically claim a one-shot advisory key. Returns `true` for the first
+/// caller and `false` for every later one, for the life of the session.
+///
+/// `SessionContext.nudged_keys` cannot do this on its own: every hook runs in
+/// a separate short-lived process that loads `context.json`, mutates it, and
+/// writes it back whole. `squeez wrap` holds its loaded copy across the entire
+/// subprocess run — seconds, sometimes minutes — so a `PostToolUse` process
+/// that loads and saves in that window has its key silently overwritten by
+/// wrap's stale copy. Observed live: a "fire once per session" advisory
+/// emitted 11 times in one session while `nudged_keys` stayed empty on disk.
+///
+/// A file created with `create_new` is an atomic test-and-set at the
+/// filesystem level, which is exactly the primitive the guard needs, with no
+/// dependency and no lock file to leak. Failures other than "already exists"
+/// fail open: an advisory shown twice is cheaper than one lost.
+pub fn claim_nudge(sessions_dir: &std::path::Path, key: &str) -> bool {
+    let safe: String = key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let dir = sessions_dir.join("nudges");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return true;
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(safe))
+    {
+        Ok(_) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(_) => true,
+    }
+}
+
+/// Drop every claimed advisory key. Called when a new session starts, so
+/// one-shot advisories fire again in the next session.
+pub fn reset_nudge_claims(sessions_dir: &std::path::Path) {
+    let _ = std::fs::remove_dir_all(sessions_dir.join("nudges"));
+}
+
 // ── Time helpers ───────────────────────────────────────────────────────────
 
 pub fn unix_now() -> u64 {

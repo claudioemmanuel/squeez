@@ -196,11 +196,13 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     };
     if let Some((ref path, fp)) = read_dedup_key {
         if let Some(call_n) = ctx.read_dedup_lookup(path, fp) {
-            ctx.exact_dedup_hits += 1;
-            ctx.save(sessions_dir);
-            return Some(format!(
-                "[squeez: identical to Read #{call_n} of {path} — output omitted]"
-            ));
+            let note =
+                format!("[squeez: identical to Read #{call_n} of {path} — output omitted]");
+            if marker_wins(&note, &content, cfg) {
+                ctx.exact_dedup_hits += 1;
+                ctx.save(sessions_dir);
+                return Some(note);
+            }
         }
     }
 
@@ -234,9 +236,11 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
                         target
                     ),
                 };
-                ctx.exact_dedup_hits += 1;
-                ctx.save(sessions_dir);
-                return Some(note);
+                if marker_wins(&note, &content, cfg) {
+                    ctx.exact_dedup_hits += 1;
+                    ctx.save(sessions_dir);
+                    return Some(note);
+                }
             }
         }
     }
@@ -404,6 +408,18 @@ fn extract_content(raw: &str) -> Option<String> {
         rest = &rest[idx + 7..];
     }
     if out.is_empty() { None } else { Some(out) }
+}
+
+/// Whether replacing `original` with `marker` is worth doing.
+///
+/// `wrap.rs` gates its header on `net_win_min_tokens`, but the dedup markers
+/// on this path never had a gate: a 3-line file re-read was replaced by a
+/// marker that embeds the full path and can cost more than the content it
+/// "saved". A tool that spends tokens to save tokens has to check.
+fn marker_wins(marker: &str, original: &str, cfg: &Config) -> bool {
+    let before = crate::tokens::estimate(original);
+    let after = crate::tokens::estimate(marker);
+    before.saturating_sub(after) >= cfg.net_win_min_tokens
 }
 
 /// Label recorded in the call log for a tool result.

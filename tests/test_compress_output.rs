@@ -24,6 +24,18 @@ fn cfg() -> Config {
     Config::default()
 }
 
+/// A body big enough that replacing it with a dedup marker is a real saving.
+/// The marker costs ~20 tokens, and `net_win_min_tokens` (default 24) refuses
+/// any replacement that does not clear that bar — so a 5-line fixture is a net
+/// loss and is correctly left alone. Tests that want to observe dedup have to
+/// dedup something worth deduping.
+fn repeated_body() -> String {
+    (0..40)
+        .map(|i| format!("line {i} of a file that is worth deduplicating"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn make_json(content: &str) -> String {
     // Escape for JSON string embedding
     let escaped = content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
@@ -69,7 +81,7 @@ fn exact_duplicate_returns_dedup_note() {
     let dir = tmp();
     let cfg = cfg();
     // Need enough lines for redundancy::check to engage (MIN_LINES = 2)
-    let content = "line one\nline two\nline three\nline four\nline five";
+    let content = &repeated_body();
     let json = make_json(content);
 
     // First call: novel → None, records
@@ -94,8 +106,8 @@ fn exact_duplicate_returns_dedup_note() {
 fn exact_dedup_hit_increments_counter() {
     let dir = tmp();
     let cfg = cfg();
-    let content = "a\nb\nc\nd\ne\nf";
-    let json = make_json(content);
+    let content = repeated_body();
+    let json = make_json(&content);
     compute_rewrite(&json, "Read", &dir, &cfg);
     compute_rewrite(&json, "Read", &dir, &cfg);
     let ctx = SessionContext::load(&dir);
@@ -120,7 +132,9 @@ fn dedup_note_includes_call_number() {
     let dir = tmp();
     let cfg = cfg();
     // Pre-seed context with a specific call so we know what call_n to expect
-    let lines: Vec<String> = (0..10).map(|i| format!("seed line {i}")).collect();
+    let lines: Vec<String> = (0..40)
+        .map(|i| format!("seed line {i} long enough to be worth deduplicating"))
+        .collect();
     let mut ctx = SessionContext::load(&dir);
     redundancy::record(&mut ctx, "Read", &lines);
     ctx.save(&dir);
@@ -187,14 +201,52 @@ fn redundancy_disabled_never_deduplicates() {
 fn dedup_note_contains_tool_name() {
     let dir = tmp();
     let cfg = cfg();
-    let content = "foo\nbar\nbaz\nqux\nquux";
-    let json = make_json(content);
+    let content = repeated_body();
+    let json = make_json(&content);
     compute_rewrite(&json, "Grep", &dir, &cfg);
     let result = compute_rewrite(&json, "Grep", &dir, &cfg);
     assert!(result.is_some());
     assert!(
         result.unwrap().contains("Grep"),
         "dedup note should name the tool"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── net-win gate on dedup markers ────────────────────────────────────────────
+
+#[test]
+fn a_marker_bigger_than_the_content_is_not_emitted() {
+    // Replacing 5 short lines with "[squeez: identical to Read #1 of <path> —
+    // output omitted]" costs more tokens than it saves. A tool that spends
+    // tokens to save tokens has to check, so the dedup is skipped and the
+    // content passes through whole.
+    let dir = tmp();
+    let cfg = cfg();
+    let tiny = "a\nb\nc\nd\ne";
+    let json = make_json(tiny);
+
+    assert!(compute_rewrite(&json, "Read", &dir, &cfg).is_none());
+    assert!(
+        compute_rewrite(&json, "Read", &dir, &cfg).is_none(),
+        "a net-loss dedup must not be emitted"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_gate_can_be_tuned_down() {
+    // net_win_min_tokens = 0 restores the old unconditional behaviour for
+    // anyone who wants dedup at any size.
+    let dir = tmp();
+    let cfg = squeez::config::Config::from_str("net_win_min_tokens = 0\n");
+    let tiny = "aaaa\nbbbb\ncccc\ndddd\neeee";
+    let json = make_json(tiny);
+
+    compute_rewrite(&json, "Read", &dir, &cfg);
+    assert!(
+        compute_rewrite(&json, "Read", &dir, &cfg).is_some(),
+        "with the gate at 0 the dedup fires regardless of size"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

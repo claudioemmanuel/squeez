@@ -503,7 +503,10 @@ pub fn run(cmd_str: &str) -> i32 {
         && !ctx.nudged_keys.iter().any(|k| k == "cache_ratio_warn")
     {
         let io = ctx.real_ctx_tokens.saturating_sub(ctx.real_cache_read_tokens).max(1);
-        if ctx.real_cache_read_tokens / io >= 50 {
+        // `nudged_keys` alone loses this race — see session::claim_nudge.
+        if ctx.real_cache_read_tokens / io >= 50
+            && session::claim_nudge(&sessions_dir_pp, "cache_ratio_warn")
+        {
             ctx.nudged_keys.push("cache_ratio_warn".to_string());
             let w = format!(
                 "[squeez: HIGH CACHE RATIO — cache_read {}K vs I/O {}K (~{}×) — \

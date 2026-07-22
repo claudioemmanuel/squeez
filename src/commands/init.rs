@@ -184,6 +184,9 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
             ctx.dedup_floor_call = ctx.call_counter;
             ctx.session_file = new.session_file.clone();
             ctx.save(sessions_dir);
+            // One-shot advisories are claimed on disk, not in context.json —
+            // release them so each is available again to the new session.
+            session::reset_nudge_claims(sessions_dir);
         }
     }
 

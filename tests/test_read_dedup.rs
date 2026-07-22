@@ -271,3 +271,42 @@ fn marker_names_the_file_it_matched() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── one-shot advisory claims ────────────────────────────────────────────────
+
+#[test]
+fn a_nudge_can_be_claimed_exactly_once() {
+    use squeez::session::{claim_nudge, reset_nudge_claims};
+    let dir = tmp();
+    assert!(claim_nudge(&dir, "cache_ratio_warn"), "first claim must win");
+    for _ in 0..5 {
+        assert!(
+            !claim_nudge(&dir, "cache_ratio_warn"),
+            "a claimed advisory must never fire again in the same session"
+        );
+    }
+    // A different key is independent.
+    assert!(claim_nudge(&dir, "call_rate_warn"));
+
+    // A new session releases every claim.
+    reset_nudge_claims(&dir);
+    assert!(claim_nudge(&dir, "cache_ratio_warn"), "next session may fire it again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn nudge_claim_survives_a_stale_context_write() {
+    use squeez::session::claim_nudge;
+    // The failure this replaces: `squeez wrap` loads context.json, runs a
+    // subprocess for seconds, then writes its stale copy back — erasing a
+    // nudged_keys entry a PostToolUse process wrote in the meantime. The claim
+    // lives outside context.json, so rewriting context.json cannot undo it.
+    let dir = tmp();
+    let mut ctx = SessionContext::default();
+    assert!(claim_nudge(&dir, "cache_ratio_warn"));
+    ctx.nudged_keys.clear();
+    ctx.save(&dir); // stale writer clobbers the in-context record
+    assert!(SessionContext::load(&dir).nudged_keys.is_empty());
+    assert!(!claim_nudge(&dir, "cache_ratio_warn"), "claim must outlive the clobber");
+    let _ = std::fs::remove_dir_all(&dir);
+}

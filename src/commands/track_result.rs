@@ -81,6 +81,7 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         let rate = ctx.tick_call_rate();
         if rate >= cfg.call_rate_warn_per_min
             && !ctx.nudged_keys.iter().any(|k| k == "call_rate_warn")
+            && crate::session::claim_nudge(sessions_dir, "call_rate_warn")
         {
             ctx.nudged_keys.push("call_rate_warn".to_string());
             ctx.queue_warning(&format!(
@@ -246,6 +247,7 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
                         .any(|w| w.contains("cumulative sub-agent output"))
                     && !ctx.nudged_keys.iter()
                         .any(|k| k == "subagent_total_warn")
+                    && crate::session::claim_nudge(sessions_dir, "subagent_total_warn")
                 {
                     ctx.nudged_keys.push("subagent_total_warn".to_string());
                     ctx.queue_warning(&format!(
