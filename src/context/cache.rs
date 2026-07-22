@@ -7,6 +7,10 @@ use crate::json_util;
 // ── Bounds ─────────────────────────────────────────────────────────────────
 
 const MAX_SEEN_FILES: usize = 256;
+/// Bound on the session-long read-dedup store. Same order as `MAX_SEEN_FILES`
+/// — a session that reads more than this many distinct file versions has long
+/// since blown the context window anyway.
+const MAX_READ_DEDUP: usize = 256;
 const MAX_SEEN_ERRORS: usize = 128;
 const MAX_SEEN_GIT_REFS: usize = 64;
 
@@ -110,6 +114,15 @@ pub struct FileFingerprint {
 pub struct SessionContext {
     pub session_file: String,
     pub call_counter: u64,
+    /// Dedup floor: no call with `call_n <= dedup_floor_call` may be cited as
+    /// a dedup source, because its output is no longer in the model's context.
+    ///
+    /// `context.json` outlives a single session and survives `/compact`, so
+    /// without this floor squeez can answer "identical to Read #12 — output
+    /// omitted" pointing at content the model never received (previous
+    /// session) or has since lost (compaction). Raised by `init` on a session
+    /// change and by `track PreCompact`.
+    pub dedup_floor_call: u64,
     pub seen_files: Vec<FileFingerprint>,
     pub seen_errors: Vec<u64>, // FNV of normalized error
     /// First-128-char snippets parallel to `seen_errors` (phase 2).
@@ -167,6 +180,17 @@ pub struct SessionContext {
     /// `call_n` of the FIRST injection for each fingerprint (parallel to
     /// `skill_inject_fp`). Referenced in the `identical to Skill #N` note.
     pub skill_inject_call: Vec<u64>,
+    // ── Read dedup (session-long, path-keyed) ──────────────────────────────
+    /// Paths of files read this session, parallel to `read_dedup_fp` /
+    /// `read_dedup_call`. Re-reads of an unchanged file recur far past
+    /// `recent_window`, so they need a store that spans the session — but
+    /// keyed by path, not just content, so the marker can name the file.
+    /// Invalidated per-path on Write/Create (see `read_dedup_invalidate`).
+    pub read_dedup_path: Vec<String>,
+    /// FNV-1a-64 of the file content at the time it was read.
+    pub read_dedup_fp: Vec<u64>,
+    /// `call_n` of the FIRST read for each (path, fingerprint) pair.
+    pub read_dedup_call: Vec<u64>,
     // ── Real-context tracking (transcript audit CF-1) ──────────────────────
     /// Effective context tokens of the latest API turn, measured from the
     /// host transcript's `message.usage` (input + cache_read + cache_creation).
@@ -248,6 +272,7 @@ impl Default for SessionContext {
         Self {
             session_file: String::new(),
             call_counter: 0,
+            dedup_floor_call: 0,
             seen_files: Vec::new(),
             seen_errors: Vec::new(),
             error_snippets: Vec::new(),
@@ -276,6 +301,9 @@ impl Default for SessionContext {
             nudged_keys: Vec::new(),
             skill_inject_fp: Vec::new(),
             skill_inject_call: Vec::new(),
+            read_dedup_path: Vec::new(),
+            read_dedup_fp: Vec::new(),
+            read_dedup_call: Vec::new(),
             real_ctx_tokens: 0,
             real_ctx_window: 0,
             real_cache_read_tokens: 0,
@@ -375,6 +403,7 @@ impl SessionContext {
             .iter()
             .position(|&f| f == fp)
             .map(|i| self.skill_inject_call[i])
+            .filter(|&call_n| call_n > self.dedup_floor_call)
     }
 
     /// Record a skill body fingerprint as injected this session and return the
@@ -394,6 +423,7 @@ impl SessionContext {
             .iter()
             .position(|&f| f == fp)
             .map(|i| self.image_call[i])
+            .filter(|&call_n| call_n > self.dedup_floor_call)
     }
 
     /// Record an image payload fingerprint and return the assigned `call_n`.
@@ -501,12 +531,13 @@ impl SessionContext {
     }
 
     /// Lookup a recent call with matching hash AND output_len. Only considers
-    /// the last `self.recent_window` entries.
+    /// the last `self.recent_window` entries, and never a call at or below
+    /// `dedup_floor_call` (its output has left the model's context).
     pub fn lookup_recent(&self, hash: u64, len: usize) -> Option<&CallEntry> {
         let start = self.call_log.len().saturating_sub(self.recent_window);
-        self.call_log[start..]
-            .iter()
-            .find(|e| e.output_hash == hash && e.output_len == len)
+        self.call_log[start..].iter().find(|e| {
+            e.output_hash == hash && e.output_len == len && e.call_n > self.dedup_floor_call
+        })
     }
 
     /// Lookup the highest-similarity recent call whose Jaccard distance to
@@ -541,6 +572,9 @@ impl SessionContext {
                 continue;
             }
             let entry = &self.call_log[i];
+            if entry.call_n <= self.dedup_floor_call {
+                continue;
+            }
             // Length-ratio guard (symmetric): min/max ≥ LENGTH_RATIO_GUARD.
             let qlen = query_len.max(1) as f32;
             let elen = entry.output_len.max(1) as f32;
@@ -567,8 +601,59 @@ impl SessionContext {
         best
     }
 
+    /// Session-long lookup for a previously-read file, keyed by path AND the
+    /// FNV-1a-64 of its content. Both must match: same path with new content
+    /// is a real change, same content at a different path is a different
+    /// answer to a different question. Never cites a call at or below
+    /// `dedup_floor_call`.
+    pub fn read_dedup_lookup(&self, path: &str, fp: u64) -> Option<u64> {
+        self.read_dedup_path
+            .iter()
+            .zip(self.read_dedup_fp.iter())
+            .position(|(p, f)| p == path && *f == fp)
+            .map(|i| self.read_dedup_call[i])
+            .filter(|&call_n| call_n > self.dedup_floor_call)
+    }
+
+    /// Record a file read under an already-assigned `call_n`. Caller should
+    /// only invoke after `read_dedup_lookup` returned `None` (first read).
+    ///
+    /// Takes the call number rather than minting one so a single Read consumes
+    /// exactly one `call_n` across both this store and the windowed
+    /// `call_log` — otherwise the `#N` in the two markers drift apart.
+    pub fn read_dedup_record(&mut self, path: &str, fp: u64, call_n: u64) {
+        self.read_dedup_path.push(path.to_string());
+        self.read_dedup_fp.push(fp);
+        self.read_dedup_call.push(call_n);
+        if self.read_dedup_path.len() > MAX_READ_DEDUP {
+            let drop_n = self.read_dedup_path.len() - MAX_READ_DEDUP;
+            self.read_dedup_path.drain(0..drop_n);
+            self.read_dedup_fp.drain(0..drop_n);
+            self.read_dedup_call.drain(0..drop_n);
+        }
+    }
+
+    /// Forget every read recorded for `path`. Called when the file is written
+    /// or created: the model's view of it is stale, so a later read must reach
+    /// it intact even if the content happens to hash back to an earlier value.
+    pub fn read_dedup_invalidate(&mut self, path: &str) {
+        let mut i = 0;
+        while i < self.read_dedup_path.len() {
+            if self.read_dedup_path[i] == path {
+                self.read_dedup_path.remove(i);
+                self.read_dedup_fp.remove(i);
+                self.read_dedup_call.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     /// Record a file access with an explicit access type (phase 4).
     pub fn note_file(&mut self, path: &str, access: FileAccess) {
+        if matches!(access, FileAccess::Write | FileAccess::Created) {
+            self.read_dedup_invalidate(path);
+        }
         let call_n = self.call_counter;
         if let Some(existing) = self.seen_files.iter_mut().find(|fp| fp.path == path) {
             existing.last_seen_call = call_n;
@@ -1065,6 +1150,8 @@ impl SessionContext {
 \"cmd_repeat_name\":{},\"cmd_repeat_n\":{},\
 \"nudged_keys\":{},\
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
+\"dedup_floor_call\":{},\
+\"read_dedup_path\":{},\"read_dedup_fp\":{},\"read_dedup_call\":{},\
 \"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
@@ -1114,6 +1201,10 @@ impl SessionContext {
             json_util::str_array(&self.nudged_keys),
             json_util::u64_array(&self.skill_inject_fp),
             json_util::u64_array(&self.skill_inject_call),
+            self.dedup_floor_call,
+            json_util::str_array(&self.read_dedup_path),
+            json_util::u64_array(&self.read_dedup_fp),
+            json_util::u64_array(&self.read_dedup_call),
             self.real_ctx_tokens,
             self.real_ctx_window,
             self.real_cache_read_tokens,
@@ -1283,6 +1374,18 @@ impl SessionContext {
         let si_len = si_fp.len().min(si_call.len());
         c.skill_inject_fp = si_fp.iter().take(si_len).copied().collect();
         c.skill_inject_call = si_call.iter().take(si_len).copied().collect();
+
+        // Dedup floor + read-dedup store — optional for backward compat. A
+        // legacy file loads with floor 0 (no floor) and an empty store, which
+        // is exactly the pre-change behaviour.
+        c.dedup_floor_call = json_util::map_u64(&map, "dedup_floor_call").unwrap_or(0);
+        let rd_path = json_util::map_str_array(&map, "read_dedup_path");
+        let rd_fp = json_util::map_u64_array(&map, "read_dedup_fp");
+        let rd_call = json_util::map_u64_array(&map, "read_dedup_call");
+        let rd_len = rd_path.len().min(rd_fp.len()).min(rd_call.len());
+        c.read_dedup_path = rd_path.iter().take(rd_len).cloned().collect();
+        c.read_dedup_fp = rd_fp.iter().take(rd_len).copied().collect();
+        c.read_dedup_call = rd_call.iter().take(rd_len).copied().collect();
 
         // Real-context + pending warnings + image dedup — optional for
         // backward compat with older context.json files.

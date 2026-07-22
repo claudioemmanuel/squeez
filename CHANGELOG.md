@@ -9,6 +9,22 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+### Fixed
+- fix(context): dedup floor — `context.json` outlives a session and survives
+  `/compact`, so squeez could answer `[identical to Read #N — output omitted]`
+  citing content the model never received (previous session) or had already
+  lost (compaction). `dedup_floor_call` now fences off every dedup source
+  before a session change or a `PreCompact`; applies to the windowed call log,
+  the skill store and the image store.
+
+### Added
+- feat(context): session-long, path-keyed dedup of repeated `Read` output.
+  The windowed dedup only reaches back `recent_window` (16) calls; re-reading
+  an unchanged file recurs far past that. Keyed by path **and** content hash,
+  exact-match only, invalidated on Write/Create. Measured 717tk → 17tk (97.6%)
+  on the new `read_reread_distant` benchmark scenario. Kill-switch:
+  `read_dedup_session_long = false`.
+
 ## [1.39.0] - 2026-07-22
 
 ### Added

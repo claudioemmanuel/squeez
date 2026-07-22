@@ -416,6 +416,7 @@ bypass                 = docker exec, psql, mysql, ssh   # never compress these
 adaptive_intensity         = true    # truly adaptive: Full <80% budget, Ultra ≥80%
 context_cache_enabled      = true    # track seen files/errors across calls
 redundancy_cache_enabled   = true    # collapse identical OR fuzzy-similar recent outputs
+read_dedup_session_long    = true    # also collapse a re-read of an unchanged file past the 16-call window
 summarize_threshold_lines  = 500     # outputs above this trigger summarize fallback (×2 if benign)
 compact_threshold_tokens   = 120000  # session token budget — drives adaptive intensity
 

@@ -23,6 +23,10 @@ pub struct Config {
     pub adaptive_intensity: bool,
     pub context_cache_enabled: bool,
     pub redundancy_cache_enabled: bool,
+    /// Session-long, path-keyed dedup of repeated `Read` output. Independent
+    /// of `redundancy_cache_enabled` only in the off direction: it requires
+    /// that flag too. Kill-switch for the store without a rebuild.
+    pub read_dedup_session_long: bool,
     pub summarize_threshold_lines: usize,
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
@@ -252,6 +256,7 @@ impl Default for Config {
             adaptive_intensity: true,
             context_cache_enabled: true,
             redundancy_cache_enabled: true,
+            read_dedup_session_long: true,
             summarize_threshold_lines: 300,
             persona: Persona::Ultra,
             focus: Focus::Off,
@@ -368,6 +373,7 @@ impl Config {
                     "adaptive_intensity" => c.adaptive_intensity = v == "true",
                     "context_cache_enabled" => c.context_cache_enabled = v == "true",
                     "redundancy_cache_enabled" => c.redundancy_cache_enabled = v == "true",
+                    "read_dedup_session_long" => c.read_dedup_session_long = v == "true",
                     "summarize_threshold_lines" => {
                         c.summarize_threshold_lines =
                             v.parse().unwrap_or(c.summarize_threshold_lines)

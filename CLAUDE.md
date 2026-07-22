@@ -56,7 +56,7 @@ One adapter per supported CLI, all implementing `HostAdapter` trait. `squeez set
 ### Context engine (`src/context/`)
 
 Cross-call awareness across 16 recent invocations:
-- **cache.rs** — tracks seen outputs, file paths, errors from Read/Glob/Grep/Bash results
+- **cache.rs** — tracks seen outputs, file paths, errors from Read/Glob/Grep/Bash results. Two session-long stores beyond the 16-call window: skill bodies (`skill_dedup_*`) and file reads (`read_dedup_*`, keyed by path + content hash, invalidated on Write/Create). `dedup_floor_call` fences off every dedup source recorded before a session change or a `/compact` — `context.json` outlives both, so without it squeez cites content the model no longer has
 - **redundancy.rs** — two-path dedup: exact FNV-1a hash (fast), then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 (whitespace/timestamp changes don't break match). Emits `[squeez: identical to ...]`  `[squeez: ~P% similar to ...]`
 - **summarize.rs** — triggered at >500 lines; benign outputs (no error markers) get 2× threshold (1000 lines). Produces ≤40-line dense summary (errors, files, test status, verbatim tail)
 - **factsheet.rs** — deterministic extraction of exact identifiers (hex/SHA ≥7 w/ digit, UUID, ticket code, version, int ≥6 digits) from region summarize drops; budget 16 facts / 256 chars, substring-collapse, tier-then-length ordering; >MAX_FACTS distinct versions = generated-sequence noise, tier dropped. Rides in summaries as `ids_preserved:` / `"ids":[...]`

@@ -173,6 +173,20 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     };
     new.save(sessions_dir);
 
+    // 2b. Raise the dedup floor on a session change. `context.json` outlives a
+    // session (seen_files / file history / MCP tools depend on that), but none
+    // of the previous session's output is in the new context — so nothing
+    // recorded before now may be cited as "identical to #N". Stamp the session
+    // so the next start can tell whether it already fired.
+    {
+        let mut ctx = crate::context::cache::SessionContext::load(sessions_dir);
+        if ctx.session_file != new.session_file {
+            ctx.dedup_floor_call = ctx.call_counter;
+            ctx.session_file = new.session_file.clone();
+            ctx.save(sessions_dir);
+        }
+    }
+
     // 3. Git snapshot into session log (best-effort, may fail if not in a git repo)
     let git_log = git(&["log", "--oneline", "-5"]);
     let git_status = git(&["status", "--porcelain"]);

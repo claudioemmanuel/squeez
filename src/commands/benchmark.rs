@@ -87,6 +87,10 @@ enum ScenarioKind {
     Markdown,
     /// Spawn binary via wrap for N calls (cross-call or summarize).
     Wrap { calls: usize },
+    /// Read the same file twice with `noise_calls` unrelated reads in between,
+    /// measuring what the second read costs. Past `recent_window` the windowed
+    /// dedup can't see the first read; the session-long store can.
+    ReadReread { noise_calls: usize },
 }
 
 /// Controls how quality is scored for a scenario.
@@ -1674,6 +1678,19 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         quality_mode: QualityMode::Keywords,
     });
 
+    // read_reread_distant: the same source file read twice, 25 unrelated reads
+    // apart — past `recent_window`, so only the session-long read store can
+    // collapse it. Measures what a long session pays to re-read what it
+    // already has.
+    s.push(Scenario {
+        name: "read_reread_distant".to_string(),
+        category: "economy".to_string(),
+        kind: ScenarioKind::ReadReread { noise_calls: 25 },
+        content: make_large_claude_md(),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
+
     // ── Wrap (binary spawn) scenarios ─────────────────────────────────────────
     // Keywords-only: the wrap output format changes intentionally
     // (summary header / dedup reference line), so term-overlap scoring
@@ -1846,6 +1863,82 @@ fn run_filter(scenario: &Scenario, hint: &str, iterations: usize) -> ScenarioRes
         context_saved_tokens: 0,
         iterations,
     }
+}
+
+/// Cost of re-reading an unchanged file after the windowed dedup has lost
+/// sight of it. Baseline is what the second read costs today; compressed is
+/// what it costs with the session-long store.
+fn run_read_reread(scenario: &Scenario, noise_calls: usize, iterations: usize) -> ScenarioResult {
+    let baseline_tokens = scenario.content.len() / 4;
+    let payload = read_payload("/bench/target.rs", &scenario.content);
+
+    let mut latencies_us: Vec<u64> = Vec::with_capacity(iterations);
+    let mut last_output = scenario.content.clone();
+
+    for iter in 0..iterations {
+        let dir = std::env::temp_dir().join(format!(
+            "squeez_bench_reread_{}_{}",
+            std::process::id(),
+            iter
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let cfg = Config::default();
+
+        let t0 = Instant::now();
+        let _ = crate::commands::compress_output::compute_rewrite(&payload, "Read", &dir, &cfg);
+        for i in 0..noise_calls {
+            let noise = read_payload(
+                &format!("/bench/noise{i}.rs"),
+                &format!("noise file {i}\nsecond line\nthird line\n"),
+            );
+            let _ = crate::commands::compress_output::compute_rewrite(&noise, "Read", &dir, &cfg);
+        }
+        let second = crate::commands::compress_output::compute_rewrite(&payload, "Read", &dir, &cfg);
+        latencies_us.push(t0.elapsed().as_micros() as u64);
+        last_output = second.unwrap_or_else(|| scenario.content.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    latencies_us.sort_unstable();
+    let median_us = latencies_us[latencies_us.len() / 2];
+    let compressed_tokens = last_output.len() / 4;
+    let reduction = reduction_pct(baseline_tokens, compressed_tokens);
+    // Keywords mode: the replacement is a deliberate pointer, not a condensed
+    // rendering of the content, so term-overlap scoring does not apply.
+    let qscore = quality_score(
+        &scenario.content,
+        &last_output,
+        &scenario.required_keywords,
+        &scenario.quality_mode,
+    );
+
+    ScenarioResult {
+        name: scenario.name.clone(),
+        category: scenario.category.clone(),
+        baseline_tokens,
+        compressed_tokens,
+        reduction_pct: reduction,
+        latency_us: median_us,
+        quality_score: qscore,
+        quality_pass: qscore >= QUALITY_PASS_THRESHOLD,
+        // The content is not summarised, it is referenced — the model still
+        // holds the first read. Scoring it as lossy compression would be wrong.
+        info_preservation: 1.0,
+        compression_risk: false,
+        context_saved_tokens: baseline_tokens.saturating_sub(compressed_tokens),
+        iterations,
+    }
+}
+
+/// Minimal PostToolUse Read payload for `path`.
+fn read_payload(path: &str, content: &str) -> String {
+    let escaped = content
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+    format!(
+        r#"{{"tool_name":"Read","file_path":"{path}","tool_result":{{"content":"{escaped}"}}}}"#
+    )
 }
 
 fn run_markdown(scenario: &Scenario, iterations: usize) -> ScenarioResult {
@@ -2035,6 +2128,9 @@ fn run_scenario(scenario: &Scenario, iterations: usize) -> ScenarioResult {
         ScenarioKind::Filter { hint } => run_filter(scenario, hint, iterations),
         ScenarioKind::Markdown => run_markdown(scenario, iterations),
         ScenarioKind::Wrap { calls } => run_wrap(scenario, *calls, iterations),
+        ScenarioKind::ReadReread { noise_calls } => {
+            run_read_reread(scenario, *noise_calls, iterations)
+        }
     }
 }
 

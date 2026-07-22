@@ -33,6 +33,13 @@ pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
     let cfg = Config::load();
     let mut ctx = SessionContext::load(sessions_dir);
 
+    // Compaction drops earlier tool output from the model's context, but
+    // context.json survives it. Raise the dedup floor so nothing recorded
+    // before the compaction can be cited as "identical to #N" afterwards.
+    if tool == "PreCompact" {
+        ctx.dedup_floor_call = ctx.call_counter;
+    }
+
     // Sub-agent cost tracking
     if agent_tracker::is_agent_tool(tool) {
         ctx.note_agent_spawn(tool, cfg.agent_spawn_cost);

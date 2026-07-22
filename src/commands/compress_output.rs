@@ -177,6 +177,33 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     // re-emissions still collapse (identical bytes carry no new information).
     let is_mcp = tool.starts_with("mcp__");
 
+    // Session-long read dedup. `redundancy::check` below only reaches back
+    // `recent_window` (16) calls, but re-reading an unchanged file recurs far
+    // past that — the same reason skill injections need their own store.
+    // Keyed by path AND content hash, exact-match only: a long-distance fuzzy
+    // match is precisely the A2 failure mode. The floor check inside
+    // `read_dedup_lookup` keeps prior-session and pre-compaction reads out.
+    let read_dedup_key = if cfg.read_dedup_session_long
+        && cfg.redundancy_cache_enabled
+        && tool == "Read"
+        && !edited_since_seen
+    {
+        extract_string_field(raw, "file_path")
+            .map(|p| unescape(&p))
+            .map(|p| (p, crate::context::hash::fnv1a_64(content.as_bytes())))
+    } else {
+        None
+    };
+    if let Some((ref path, fp)) = read_dedup_key {
+        if let Some(call_n) = ctx.read_dedup_lookup(path, fp) {
+            ctx.exact_dedup_hits += 1;
+            ctx.save(sessions_dir);
+            return Some(format!(
+                "[squeez: identical to Read #{call_n} of {path} — output omitted]"
+            ));
+        }
+    }
+
     // Redundancy check: if we've seen this content before, replace with a note.
     if cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
@@ -218,9 +245,13 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         None
     };
 
-    // Record content so future calls can dedup against it.
+    // Record content so future calls can dedup against it. The read store
+    // reuses the call_n minted here, so one Read consumes one call number.
     if cfg.redundancy_cache_enabled {
-        context::redundancy::record(&mut ctx, tool, &lines);
+        let call_n = context::redundancy::record(&mut ctx, tool, &lines);
+        if let Some((path, fp)) = read_dedup_key {
+            ctx.read_dedup_record(&path, fp, call_n);
+        }
         ctx.save(sessions_dir);
     }
 
