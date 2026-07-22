@@ -1691,6 +1691,55 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
         quality_mode: QualityMode::Keywords,
     });
 
+    // ── Adversarial scenarios (where squeez should NOT win) ──────────────────
+    // A suite that only measures favourable inputs proves nothing about the
+    // tool — it proves the fixtures were chosen well. These three are picked
+    // to be hostile: there is no redundancy to remove, and the correct result
+    // is a near-zero reduction rather than a large one. They fail loudly if
+    // squeez ever starts "compressing" content that carries no waste, which is
+    // how a token saver turns into a token spender.
+    s.push(Scenario {
+        name: "adversarial_tiny_output".to_string(),
+        category: "adversarial".to_string(),
+        kind: ScenarioKind::Filter { hint: "bash".to_string() },
+        content: "ok\ndone\n2 files\n".to_string(),
+        required_keywords: vec!["ok".to_string(), "done".to_string()],
+        quality_mode: QualityMode::Signal,
+    });
+    s.push(Scenario {
+        name: "adversarial_dense_json".to_string(),
+        category: "adversarial".to_string(),
+        kind: ScenarioKind::Filter { hint: "cat".to_string() },
+        // Minified, high-entropy, no repeated lines: nothing to dedup, nothing
+        // to strip. Any large "reduction" here would be lost data.
+        content: (0..40)
+            .map(|i| {
+                format!(
+                    "{{\"id\":\"{:08x}\",\"k{}\":\"v{}\",\"n\":{},\"ok\":{}}}",
+                    i * 2_654_435_761u64 % 0xffff_ffff,
+                    i,
+                    i * 7,
+                    i * 13,
+                    i % 2 == 0
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
+    s.push(Scenario {
+        name: "adversarial_reread_tiny".to_string(),
+        category: "adversarial".to_string(),
+        // Re-reading a 3-line file: the dedup marker would cost more than the
+        // content, so the net-win gate must decline and the reduction must be
+        // ~0%. This is the regression guard for the gate itself.
+        kind: ScenarioKind::ReadReread { noise_calls: 25 },
+        content: "a = 1\nb = 2\nc = 3\n".to_string(),
+        required_keywords: vec![],
+        quality_mode: QualityMode::Keywords,
+    });
+
     // ── Wrap (binary spawn) scenarios ─────────────────────────────────────────
     // Keywords-only: the wrap output format changes intentionally
     // (summary header / dedup reference line), so term-overlap scoring
