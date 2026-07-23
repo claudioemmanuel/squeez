@@ -10,6 +10,7 @@
 //! `copilot`, ...). Hosts still waiting on migration (US-004 .. US-006)
 //! keep their stub impl at the bottom of this file.
 
+pub mod buddy;
 pub mod claude_code;
 pub mod codex;
 pub mod copilot;

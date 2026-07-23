@@ -50,6 +50,8 @@ import json, os, shutil, sys
 path = sys.argv[1]
 hooks_dir = sys.argv[2]
 statusline_bin = sys.argv[3]
+# Buddy root dir ("" = buddy disabled — strip its entries instead of adding).
+buddy_dir = sys.argv[4] if len(sys.argv) > 4 else ""
 
 settings = {}
 file_existed = os.path.exists(path)
@@ -100,10 +102,24 @@ PRETOOLUSE_MATCHER = "Bash|Read|Grep|Glob|Agent|Task"
 PRETOOLUSE_CMD = "bash " + os.path.join(hooks_dir, "pretooluse.sh")
 
 def has_squeez(arr):
+    # Buddy commands live under .../squeez/buddy/ — they must not satisfy the
+    # squeez-core idempotency check, or missing core hooks would never be
+    # re-added while a buddy entry exists.
     for m in arr:
         try:
             for h in m.get("hooks", []):
-                if "squeez" in str(h.get("command", "")):
+                cmd = str(h.get("command", ""))
+                if "squeez" in cmd and "/buddy/" not in cmd:
+                    return True
+        except Exception:
+            continue
+    return False
+
+def has_buddy(arr):
+    for m in arr:
+        try:
+            for h in m.get("hooks", []):
+                if "/buddy/" in str(h.get("command", "")):
                     return True
         except Exception:
             continue
@@ -175,12 +191,53 @@ import re as _re
 existing_status = settings.get("statusLine")
 if isinstance(existing_status, dict):
     existing_cmd = str(existing_status.get("command", ""))
-    if "squeez" in existing_cmd:
+    # The buddy statusline (".../squeez/buddy/...") is exempt from the strip.
+    if "squeez" in existing_cmd and "/buddy/" not in existing_cmd:
         m = _re.match(r"^bash -c 'input=\$\(cat\); echo \"\$input\" \| \{ (.+); \} 2>/dev/null; echo \"\$input\" \| bash .+/statusline\.sh'$", existing_cmd)
         if m:
             settings["statusLine"] = {"type": "command", "command": m.group(1)}
         else:
             del settings["statusLine"]
+
+# Buddy (vendored pato-buddy): registered by default, stripped when disabled.
+if buddy_dir:
+    def _buddy_cmd(name):
+        return "bash " + os.path.join(buddy_dir, "shims", name)
+    ensure_list("SessionStart")
+    if not has_buddy(hooks_root["SessionStart"]):
+        hooks_root["SessionStart"].append({
+            "hooks": [{"type": "command", "command": _buddy_cmd("session-start.sh")}],
+        })
+    ensure_list("PostToolUse")
+    if not has_buddy(hooks_root["PostToolUse"]):
+        hooks_root["PostToolUse"].append({
+            "matcher": "Edit|Write|Bash",
+            "hooks": [{"type": "command", "command": _buddy_cmd("post-tool-use.sh")}],
+        })
+    ensure_list("Stop")
+    if not has_buddy(hooks_root["Stop"]):
+        hooks_root["Stop"].append({
+            "hooks": [{"type": "command", "command": _buddy_cmd("stop.sh")}],
+        })
+    # statusLine: only claim it when nothing else owns it (never clobber
+    # third-party HUDs like claude-hud).
+    if not isinstance(settings.get("statusLine"), dict):
+        settings["statusLine"] = {"type": "command", "command": _buddy_cmd("statusline.sh")}
+else:
+    for _evt in ("SessionStart", "PostToolUse", "Stop"):
+        _arr = hooks_root.get(_evt)
+        if isinstance(_arr, list):
+            hooks_root[_evt] = [
+                m for m in _arr
+                if not (isinstance(m, dict) and any(
+                    "/buddy/" in str(h.get("command", "")) for h in (m.get("hooks") or [])
+                ))
+            ]
+            if not hooks_root[_evt]:
+                del hooks_root[_evt]
+    _st = settings.get("statusLine")
+    if isinstance(_st, dict) and "/buddy/" in str(_st.get("command", "")):
+        del settings["statusLine"]
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
 if file_existed:
@@ -219,7 +276,7 @@ def _strip_squeez(arr):
     ]
 
 hooks_root = settings.get("hooks") if isinstance(settings.get("hooks"), dict) else None
-for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact"):
+for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact", "Stop"):
     # Current shape: settings["hooks"][event]
     if hooks_root is not None:
         arr = hooks_root.get(event)
@@ -348,12 +405,24 @@ impl HostAdapter for ClaudeCodeAdapter {
             let _ = std::fs::remove_file(&orphan);
         }
 
+        // Vendored pato-buddy: materialized + registered by default; when
+        // `buddy = false` the entries are stripped instead (files stay inert).
+        let buddy_dir = if crate::config::Config::load().buddy {
+            super::buddy::materialize(&data)?
+                .to_str()
+                .unwrap_or("")
+                .to_string()
+        } else {
+            String::new()
+        };
+
         run_python(
             PATCH_SCRIPT,
             &[
                 Self::settings_path().to_str().unwrap_or(""),
                 hooks.to_str().unwrap_or(""),
                 "", // legacy positional arg (was statusline_bin); kept for compat
+                &buddy_dir,
             ],
         )?;
 

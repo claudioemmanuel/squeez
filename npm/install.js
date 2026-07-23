@@ -109,76 +109,14 @@ async function main() {
 }
 
 function registerHooks() {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-  let settings = {};
-  const fileExisted = fs.existsSync(settingsPath);
-  if (fileExisted) {
-    let raw;
-    try {
-      raw = fs.readFileSync(settingsPath, 'utf8');
-      if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // strip BOM
-    } catch (err) {
-      warn(`could not read ${settingsPath}: ${err.message} — skipping hook registration.`);
-      return;
-    }
-    try {
-      settings = JSON.parse(raw);
-    } catch (err) {
-      warn(`refusing to overwrite ${settingsPath}: could not parse existing JSON (${err.message}).`);
-      warn(`fix or remove the file, then re-run: squeez setup`);
-      return;
-    }
-    if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
-      warn(`refusing to overwrite ${settingsPath}: top-level value is not a JSON object.`);
-      return;
-    }
-  }
-
-  let changed = false;
-
-  // PreToolUse
-  if (!Array.isArray(settings.PreToolUse)) { settings.PreToolUse = []; }
-  const preHook = { matcher: 'Bash', hooks: [{ type: 'command', command: 'bash ~/.claude/squeez/hooks/pretooluse.sh' }] };
-  if (!settings.PreToolUse.some(h => JSON.stringify(h).includes('squeez'))) {
-    settings.PreToolUse.push(preHook); changed = true;
-  }
-
-  // SessionStart
-  if (!Array.isArray(settings.SessionStart)) { settings.SessionStart = []; }
-  const startHook = { hooks: [{ type: 'command', command: 'bash ~/.claude/squeez/hooks/session-start.sh' }] };
-  if (!settings.SessionStart.some(h => JSON.stringify(h).includes('squeez'))) {
-    settings.SessionStart.push(startHook); changed = true;
-  }
-
-  // PostToolUse
-  if (!Array.isArray(settings.PostToolUse)) { settings.PostToolUse = []; }
-  const postHook = { hooks: [{ type: 'command', command: 'bash ~/.claude/squeez/hooks/posttooluse.sh' }] };
-  if (!settings.PostToolUse.some(h => JSON.stringify(h).includes('squeez'))) {
-    settings.PostToolUse.push(postHook); changed = true;
-  }
-
-  // StatusLine
-  const squeezStatusCmd = 'bash ~/.claude/squeez/bin/statusline.sh';
-  const existingStatus = typeof settings.statusLine === 'object' ? settings.statusLine : {};
-  const existingCmd = existingStatus.command || '';
-  if (!existingCmd.includes('squeez')) {
-    settings.statusLine = existingCmd
-      ? { type: 'command', command: `bash -c 'input=$(cat); echo "$input" | { ${existingCmd}; } 2>/dev/null; echo "$input" | ${squeezStatusCmd}'` }
-      : { type: 'command', command: squeezStatusCmd };
-    changed = true;
-  }
-
-  if (changed) {
-    try {
-      if (fileExisted) {
-        try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) {}
-      }
-      fs.writeFileSync(settingsPath + '.tmp', JSON.stringify(settings, null, 2));
-      fs.renameSync(settingsPath + '.tmp', settingsPath);
-      log('Claude Code hooks registered.');
-    } catch (err) {
-      warn(`could not write settings.json: ${err.message}`);
-    }
+  // Delegate to the binary — the single source of truth for settings.json
+  // registration (hooks, buddy, statusline rules). The old inline JS fallback
+  // wrote a legacy shape that `squeez setup` has to migrate away.
+  try {
+    execSync(`"${BINARY}" setup --host=claude-code`, { stdio: 'inherit' });
+  } catch (err) {
+    warn(`squeez setup failed: ${err.message}`);
+    warn('run manually: ~/.claude/squeez/bin/squeez setup');
   }
 }
 

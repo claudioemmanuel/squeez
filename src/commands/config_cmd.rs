@@ -125,6 +125,7 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("success_collapse_deny", Kind::List),
     ("flag_force", Kind::FlagForce),
     ("flag_force_deny", Kind::List),
+    ("buddy", Kind::Bool),
 ];
 
 fn kind_of(key: &str) -> Option<Kind> {
@@ -212,6 +213,7 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "success_collapse_deny" => c.success_collapse_deny.join(","),
         "flag_force" => c.flag_force.clone(),
         "flag_force_deny" => c.flag_force_deny.join(","),
+        "buddy" => c.buddy.to_string(),
         _ => return None,
     };
     Some(v)

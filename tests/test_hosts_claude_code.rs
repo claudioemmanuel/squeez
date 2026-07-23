@@ -240,7 +240,7 @@ fn count_squeez(settings_path: &std::path::Path) -> (usize, usize) {
         "EV=('PreToolUse','SessionStart','PostToolUse','SubagentStop','PreCompact','PostCompact')\n",
         "s=json.load(open(sys.argv[1]))\n",
         "def n(arr):\n",
-        "    return sum(1 for m in (arr or []) if isinstance(m, dict) and any('squeez' in str(h.get('command','')) for h in (m.get('hooks') or [])))\n",
+        "    return sum(1 for m in (arr or []) if isinstance(m, dict) and any('squeez' in str(h.get('command','')) and '/buddy/' not in str(h.get('command','')) for h in (m.get('hooks') or [])))\n",
         "top=sum(n(s.get(e)) for e in EV if isinstance(s.get(e), list))\n",
         "nst=sum(n((s.get('hooks') or {}).get(e)) for e in EV if isinstance((s.get('hooks') or {}).get(e), list))\n",
         "print(f'{top}\\t{nst}')\n",

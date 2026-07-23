@@ -232,6 +232,11 @@ pub struct Config {
     /// Command prefixes to exclude from arg-tier flag forcing even under
     /// `flag_force = full`. Default: empty.
     pub flag_force_deny: Vec<String>,
+    // ── Pato-buddy companion ─────────────────────────────────────────────────
+    /// Vendored duck companion whose XP grows with squeez net savings
+    /// (100 tokens = 1 XP). When false, `squeez setup` strips the buddy hook
+    /// entries and the shims exit silently. Default: true.
+    pub buddy: bool,
 }
 
 impl Default for Config {
@@ -327,6 +332,7 @@ impl Default for Config {
             success_collapse_deny: Vec::new(),
             flag_force: "env".to_string(),
             flag_force_deny: Vec::new(),
+            buddy: true,
         }
     }
 }
@@ -548,6 +554,7 @@ impl Config {
                         c.flag_force_deny =
                             v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
                     }
+                    "buddy" => c.buddy = v == "true",
                     _ => {}
                 }
             }
