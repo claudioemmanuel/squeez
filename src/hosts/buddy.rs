@@ -16,6 +16,7 @@ const HOOK_SESSION_START: &str = include_str!("../../assets/buddy/hooks/session-
 const HOOK_POST_TOOL_USE: &str = include_str!("../../assets/buddy/hooks/post-tool-use.js");
 const HOOK_STOP: &str = include_str!("../../assets/buddy/hooks/stop.js");
 const STATUSLINE: &str = include_str!("../../assets/buddy/statusline/statusline.js");
+const BUDDY_CLI: &str = include_str!("../../assets/buddy/buddy-cli.js");
 
 /// Shell shim template: exits silently when `buddy = false` in config.ini or
 /// `node` is missing, so a broken/disabled buddy can never break the host.
@@ -32,7 +33,7 @@ fn shim(target: &str) -> String {
 }
 
 /// Embedded buddy sources keyed by path relative to `<data_dir>/buddy/`.
-pub fn buddy_manifest() -> [(&'static str, &'static str); 8] {
+pub fn buddy_manifest() -> [(&'static str, &'static str); 9] {
     [
         ("lib/state.js", LIB_STATE),
         ("lib/engine.js", LIB_ENGINE),
@@ -42,6 +43,7 @@ pub fn buddy_manifest() -> [(&'static str, &'static str); 8] {
         ("hooks/post-tool-use.js", HOOK_POST_TOOL_USE),
         ("hooks/stop.js", HOOK_STOP),
         ("statusline/statusline.js", STATUSLINE),
+        ("buddy-cli.js", BUDDY_CLI),
     ]
 }
 

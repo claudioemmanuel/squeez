@@ -27,6 +27,8 @@ const PRECOMPACT_SCRIPT: &str = include_str!("../../hooks/precompact.sh");
 const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
 /// `/squeez` slash command — drives `squeez config` in natural language.
 const SQUEEZ_COMMAND: &str = include_str!("../../assets/squeez-command.md");
+/// `/buddy` slash command — draws the vendored pato-buddy in the conversation.
+const BUDDY_COMMAND: &str = include_str!("../../assets/buddy-command.md");
 
 /// Embedded hook sources keyed by installed filename — lets `squeez doctor`
 /// detect drift between the running binary and the installed hook scripts.
@@ -326,6 +328,11 @@ impl ClaudeCodeAdapter {
     fn command_path() -> PathBuf {
         Self::claude_dir().join("commands").join("squeez.md")
     }
+
+    /// `~/.claude/commands/buddy.md` — the `/buddy` slash command (vendored duck).
+    fn buddy_command_path() -> PathBuf {
+        Self::claude_dir().join("commands").join("buddy.md")
+    }
 }
 
 fn hooks_dir_for(data_dir: &Path) -> PathBuf {
@@ -432,6 +439,14 @@ impl HostAdapter for ClaudeCodeAdapter {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&cmd_path, SQUEEZ_COMMAND)?;
+
+        // `/buddy` follows the buddy toggle: installed with it, removed with it.
+        let buddy_cmd = Self::buddy_command_path();
+        if buddy_dir.is_empty() {
+            let _ = std::fs::remove_file(&buddy_cmd);
+        } else {
+            std::fs::write(&buddy_cmd, BUDDY_COMMAND)?;
+        }
         Ok(())
     }
 
@@ -446,8 +461,9 @@ impl HostAdapter for ClaudeCodeAdapter {
             let cleaned = strip_squeez_block(&existing);
             let _ = std::fs::write(&claude_md, cleaned);
         }
-        // Remove the `/squeez` slash command we installed.
+        // Remove the `/squeez` and `/buddy` slash commands we installed.
         let _ = std::fs::remove_file(Self::command_path());
+        let _ = std::fs::remove_file(Self::buddy_command_path());
         Ok(())
     }
 

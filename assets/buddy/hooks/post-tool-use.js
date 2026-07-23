@@ -60,11 +60,12 @@ function main() {
     }
   }
 
-  // XP por economia do squeez (100 tokens líquidos = 1 XP).
+  // XP por economia do squeez (100k tokens líquidos = 1 XP); pode ser
+  // negativo uma única vez, na re-base após mudança de taxa.
   gained += applySqueezSavings(state);
 
   writeState(state);
-  if (gained > 0) addXp(gained);
+  if (gained !== 0) addXp(gained);
 
   // PostToolUse não precisa emitir nada pro Claude ver; silencioso por design.
   process.stdout.write(JSON.stringify({}));

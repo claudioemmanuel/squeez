@@ -76,6 +76,7 @@ fn materialize_writes_tree_version_and_exec_shims() {
             "hooks/post-tool-use.js",
             "hooks/stop.js",
             "statusline/statusline.js",
+            "buddy-cli.js",
             "shims/session-start.sh",
             "shims/post-tool-use.sh",
             "shims/stop.sh",
@@ -120,6 +121,8 @@ fn install_registers_buddy_hooks_and_statusline_when_absent() {
         assert!(s.contains("buddy/shims/statusline.sh"), "statusline claimed");
         // Materialized tree exists.
         assert!(home.join(".claude/squeez/buddy/lib/squeez.js").exists());
+        // `/buddy` slash command installed.
+        assert!(home.join(".claude/commands/buddy.md").exists());
     });
 }
 
@@ -185,6 +188,8 @@ fn buddy_off_strips_entries_and_statusline() {
         assert!(!s.contains("/buddy/"), "buddy entries stripped: {s}");
         // Core hooks untouched.
         assert!(s.contains("hooks/posttooluse.sh"));
+        // `/buddy` command removed with the toggle.
+        assert!(!home.join(".claude/commands/buddy.md").exists());
     });
 }
 
@@ -199,5 +204,6 @@ fn uninstall_removes_buddy_registration() {
         let s = settings_str(home);
         assert!(!s.contains("/buddy/"), "buddy gone after uninstall: {s}");
         assert!(!s.contains("\"Stop\""), "Stop event cleaned");
+        assert!(!home.join(".claude/commands/buddy.md").exists());
     });
 }
