@@ -9,16 +9,29 @@ const { ARCHETYPES } = require('./engine');
 
 const BODY_TEMPLATE = ['   __      {DECOR}', ' <({EYES})___', '  ({MOUTH}> /', '   `---\'  '];
 
-// Kit de slot por arquétipo: olhos, boca, decoração. Arte original, não
+// Kit de slot por arquétipo: olhos, boca, decoração. `side` é o olho de perfil,
+// usado na miniatura de 1 linha da status line. Arte original, não
 // reaproveitada de nenhum projeto de terceiros.
 const SLOT_KITS = {
-  [ARCHETYPES.RECLAMAO]: { eyes: 'ಠ_ಠ', mouth: '~', decor: '' },
-  [ARCHETYPES.MANDAO]: { eyes: '><', mouth: '=', decor: '>>' },
-  [ARCHETYPES.FISCAL]: { eyes: '⊙⊙', mouth: '‾', decor: '▤' },
-  [ARCHETYPES.MOTIVADOR]: { eyes: '★★', mouth: '◡', decor: '✧' },
-  [ARCHETYPES.CAOTICO]: { eyes: '@◠', mouth: '~', decor: '?!' },
-  [ARCHETYPES.SABIO]: { eyes: '° °', mouth: '-', decor: '…' },
+  [ARCHETYPES.RECLAMAO]: { eyes: 'ಠ_ಠ', mouth: '~', decor: '', side: 'ಠ' },
+  [ARCHETYPES.MANDAO]: { eyes: '><', mouth: '=', decor: '>>', side: '><' },
+  [ARCHETYPES.FISCAL]: { eyes: '⊙⊙', mouth: '‾', decor: '▤', side: '⊙' },
+  [ARCHETYPES.MOTIVADOR]: { eyes: '★★', mouth: '◡', decor: '✧', side: '★' },
+  [ARCHETYPES.CAOTICO]: { eyes: '@◠', mouth: '~', decor: '?!', side: '@' },
+  [ARCHETYPES.SABIO]: { eyes: '° °', mouth: '-', decor: '…', side: '°' },
 };
+
+// Silhueta de perfil, 4 linhas — usada na status line, onde o pato divide a
+// linha com os medidores. Só o olho ({SIDE}) muda por arquétipo.
+const SIDE_TEMPLATE = ['    __', ' <({SIDE} )___', '  ( ._> /', "   `---'"];
+const SIDE_WIDTH = 11; // coluna fixa: os medidores da status line alinham nela
+
+/** Linhas da arte de perfil, já com o olho do arquétipo e largura fixa. */
+function renderDuckArt(archetype) {
+  const kit = SLOT_KITS[archetype] || SLOT_KITS[ARCHETYPES.SABIO];
+  const eye = (kit.side || 'o').slice(0, 1); // olho de perfil é 1 caractere
+  return SIDE_TEMPLATE.map((line) => line.replace('{SIDE}', eye).padEnd(SIDE_WIDTH));
+}
 
 function fillBody(archetype) {
   const kit = SLOT_KITS[archetype] || SLOT_KITS[ARCHETYPES.SABIO];
@@ -69,10 +82,11 @@ function renderCard({ name, archetype, rankLabel, rankHex, xp, shiny, ansi = tru
 
 /**
  * Versão compacta de 1 linha, pra status line (espaço é caro ali).
+ * Mesma silhueta de perfil do card, achatada: bico `<`, cabeça, corpo `__`.
  */
 function renderStatusline({ archetype, rankLabel, rankHex, shiny, ansi = true }) {
   const kit = SLOT_KITS[archetype] || SLOT_KITS[ARCHETYPES.SABIO];
-  const compact = `(${kit.eyes}${kit.mouth})${kit.decor}`;
+  const compact = `<(${kit.side || kit.eyes})__`;
   const star = rankLabel.split(' ')[0][0]; // primeira letra da cor, ex: "L" de Lendário
   const text = `${compact} ${star}`;
 
@@ -84,6 +98,7 @@ function renderStatusline({ archetype, rankLabel, rankHex, shiny, ansi = true })
 module.exports = {
   SLOT_KITS,
   fillBody,
+  renderDuckArt,
   hexToRgb,
   ansiFg,
   ANSI_RESET,
