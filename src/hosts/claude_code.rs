@@ -221,10 +221,21 @@ if buddy_dir:
         hooks_root["Stop"].append({
             "hooks": [{"type": "command", "command": _buddy_cmd("stop.sh")}],
         })
-    # statusLine: only claim it when nothing else owns it (never clobber
-    # third-party HUDs like claude-hud).
-    if not isinstance(settings.get("statusLine"), dict):
-        settings["statusLine"] = {"type": "command", "command": _buddy_cmd("statusline.sh")}
+    # statusLine: the duck rides the end of the HUD's first line. An existing
+    # third-party HUD (e.g. claude-hud) is ADOPTED, not clobbered: its command
+    # is stored in <buddy>/hud-command and the chain shim keeps rendering it —
+    # restored verbatim on buddy=off / uninstall.
+    _chain_cmd = _buddy_cmd("statusline.sh")
+    _st = settings.get("statusLine")
+    _cur = str(_st.get("command", "")) if isinstance(_st, dict) else ""
+    if "/buddy/" not in _cur:
+        if _cur:
+            try:
+                with open(os.path.join(buddy_dir, "hud-command"), "w", encoding="utf-8") as _f:
+                    _f.write(_cur)
+            except Exception:
+                pass
+        settings["statusLine"] = {"type": "command", "command": _chain_cmd}
 else:
     for _evt in ("SessionStart", "PostToolUse", "Stop"):
         _arr = hooks_root.get(_evt)
@@ -239,7 +250,18 @@ else:
                 del hooks_root[_evt]
     _st = settings.get("statusLine")
     if isinstance(_st, dict) and "/buddy/" in str(_st.get("command", "")):
-        del settings["statusLine"]
+        # Restore the adopted HUD command, if one was stored at adoption time.
+        _orig = ""
+        try:
+            _data = os.path.dirname(hooks_dir.rstrip("/"))
+            with open(os.path.join(_data, "buddy", "hud-command"), "r", encoding="utf-8") as _f:
+                _orig = _f.read().strip()
+        except Exception:
+            pass
+        if _orig:
+            settings["statusLine"] = {"type": "command", "command": _orig}
+        else:
+            del settings["statusLine"]
 
 os.makedirs(os.path.dirname(path), exist_ok=True)
 if file_existed:
@@ -296,8 +318,25 @@ if hooks_root is not None and not hooks_root:
     del settings["hooks"]
 
 status = settings.get("statusLine")
-if isinstance(status, dict) and "squeez" in str(status.get("command", "")):
-    del settings["statusLine"]
+if isinstance(status, dict):
+    _cmd = str(status.get("command", ""))
+    if "/buddy/" in _cmd:
+        # Buddy chain: restore the adopted HUD command stored at adoption time.
+        import re as _re
+        _m = _re.search(r"bash (.*/buddy)/shims/statusline\.sh", _cmd)
+        _orig = ""
+        if _m:
+            try:
+                with open(os.path.join(_m.group(1), "hud-command"), "r", encoding="utf-8") as _f:
+                    _orig = _f.read().strip()
+            except Exception:
+                pass
+        if _orig:
+            settings["statusLine"] = {"type": "command", "command": _orig}
+        else:
+            del settings["statusLine"]
+    elif "squeez" in _cmd:
+        del settings["statusLine"]
 
 try:
     shutil.copy2(path, path + ".bak")

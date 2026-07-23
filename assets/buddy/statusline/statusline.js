@@ -16,7 +16,10 @@ function main() {
     ansi: true,
   });
 
-  const bubble = state.lastComment ? `  "${state.lastComment}"` : '';
+  // --compact: só a cabeça colorida, sem balão — modo usado quando o pato
+  // divide a linha com um HUD de terceiro (espaço é caro na ponta da linha).
+  const compact = process.argv.includes('--compact');
+  const bubble = !compact && state.lastComment ? `  "${state.lastComment}"` : '';
   process.stdout.write(`${duck}${bubble}\n`);
 }
 

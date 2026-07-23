@@ -119,6 +119,8 @@ fn install_registers_buddy_hooks_and_statusline_when_absent() {
         assert!(s.contains("Edit|Write|Bash"), "buddy PostToolUse matcher");
         assert!(s.contains("\"Stop\""), "Stop event registered");
         assert!(s.contains("buddy/shims/statusline.sh"), "statusline claimed");
+        // No HUD existed → nothing adopted.
+        assert!(!home.join(".claude/squeez/buddy/hud-command").exists());
         // Materialized tree exists.
         assert!(home.join(".claude/squeez/buddy/lib/squeez.js").exists());
         // `/buddy` slash command installed.
@@ -127,7 +129,7 @@ fn install_registers_buddy_hooks_and_statusline_when_absent() {
 }
 
 #[test]
-fn install_never_clobbers_existing_statusline() {
+fn install_adopts_existing_statusline_into_chain_and_restores_it() {
     if !python3_available() {
         return;
     }
@@ -141,10 +143,42 @@ fn install_never_clobbers_existing_statusline() {
         .unwrap();
         ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
         let s = settings_str(home);
-        assert!(s.contains("claude-hud"), "existing statusLine survives");
-        assert!(!s.contains("buddy/shims/statusline.sh"), "buddy must not claim it");
-        // Hooks still registered.
-        assert!(s.contains("buddy/shims/stop.sh"));
+        // Adopted: chain shim owns statusLine, original stored for the shim.
+        assert!(s.contains("buddy/shims/statusline.sh"), "chain not installed: {s}");
+        assert!(!s.contains("claude-hud"), "original must move out of settings");
+        let hud = std::fs::read_to_string(home.join(".claude/squeez/buddy/hud-command")).unwrap();
+        assert_eq!(hud, "claude-hud");
+        // Idempotent: second install must not overwrite hud-command with the chain.
+        ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
+        let hud = std::fs::read_to_string(home.join(".claude/squeez/buddy/hud-command")).unwrap();
+        assert_eq!(hud, "claude-hud", "re-adoption corrupted hud-command");
+        // buddy=off restores the original HUD verbatim.
+        write_config(home, "buddy = false\n");
+        ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
+        let s = settings_str(home);
+        assert!(s.contains("claude-hud"), "HUD not restored on buddy=off: {s}");
+        assert!(!s.contains("/buddy/"), "chain left behind: {s}");
+    });
+}
+
+#[test]
+fn uninstall_restores_adopted_statusline() {
+    if !python3_available() {
+        return;
+    }
+    with_home(|home| {
+        let dir = home.join(".claude");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"statusLine":{"type":"command","command":"claude-hud"}}"#,
+        )
+        .unwrap();
+        ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
+        ClaudeCodeAdapter.uninstall().unwrap();
+        let s = settings_str(home);
+        assert!(s.contains("claude-hud"), "HUD not restored on uninstall: {s}");
+        assert!(!s.contains("/buddy/"), "buddy chain left behind: {s}");
     });
 }
 

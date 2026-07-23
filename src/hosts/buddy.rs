@@ -47,12 +47,39 @@ pub fn buddy_manifest() -> [(&'static str, &'static str); 9] {
     ]
 }
 
-const SHIMS: [(&str, &str); 4] = [
+const SHIMS: [(&str, &str); 3] = [
     ("shims/session-start.sh", "hooks/session-start.js"),
     ("shims/post-tool-use.sh", "hooks/post-tool-use.js"),
     ("shims/stop.sh", "hooks/stop.js"),
-    ("shims/statusline.sh", "statusline/statusline.js"),
 ];
+
+/// Statusline shim: chains the adopted third-party HUD (command stored in
+/// `<buddy>/hud-command` at setup) with the duck head appended to the end of
+/// the HUD's first line. With `buddy = false` (or no node) it degrades to the
+/// HUD alone — never to a blank statusline.
+const STATUSLINE_SHIM: &str = "#!/bin/sh\n\
+# squeez buddy statusline — HUD original (se houver) + cabeça do pato na ponta\n\
+root=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\n\
+input=$(cat)\n\
+hud=\"\"\n\
+if [ -f \"$root/hud-command\" ]; then\n\
+  hud=$(printf '%s' \"$input\" | sh -c \"$(cat \"$root/hud-command\")\" 2>/dev/null)\n\
+fi\n\
+duck=\"\"\n\
+if ! grep -Eq '^[[:space:]]*buddy[[:space:]]*=[[:space:]]*(false|off|0)[[:space:]]*$' \"$root/../config.ini\" 2>/dev/null; then\n\
+  if command -v node >/dev/null 2>&1; then\n\
+    duck=$(printf '%s' \"$input\" | node \"$root/statusline/statusline.js\" --compact 2>/dev/null)\n\
+  fi\n\
+fi\n\
+if [ -n \"$hud\" ]; then\n\
+  first=$(printf '%s\\n' \"$hud\" | head -n1)\n\
+  rest=$(printf '%s\\n' \"$hud\" | tail -n +2)\n\
+  if [ -n \"$duck\" ]; then printf '%s %s\\n' \"$first\" \"$duck\"; else printf '%s\\n' \"$first\"; fi\n\
+  [ -n \"$rest\" ] && printf '%s\\n' \"$rest\"\n\
+else\n\
+  [ -n \"$duck\" ] && printf '%s\\n' \"$duck\"\n\
+fi\n\
+exit 0\n";
 
 /// Writes the buddy tree into `<data_dir>/buddy/`, overwriting stale copies
 /// (VERSION stamp records the writing binary). Returns the buddy root.
@@ -65,12 +92,16 @@ pub fn materialize(data_dir: &Path) -> std::io::Result<PathBuf> {
         }
         std::fs::write(&path, body)?;
     }
-    for (rel, target) in SHIMS {
+    for (rel, body) in SHIMS
+        .iter()
+        .map(|(rel, target)| (*rel, shim(target)))
+        .chain(std::iter::once(("shims/statusline.sh", STATUSLINE_SHIM.to_string())))
+    {
         let path = root.join(rel);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, shim(target))?;
+        std::fs::write(&path, body)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
