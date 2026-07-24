@@ -60,7 +60,7 @@ function main() {
     }
   }
 
-  // XP por economia do squeez (100k tokens líquidos = 1 XP); pode ser
+  // XP por economia do squeez (1M tokens líquidos = 1 XP); pode ser
   // negativo uma única vez, na re-base após mudança de taxa.
   gained += applySqueezSavings(state);
 

@@ -50,7 +50,7 @@ function main() {
     }
   }
 
-  // Captura economia do squeez acumulada até o fim do turno (100k tokens = 1 XP).
+  // Captura economia do squeez acumulada até o fim do turno (1M tokens = 1 XP).
   const state = readState();
   const gained = applySqueezSavings(state);
   writeState(state);

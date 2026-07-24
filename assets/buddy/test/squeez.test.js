@@ -31,15 +31,15 @@ function writeSession(startTs, tokensSaved, overheadTokens) {
   );
 }
 
-test('taxa é 100k tokens por XP (progressão lenta de propósito)', () => {
-  assert.strictEqual(TOKENS_PER_XP, 100000);
+test('taxa é 1M tokens por XP (progressão lenta de propósito)', () => {
+  assert.strictEqual(TOKENS_PER_XP, 1000000);
 });
 
 test('delta normal: economia líquida vira XP na taxa vigente', () => {
   const state = {};
-  writeSession(1000, 550000, 50000); // net 500k
-  assert.strictEqual(applySqueezSavings(state), 500000 / TOKENS_PER_XP);
-  assert.strictEqual(state.squeez.lifetimeNetSaved, 500000);
+  writeSession(1000, 5500000, 500000); // net 5M
+  assert.strictEqual(applySqueezSavings(state), 5000000 / TOKENS_PER_XP);
+  assert.strictEqual(state.squeez.lifetimeNetSaved, 5000000);
 });
 
 test('idempotente: sem economia nova, delta 0 (seguro PostToolUse+Stop)', () => {
@@ -67,19 +67,19 @@ test('net regredindo (overhead cresce) não desconta do lifetime', () => {
 
 test('reset por start_ts: sessão nova zera baseline, lifetime acumula', () => {
   const state = {};
-  writeSession(1000, 500000, 0);
-  applySqueezSavings(state); // +5 XP, lifetime 500k
-  writeSession(2000, 300000, 0); // sessão nova, net 300k
+  writeSession(1000, 5000000, 0);
+  applySqueezSavings(state); // +5 XP, lifetime 5M
+  writeSession(2000, 3000000, 0); // sessão nova, net 3M
   assert.strictEqual(applySqueezSavings(state), 3);
-  assert.strictEqual(state.squeez.lifetimeNetSaved, 800000);
+  assert.strictEqual(state.squeez.lifetimeNetSaved, 8000000);
 });
 
 test('carry sub-taxa: resto acumula entre chamadas', () => {
   const state = {};
-  writeSession(1000, 60000, 0);
-  assert.strictEqual(applySqueezSavings(state), 0); // 60k < 100k
-  writeSession(1000, 120000, 0);
-  assert.strictEqual(applySqueezSavings(state), 1); // lifetime 120k → 1 XP
+  writeSession(1000, 600000, 0);
+  assert.strictEqual(applySqueezSavings(state), 0); // 600k < 1M
+  writeSession(1000, 1200000, 0);
+  assert.strictEqual(applySqueezSavings(state), 1); // lifetime 1.2M → 1 XP
   assert.strictEqual(state.squeez.xpGranted, 1);
 });
 
@@ -109,7 +109,7 @@ test('current.json corrompido: retorna 0, não lança', () => {
 
 test('tracker corrompido no state é reconstruído', () => {
   const state = { squeez: 'garbage' };
-  writeSession(3000, 250000, 0);
+  writeSession(3000, 2500000, 0);
   assert.strictEqual(applySqueezSavings(state), 2);
   assert.strictEqual(typeof state.squeez, 'object');
 });

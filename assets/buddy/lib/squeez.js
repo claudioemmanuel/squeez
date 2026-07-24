@@ -2,8 +2,8 @@
 
 // Fonte de XP por economia do squeez: lê <squeez data dir>/sessions/current.json
 // e converte economia líquida (tokens_saved - overhead_tokens) em XP.
-// 100k tokens líquidos = 1 XP (progressão lenta de propósito — rank máximo
-// exige 650M tokens economizados). Baseline por start_ts: sessão nova zera a
+// 1M tokens líquidos = 1 XP (progressão lenta de propósito — rank máximo
+// exige 6.5B tokens economizados). Baseline por start_ts: sessão nova zera a
 // régua; o resto sub-taxa fica acumulado em lifetimeNetSaved (nada se perde).
 // Mudança de taxa re-baseia o XP já concedido (tracker.rate registra a taxa
 // vigente; o delta da recomputação pode ser negativo).
@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const TOKENS_PER_XP = 100000;
+const TOKENS_PER_XP = 1000000;
 
 function squeezDataDir() {
   return process.env.SQUEEZ_DIR || path.join(os.homedir(), '.claude', 'squeez');
