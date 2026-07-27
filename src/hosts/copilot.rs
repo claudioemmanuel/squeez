@@ -8,117 +8,43 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, HostAdapter, HostCaps};
+use super::{memory_size, settings_json, HostAdapter, HostCaps};
 
 const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/copilot-pretooluse.sh");
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/copilot-session-start.sh");
 const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/copilot-posttooluse.sh");
 
-const PATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
+/// Events squeez registers in the Copilot CLI settings file (top-level).
+const SQUEEZ_EVENTS: [&str; 3] = ["PreToolUse", "SessionStart", "PostToolUse"];
 
-path = sys.argv[1]
-hooks_dir = sys.argv[2]
-
-settings = {}
-file_existed = os.path.exists(path)
-if file_existed:
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            settings = json.load(f)
-    except Exception as e:
-        sys.stderr.write(
-            "squeez: refusing to overwrite {path}: could not parse existing JSON ({err}).\n"
-            "squeez: fix or remove the file, then re-run `squeez setup`.\n".format(path=path, err=e)
-        )
-        sys.exit(2)
-if not isinstance(settings, dict):
-    sys.stderr.write(
-        "squeez: refusing to overwrite {path}: top-level value is not a JSON object.\n".format(path=path)
-    )
-    sys.exit(2)
-
-def ensure_list(key):
-    if not isinstance(settings.get(key), list):
-        settings[key] = []
-
-def has_squeez(arr):
-    for m in arr:
-        try:
-            for h in m.get("hooks", []):
-                if "squeez" in str(h.get("command", "")):
-                    return True
-        except Exception:
-            continue
-    return False
-
-ensure_list("PreToolUse")
-if not has_squeez(settings["PreToolUse"]):
-    settings["PreToolUse"].append({
-        "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "copilot-pretooluse.sh")}],
-    })
-
-ensure_list("SessionStart")
-if not has_squeez(settings["SessionStart"]):
-    settings["SessionStart"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "copilot-session-start.sh")}],
-    })
-
-ensure_list("PostToolUse")
-if not has_squeez(settings["PostToolUse"]):
-    settings["PostToolUse"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "copilot-posttooluse.sh")}],
-    })
-
-os.makedirs(os.path.dirname(path), exist_ok=True)
-if file_existed:
-    try:
-        shutil.copy2(path, path + ".bak")
-    except Exception:
-        pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
-
-const UNPATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
-
-path = sys.argv[1]
-if not os.path.exists(path):
-    sys.exit(0)
-try:
-    with open(path, "r", encoding="utf-8-sig") as f:
-        settings = json.load(f)
-except Exception as e:
-    sys.stderr.write(
-        "squeez: refusing to rewrite {path}: could not parse existing JSON ({err}).\n".format(path=path, err=e)
-    )
-    sys.exit(0)
-if not isinstance(settings, dict):
-    sys.exit(0)
-
-for event in ("PreToolUse", "SessionStart", "PostToolUse"):
-    arr = settings.get(event)
-    if isinstance(arr, list):
-        settings[event] = [
-            m for m in arr
-            if not any("squeez" in str(h.get("command", "")) for h in m.get("hooks", []))
-        ]
-        if not settings[event]:
-            del settings[event]
-
-try:
-    shutil.copy2(path, path + ".bak")
-except Exception:
-    pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
+/// Copilot keeps its event map at the top level and takes plain `bash <path>`
+/// commands with no timeout.
+fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
+    let cmd = |script: &str| format!("bash {}", hooks_dir.join(script).display());
+    vec![
+        settings_json::HookSpec {
+            event: "PreToolUse",
+            matcher: Some("Bash"),
+            command: cmd("copilot-pretooluse.sh"),
+            name: None,
+            timeout_ms: None,
+        },
+        settings_json::HookSpec {
+            event: "SessionStart",
+            matcher: None,
+            command: cmd("copilot-session-start.sh"),
+            name: None,
+            timeout_ms: None,
+        },
+        settings_json::HookSpec {
+            event: "PostToolUse",
+            matcher: None,
+            command: cmd("copilot-posttooluse.sh"),
+            name: None,
+            timeout_ms: None,
+        },
+    ]
+}
 
 pub struct CopilotCliAdapter;
 
@@ -142,21 +68,6 @@ fn write_hook(dir: &Path, name: &str, body: &str) -> std::io::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
-    }
-    Ok(())
-}
-
-fn run_python(script: &str, args: &[&str]) -> std::io::Result<()> {
-    let status = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(script)
-        .args(args)
-        .status()?;
-    if !status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("python3 settings patch exited {status}"),
-        ));
     }
     Ok(())
 }
@@ -191,12 +102,10 @@ impl HostAdapter for CopilotCliAdapter {
         write_hook(&hooks, "copilot-session-start.sh", SESSION_START_SCRIPT)?;
         write_hook(&hooks, "copilot-posttooluse.sh", POSTTOOLUSE_SCRIPT)?;
 
-        run_python(
-            PATCH_SCRIPT,
-            &[
-                Self::settings_path().to_str().unwrap_or(""),
-                hooks.to_str().unwrap_or(""),
-            ],
+        settings_json::patch_events(
+            &Self::settings_path(),
+            settings_json::EventRoot::TopLevel,
+            &hook_specs(&hooks),
         )?;
         Ok(())
     }
@@ -204,7 +113,11 @@ impl HostAdapter for CopilotCliAdapter {
     fn uninstall(&self) -> std::io::Result<()> {
         let settings = Self::settings_path();
         if settings.exists() {
-            run_python(UNPATCH_SCRIPT, &[settings.to_str().unwrap_or("")])?;
+            settings_json::unpatch_events(
+                &settings,
+                settings_json::EventRoot::TopLevel,
+                &SQUEEZ_EVENTS,
+            )?;
         }
         let instructions = Self::instructions_path();
         if instructions.exists() {

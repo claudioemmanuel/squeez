@@ -19,6 +19,7 @@ pub mod hermes;
 pub mod memory_size;
 pub mod opencode;
 pub mod pi;
+pub mod settings_json;
 pub use claude_code::ClaudeCodeAdapter;
 pub use codex::CodexCliAdapter;
 pub use copilot::CopilotCliAdapter;

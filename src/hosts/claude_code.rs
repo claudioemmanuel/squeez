@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 use crate::commands::focus;
 use crate::commands::persona;
 use crate::config::Config;
+use crate::json_util::JsonValue;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, HostAdapter, HostCaps};
+use super::{memory_size, settings_json, HostAdapter, HostCaps};
 
 const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/pretooluse.sh");
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/session-start.sh");
@@ -46,307 +47,322 @@ pub fn hooks_manifest() -> [(&'static str, &'static str); 6] {
 /// Patches ~/.claude/settings.json to register squeez hooks + statusline.
 /// Load-merge-write with atomic rename. Idempotent via substring match on
 /// "squeez" in existing command strings.
-const PATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
+const PRETOOLUSE_MATCHER: &str = "Bash|Read|Grep|Glob|Agent|Task";
 
-path = sys.argv[1]
-hooks_dir = sys.argv[2]
-statusline_bin = sys.argv[3]
-# Buddy root dir ("" = buddy disabled — strip its entries instead of adding).
-buddy_dir = sys.argv[4] if len(sys.argv) > 4 else ""
+/// Events squeez has ever registered at the top level of settings.json.
+/// Claude Code expects them under `settings["hooks"]`; early squeez versions
+/// wrote them top-level, so install migrates any stragglers.
+const SQUEEZ_EVENTS: [&str; 6] = [
+    "PreToolUse",
+    "SessionStart",
+    "PostToolUse",
+    "SubagentStop",
+    "PreCompact",
+    "PostCompact",
+];
 
-settings = {}
-file_existed = os.path.exists(path)
-if file_existed:
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            settings = json.load(f)
-    except Exception as e:
-        sys.stderr.write(
-            "squeez: refusing to overwrite {path}: could not parse existing JSON ({err}).\n"
-            "squeez: fix or remove the file, then re-run `squeez setup`.\n".format(path=path, err=e)
-        )
-        sys.exit(2)
-if not isinstance(settings, dict):
-    sys.stderr.write(
-        "squeez: refusing to overwrite {path}: top-level value is not a JSON object.\n".format(path=path)
-    )
-    sys.exit(2)
+fn hook_cmd(hooks_dir: &Path, script: &str) -> String {
+    format!("bash {}", hooks_dir.join(script).display())
+}
 
-# Claude Code expects hooks at settings["hooks"][event], not top-level.
-if not isinstance(settings.get("hooks"), dict):
-    settings["hooks"] = {}
-hooks_root = settings["hooks"]
+/// Every `command` string inside a matcher entry.
+fn entry_commands(entry: &JsonValue) -> Vec<&str> {
+    entry
+        .get("hooks")
+        .map(|h| h.as_arr())
+        .unwrap_or(&[])
+        .iter()
+        .map(|h| h.get_str("command"))
+        .collect()
+}
 
-def ensure_list(key):
-    if not isinstance(hooks_root.get(key), list):
-        hooks_root[key] = []
+/// Detach top-level `event` arrays written by older squeez versions, so the
+/// nested hooks map can then be mutated in place.
+fn take_legacy_events(settings: &mut JsonValue) -> Vec<(&'static str, Vec<JsonValue>)> {
+    SQUEEZ_EVENTS
+        .iter()
+        .filter_map(|event| match settings.remove(event) {
+            Some(JsonValue::Arr(items)) => Some((*event, items)),
+            _ => None,
+        })
+        .collect()
+}
 
-# Migrate legacy top-level entries written by earlier squeez versions.
-for _legacy_evt in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact"):
-    _legacy = settings.pop(_legacy_evt, None)
-    if isinstance(_legacy, list):
-        ensure_list(_legacy_evt)
-        _existing_cmds = {
-            str(h.get("command", ""))
-            for m in hooks_root[_legacy_evt] if isinstance(m, dict)
-            for h in (m.get("hooks") or [])
+/// Fold the detached legacy entries into `hooks_root`, skipping any whose
+/// command is already registered there.
+fn migrate_legacy_events(
+    hooks_root: &mut JsonValue,
+    legacy_events: Vec<(&'static str, Vec<JsonValue>)>,
+) {
+    for (event, legacy) in legacy_events {
+        let current = hooks_root.ensure_arr(event);
+        let existing: Vec<String> = current
+            .iter()
+            .flat_map(|m| entry_commands(m))
+            .map(|c| c.to_string())
+            .collect();
+        for entry in legacy {
+            if !entry.is_obj() {
+                continue;
+            }
+            if entry_commands(&entry)
+                .iter()
+                .any(|c| existing.iter().any(|e| e == c))
+            {
+                continue;
+            }
+            current.push(entry);
         }
-        for _m in _legacy:
-            if not isinstance(_m, dict):
-                continue
-            _cmds = [str(h.get("command", "")) for h in (_m.get("hooks") or [])]
-            if any(c in _existing_cmds for c in _cmds):
-                continue
-            hooks_root[_legacy_evt].append(_m)
+    }
+}
 
-PRETOOLUSE_MATCHER = "Bash|Read|Grep|Glob|Agent|Task"
-PRETOOLUSE_CMD = "bash " + os.path.join(hooks_dir, "pretooluse.sh")
+/// PreToolUse is upgraded in place rather than appended: an older install may
+/// carry a narrower matcher (Bash-only) or a stale hook path, and duplicating
+/// the entry would run the hook twice.
+fn upgrade_pretooluse(hooks_root: &mut JsonValue, command: &str) {
+    let arr = hooks_root.ensure_arr("PreToolUse");
+    let existing = arr.iter_mut().find(|m| {
+        entry_commands(m)
+            .iter()
+            .any(|c| c.contains("pretooluse.sh") && c.contains("squeez"))
+    });
+    let Some(entry) = existing else {
+        arr.push(settings_json::hook_entry(Some(PRETOOLUSE_MATCHER), command));
+        return;
+    };
+    if entry.get_str("matcher") != PRETOOLUSE_MATCHER {
+        entry.set("matcher", JsonValue::Str(PRETOOLUSE_MATCHER.to_string()));
+    }
+    if let Some(first) = entry
+        .get_mut("hooks")
+        .and_then(|h| h.as_arr_mut())
+        .and_then(|a| a.first_mut())
+    {
+        if first.get_str("command") != command {
+            first.set("command", JsonValue::Str(command.to_string()));
+        }
+    }
+}
 
-def has_squeez(arr):
-    # Buddy commands live under .../squeez/buddy/ — they must not satisfy the
-    # squeez-core idempotency check, or missing core hooks would never be
-    # re-added while a buddy entry exists.
-    for m in arr:
-        try:
-            for h in m.get("hooks", []):
-                cmd = str(h.get("command", ""))
-                if "squeez" in cmd and "/buddy/" not in cmd:
-                    return True
-        except Exception:
-            continue
-    return False
+/// Statusline chain wrapper written when buddy adopts a third-party HUD:
+/// `bash -c 'input=$(cat); echo "$input" | { <HUD>; } 2>/dev/null; echo "$input" | bash <…>/statusline.sh'`
+const CHAIN_PREFIX: &str = "bash -c 'input=$(cat); echo \"$input\" | { ";
+const CHAIN_MIDDLE: &str = "; } 2>/dev/null; echo \"$input\" | bash ";
 
-def has_buddy(arr):
-    for m in arr:
-        try:
-            for h in m.get("hooks", []):
-                if "/buddy/" in str(h.get("command", "")):
-                    return True
-        except Exception:
-            continue
-    return False
+/// Recover the adopted HUD command from a squeez chain statusline, so removing
+/// squeez does not take a user's third-party HUD down with it.
+fn unwrap_chained_hud(cmd: &str) -> Option<&str> {
+    let rest = cmd.strip_prefix(CHAIN_PREFIX)?;
+    let mid = rest.find(CHAIN_MIDDLE)?;
+    let tail = &rest[mid + CHAIN_MIDDLE.len()..];
+    if !tail.ends_with("/statusline.sh'") {
+        return None;
+    }
+    Some(&rest[..mid])
+}
 
-def find_squeez_pretooluse(arr):
-    """Return the index of an existing squeez PreToolUse entry, or -1."""
-    for i, m in enumerate(arr):
-        try:
-            for h in m.get("hooks", []):
-                if "pretooluse.sh" in str(h.get("command", "")) and "squeez" in str(h.get("command", "")):
-                    return i
-        except Exception:
-            continue
-    return -1
+/// Drop a prior squeez statusLine registration. The squeez status line competes
+/// with third-party HUDs (e.g. claude-hud) and surfaces nothing that the memory
+/// banner does not. Non-squeez and buddy statusLines are left untouched.
+fn strip_squeez_statusline(settings: &mut JsonValue) {
+    let Some(status) = settings.get("statusLine") else {
+        return;
+    };
+    if !status.is_obj() {
+        return;
+    }
+    let cmd = status.get_str("command");
+    if !cmd.contains("squeez") || cmd.contains("/buddy/") {
+        return;
+    }
+    match unwrap_chained_hud(cmd).map(|s| s.to_string()) {
+        Some(inner) => settings.set("statusLine", JsonValue::command_entry(&inner)),
+        None => {
+            settings.remove("statusLine");
+        }
+    }
+}
 
-ensure_list("PreToolUse")
-idx = find_squeez_pretooluse(hooks_root["PreToolUse"])
-if idx == -1:
-    hooks_root["PreToolUse"].append({
-        "matcher": PRETOOLUSE_MATCHER,
-        "hooks": [{"type": "command", "command": PRETOOLUSE_CMD}],
-    })
-else:
-    entry = hooks_root["PreToolUse"][idx]
-    if entry.get("matcher") != PRETOOLUSE_MATCHER:
-        entry["matcher"] = PRETOOLUSE_MATCHER
-    cmd_list = entry.get("hooks", [])
-    if cmd_list and cmd_list[0].get("command") != PRETOOLUSE_CMD:
-        cmd_list[0]["command"] = PRETOOLUSE_CMD
+fn buddy_shim(buddy_dir: &Path, name: &str) -> String {
+    format!("bash {}", buddy_dir.join("shims").join(name).display())
+}
 
-ensure_list("SessionStart")
-if not has_squeez(hooks_root["SessionStart"]):
-    hooks_root["SessionStart"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "session-start.sh")}],
-    })
+fn hud_command_file(buddy_dir: &Path) -> PathBuf {
+    buddy_dir.join("hud-command")
+}
 
-ensure_list("PostToolUse")
-if not has_squeez(hooks_root["PostToolUse"]):
-    hooks_root["PostToolUse"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "posttooluse.sh")}],
-    })
+/// Register the vendored pato-buddy hooks.
+fn register_buddy_hooks(hooks_root: &mut JsonValue, buddy_dir: &Path) {
+    settings_json::ensure_buddy_hook(
+        hooks_root,
+        "SessionStart",
+        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "session-start.sh")),
+    );
+    settings_json::ensure_buddy_hook(
+        hooks_root,
+        "PostToolUse",
+        settings_json::hook_entry(
+            Some("Edit|Write|Bash"),
+            &buddy_shim(buddy_dir, "post-tool-use.sh"),
+        ),
+    );
+    settings_json::ensure_buddy_hook(
+        hooks_root,
+        "Stop",
+        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "stop.sh")),
+    );
+}
 
-ensure_list("SubagentStop")
-if not has_squeez(hooks_root["SubagentStop"]):
-    hooks_root["SubagentStop"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "subagent-stop.sh")}],
-    })
+/// Point the statusLine at the buddy chain shim.
+///
+/// An existing third-party HUD is ADOPTED, not clobbered: its command is stored
+/// in `<buddy>/hud-command` and the chain shim keeps rendering it — restored
+/// verbatim on `buddy = false` or uninstall.
+fn register_buddy_statusline(settings: &mut JsonValue, buddy_dir: &Path) {
+    let current = settings
+        .get("statusLine")
+        .filter(|s| s.is_obj())
+        .map(|s| s.get_str("command").to_string())
+        .unwrap_or_default();
+    if current.contains("/buddy/") {
+        return;
+    }
+    if !current.is_empty() {
+        let _ = std::fs::write(hud_command_file(buddy_dir), &current);
+    }
+    settings.set(
+        "statusLine",
+        JsonValue::command_entry(&buddy_shim(buddy_dir, "statusline.sh")),
+    );
+}
 
-ensure_list("PreCompact")
-if not has_squeez(hooks_root["PreCompact"]):
-    hooks_root["PreCompact"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "precompact.sh")}],
-    })
+/// Restore the statusLine that buddy adopted, or drop it when none was stored.
+fn restore_adopted_hud(settings: &mut JsonValue, buddy_dir: &Path) {
+    let original = std::fs::read_to_string(hud_command_file(buddy_dir))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if original.is_empty() {
+        settings.remove("statusLine");
+    } else {
+        settings.set("statusLine", JsonValue::command_entry(&original));
+    }
+}
 
-ensure_list("PostCompact")
-if not has_squeez(hooks_root["PostCompact"]):
-    hooks_root["PostCompact"].append({
-        "hooks": [{"type": "command", "command": "bash " + os.path.join(hooks_dir, "postcompact.sh")}],
-    })
+/// Remove buddy's hooks (the `buddy = false` path). Files stay on disk but
+/// inert.
+fn unregister_buddy_hooks(hooks_root: &mut JsonValue) {
+    for event in ["SessionStart", "PostToolUse", "Stop"] {
+        settings_json::strip_buddy(hooks_root, event);
+    }
+}
 
-# Strip any prior squeez statusLine registration. The squeez status line
-# competes with third-party HUDs (e.g. claude-hud) and provides no critical
-# information that isn't already surfaced via memory/banner. Leave non-squeez
-# statusLine entries untouched. The `statusline_bin` arg is retained for
-# backward compatibility with older installers but is no longer consumed.
-_ = statusline_bin
-import re as _re
-existing_status = settings.get("statusLine")
-if isinstance(existing_status, dict):
-    existing_cmd = str(existing_status.get("command", ""))
-    # The buddy statusline (".../squeez/buddy/...") is exempt from the strip.
-    if "squeez" in existing_cmd and "/buddy/" not in existing_cmd:
-        m = _re.match(r"^bash -c 'input=\$\(cat\); echo \"\$input\" \| \{ (.+); \} 2>/dev/null; echo \"\$input\" \| bash .+/statusline\.sh'$", existing_cmd)
-        if m:
-            settings["statusLine"] = {"type": "command", "command": m.group(1)}
-        else:
-            del settings["statusLine"]
+/// Hand the statusLine back to whatever buddy adopted.
+fn unregister_buddy_statusline(settings: &mut JsonValue, data_dir: &Path) {
+    let is_buddy_status = settings
+        .get("statusLine")
+        .filter(|s| s.is_obj())
+        .is_some_and(|s| s.get_str("command").contains("/buddy/"));
+    if is_buddy_status {
+        restore_adopted_hud(settings, &data_dir.join("buddy"));
+    }
+}
 
-# Buddy (vendored pato-buddy): registered by default, stripped when disabled.
-if buddy_dir:
-    def _buddy_cmd(name):
-        return "bash " + os.path.join(buddy_dir, "shims", name)
-    ensure_list("SessionStart")
-    if not has_buddy(hooks_root["SessionStart"]):
-        hooks_root["SessionStart"].append({
-            "hooks": [{"type": "command", "command": _buddy_cmd("session-start.sh")}],
-        })
-    ensure_list("PostToolUse")
-    if not has_buddy(hooks_root["PostToolUse"]):
-        hooks_root["PostToolUse"].append({
-            "matcher": "Edit|Write|Bash",
-            "hooks": [{"type": "command", "command": _buddy_cmd("post-tool-use.sh")}],
-        })
-    ensure_list("Stop")
-    if not has_buddy(hooks_root["Stop"]):
-        hooks_root["Stop"].append({
-            "hooks": [{"type": "command", "command": _buddy_cmd("stop.sh")}],
-        })
-    # statusLine: the duck rides the end of the HUD's first line. An existing
-    # third-party HUD (e.g. claude-hud) is ADOPTED, not clobbered: its command
-    # is stored in <buddy>/hud-command and the chain shim keeps rendering it —
-    # restored verbatim on buddy=off / uninstall.
-    _chain_cmd = _buddy_cmd("statusline.sh")
-    _st = settings.get("statusLine")
-    _cur = str(_st.get("command", "")) if isinstance(_st, dict) else ""
-    if "/buddy/" not in _cur:
-        if _cur:
-            try:
-                with open(os.path.join(buddy_dir, "hud-command"), "w", encoding="utf-8") as _f:
-                    _f.write(_cur)
-            except Exception:
-                pass
-        settings["statusLine"] = {"type": "command", "command": _chain_cmd}
-else:
-    for _evt in ("SessionStart", "PostToolUse", "Stop"):
-        _arr = hooks_root.get(_evt)
-        if isinstance(_arr, list):
-            hooks_root[_evt] = [
-                m for m in _arr
-                if not (isinstance(m, dict) and any(
-                    "/buddy/" in str(h.get("command", "")) for h in (m.get("hooks") or [])
-                ))
-            ]
-            if not hooks_root[_evt]:
-                del hooks_root[_evt]
-    _st = settings.get("statusLine")
-    if isinstance(_st, dict) and "/buddy/" in str(_st.get("command", "")):
-        # Restore the adopted HUD command, if one was stored at adoption time.
-        _orig = ""
-        try:
-            _data = os.path.dirname(hooks_dir.rstrip("/"))
-            with open(os.path.join(_data, "buddy", "hud-command"), "r", encoding="utf-8") as _f:
-                _orig = _f.read().strip()
-        except Exception:
-            pass
-        if _orig:
-            settings["statusLine"] = {"type": "command", "command": _orig}
-        else:
-            del settings["statusLine"]
+/// Register every squeez hook in the host settings file.
+///
+/// Pure Rust: this used to shell out to `python3`, which made setup fail on
+/// machines without a `python3` on PATH (issue #190).
+fn patch_settings(
+    settings_path: &Path,
+    hooks_dir: &Path,
+    data_dir: &Path,
+    buddy_dir: Option<&Path>,
+) -> std::io::Result<()> {
+    let mut settings = match settings_json::load(settings_path) {
+        Ok(settings_json::Existing::Object(v)) => v,
+        Ok(settings_json::Existing::Missing) => JsonValue::Obj(Vec::new()),
+        Err(e) => {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+        }
+    };
 
-os.makedirs(os.path.dirname(path), exist_ok=True)
-if file_existed:
-    try:
-        shutil.copy2(path, path + ".bak")
-    except Exception:
-        pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
+    // statusLine lives at the top level; settle it before borrowing the
+    // nested hooks map. Buddy adopts whatever survives the squeez strip.
+    strip_squeez_statusline(&mut settings);
+    match buddy_dir {
+        Some(dir) => register_buddy_statusline(&mut settings, dir),
+        None => unregister_buddy_statusline(&mut settings, data_dir),
+    }
 
-const UNPATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
+    // Claude Code expects hooks at settings["hooks"][event], not top-level.
+    let legacy = take_legacy_events(&mut settings);
+    let hooks_root = settings.ensure_obj("hooks");
+    migrate_legacy_events(hooks_root, legacy);
 
-path = sys.argv[1]
-if not os.path.exists(path):
-    sys.exit(0)
-try:
-    with open(path, "r", encoding="utf-8-sig") as f:
-        settings = json.load(f)
-except Exception as e:
-    sys.stderr.write(
-        "squeez: refusing to rewrite {path}: could not parse existing JSON ({err}).\n".format(path=path, err=e)
-    )
-    sys.exit(0)
-if not isinstance(settings, dict):
-    sys.exit(0)
+    upgrade_pretooluse(hooks_root, &hook_cmd(hooks_dir, "pretooluse.sh"));
+    for (event, script) in [
+        ("SessionStart", "session-start.sh"),
+        ("PostToolUse", "posttooluse.sh"),
+        ("SubagentStop", "subagent-stop.sh"),
+        ("PreCompact", "precompact.sh"),
+        ("PostCompact", "postcompact.sh"),
+    ] {
+        settings_json::ensure_squeez_hook(
+            hooks_root,
+            event,
+            settings_json::hook_entry(None, &hook_cmd(hooks_dir, script)),
+        );
+    }
 
-def _strip_squeez(arr):
-    return [
-        m for m in arr
-        if isinstance(m, dict)
-        and not any("squeez" in str(h.get("command", "")) for h in (m.get("hooks") or []))
-    ]
+    match buddy_dir {
+        Some(dir) => register_buddy_hooks(hooks_root, dir),
+        None => unregister_buddy_hooks(hooks_root),
+    }
 
-hooks_root = settings.get("hooks") if isinstance(settings.get("hooks"), dict) else None
-for event in ("PreToolUse", "SessionStart", "PostToolUse", "SubagentStop", "PreCompact", "PostCompact", "Stop"):
-    # Current shape: settings["hooks"][event]
-    if hooks_root is not None:
-        arr = hooks_root.get(event)
-        if isinstance(arr, list):
-            hooks_root[event] = _strip_squeez(arr)
-            if not hooks_root[event]:
-                del hooks_root[event]
-    # Legacy shape: settings[event] (pre-fix installs)
-    arr = settings.get(event)
-    if isinstance(arr, list):
-        settings[event] = _strip_squeez(arr)
-        if not settings[event]:
-            del settings[event]
-if hooks_root is not None and not hooks_root:
-    del settings["hooks"]
+    settings_json::write_atomic(settings_path, &settings)
+}
 
-status = settings.get("statusLine")
-if isinstance(status, dict):
-    _cmd = str(status.get("command", ""))
-    if "/buddy/" in _cmd:
-        # Buddy chain: restore the adopted HUD command stored at adoption time.
-        import re as _re
-        _m = _re.search(r"bash (.*/buddy)/shims/statusline\.sh", _cmd)
-        _orig = ""
-        if _m:
-            try:
-                with open(os.path.join(_m.group(1), "hud-command"), "r", encoding="utf-8") as _f:
-                    _orig = _f.read().strip()
-            except Exception:
-                pass
-        if _orig:
-            settings["statusLine"] = {"type": "command", "command": _orig}
-        else:
-            del settings["statusLine"]
-    elif "squeez" in _cmd:
-        del settings["statusLine"]
+/// Reverse [`patch_settings`], leaving every non-squeez entry untouched.
+fn unpatch_settings(settings_path: &Path) -> std::io::Result<()> {
+    let Some(mut settings) = settings_json::load_lenient(settings_path) else {
+        return Ok(());
+    };
 
-try:
-    shutil.copy2(path, path + ".bak")
-except Exception:
-    pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
+    let events: Vec<&str> = SQUEEZ_EVENTS
+        .iter()
+        .copied()
+        .chain(std::iter::once("Stop"))
+        .collect();
+    if let Some(root) = settings.get_mut("hooks").filter(|h| h.is_obj()) {
+        for event in &events {
+            settings_json::strip_squeez(root, event);
+        }
+    }
+    if settings.get("hooks").is_some_and(|h| h.obj_is_empty()) {
+        settings.remove("hooks");
+    }
+    // Legacy shape: settings[event] (pre-fix installs).
+    for event in &events {
+        settings_json::strip_squeez(&mut settings, event);
+    }
+
+    let status_cmd = settings
+        .get("statusLine")
+        .filter(|s| s.is_obj())
+        .map(|s| s.get_str("command").to_string())
+        .unwrap_or_default();
+    if let Some(buddy_dir) = status_cmd
+        .strip_prefix("bash ")
+        .and_then(|c| c.split_once("/shims/statusline.sh"))
+        .map(|(dir, _)| PathBuf::from(dir))
+        .filter(|_| status_cmd.contains("/buddy/"))
+    {
+        restore_adopted_hud(&mut settings, &buddy_dir);
+    } else if status_cmd.contains("/buddy/") || status_cmd.contains("squeez") {
+        settings.remove("statusLine");
+    }
+
+    settings_json::write_atomic(settings_path, &settings)
+}
 
 pub struct ClaudeCodeAdapter;
 
@@ -390,21 +406,6 @@ fn write_hook(dir: &Path, name: &str, body: &str) -> std::io::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
-    }
-    Ok(())
-}
-
-fn run_python(script: &str, args: &[&str]) -> std::io::Result<()> {
-    let status = std::process::Command::new("python3")
-        .arg("-c")
-        .arg(script)
-        .args(args)
-        .status()?;
-    if !status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("python3 settings patch exited {status}"),
-        ));
     }
     Ok(())
 }
@@ -454,22 +455,16 @@ impl HostAdapter for ClaudeCodeAdapter {
         // Vendored pato-buddy: materialized + registered by default; when
         // `buddy = false` the entries are stripped instead (files stay inert).
         let buddy_dir = if crate::config::Config::load().buddy {
-            super::buddy::materialize(&data)?
-                .to_str()
-                .unwrap_or("")
-                .to_string()
+            Some(super::buddy::materialize(&data)?)
         } else {
-            String::new()
+            None
         };
 
-        run_python(
-            PATCH_SCRIPT,
-            &[
-                Self::settings_path().to_str().unwrap_or(""),
-                hooks.to_str().unwrap_or(""),
-                "", // legacy positional arg (was statusline_bin); kept for compat
-                &buddy_dir,
-            ],
+        patch_settings(
+            &Self::settings_path(),
+            &hooks,
+            &data,
+            buddy_dir.as_deref(),
         )?;
 
         // Install the `/squeez` slash command.
@@ -481,7 +476,7 @@ impl HostAdapter for ClaudeCodeAdapter {
 
         // `/buddy` follows the buddy toggle: installed with it, removed with it.
         let buddy_cmd = Self::buddy_command_path();
-        if buddy_dir.is_empty() {
+        if buddy_dir.is_none() {
             let _ = std::fs::remove_file(&buddy_cmd);
         } else {
             std::fs::write(&buddy_cmd, BUDDY_COMMAND)?;
@@ -492,7 +487,7 @@ impl HostAdapter for ClaudeCodeAdapter {
     fn uninstall(&self) -> std::io::Result<()> {
         let settings = Self::settings_path();
         if settings.exists() {
-            run_python(UNPATCH_SCRIPT, &[settings.to_str().unwrap_or("")])?;
+            unpatch_settings(&settings)?;
         }
         let claude_md = Self::claude_md_path();
         if claude_md.exists() {

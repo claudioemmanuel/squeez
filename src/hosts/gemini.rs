@@ -25,7 +25,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, HostAdapter, HostCaps};
+use super::{memory_size, settings_json, HostAdapter, HostCaps};
 
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/gemini-session-start.sh");
 const BEFORE_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-before-tool.sh");
@@ -40,112 +40,25 @@ const AFTER_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-after-tool.sh")
 /// 3. Appends squeez matcher objects if no entry already contains "squeez"
 ///    in any of its command strings (idempotent on repeated runs)
 /// 4. Writes atomically via a `.tmp` file + `os.replace`
-const PATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
+/// Events squeez registers under `settings["hooks"]` in the Gemini CLI.
+const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "BeforeTool", "AfterTool"];
 
-path = sys.argv[1]
-hooks_dir = sys.argv[2]
-settings = {}
-file_existed = os.path.exists(path)
-if file_existed:
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            settings = json.load(f)
-    except Exception as e:
-        sys.stderr.write(
-            "squeez: refusing to overwrite {path}: could not parse existing JSON ({err}).\n"
-            "squeez: fix or remove the file, then re-run `squeez setup`.\n".format(path=path, err=e)
-        )
-        sys.exit(2)
-if not isinstance(settings, dict):
-    sys.stderr.write(
-        "squeez: refusing to overwrite {path}: top-level value is not a JSON object.\n".format(path=path)
-    )
-    sys.exit(2)
-
-hooks = settings.get("hooks")
-if not isinstance(hooks, dict):
-    hooks = {}
-    settings["hooks"] = hooks
-
-def ensure_entry(event, matcher, script_name, timeout_ms):
-    arr = hooks.get(event)
-    if not isinstance(arr, list):
-        arr = []
-        hooks[event] = arr
-    for m in arr:
-        try:
-            for h in m.get("hooks", []):
-                if "squeez" in str(h.get("command", "")):
-                    return
-        except Exception:
-            continue
-    arr.append({
-        "matcher": matcher,
-        "hooks": [{
-            "name": "squeez-" + event.lower(),
-            "type": "command",
-            "command": os.path.join(hooks_dir, script_name),
-            "timeout": timeout_ms,
-        }],
-    })
-
-ensure_entry("SessionStart", ".*", "gemini-session-start.sh", 5000)
-ensure_entry("BeforeTool",    ".*", "gemini-before-tool.sh", 5000)
-ensure_entry("AfterTool",     ".*", "gemini-after-tool.sh",  3000)
-
-os.makedirs(os.path.dirname(path), exist_ok=True)
-if file_existed:
-    try:
-        shutil.copy2(path, path + ".bak")
-    except Exception:
-        pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
-
-const UNPATCH_SCRIPT: &str = r#"
-import json, os, shutil, sys
-
-path = sys.argv[1]
-if not os.path.exists(path):
-    sys.exit(0)
-try:
-    with open(path, "r", encoding="utf-8-sig") as f:
-        settings = json.load(f)
-except Exception as e:
-    sys.stderr.write(
-        "squeez: refusing to rewrite {path}: could not parse existing JSON ({err}).\n".format(path=path, err=e)
-    )
-    sys.exit(0)
-if not isinstance(settings, dict):
-    sys.exit(0)
-
-hooks = settings.get("hooks")
-if isinstance(hooks, dict):
-    for event in ("SessionStart", "BeforeTool", "AfterTool"):
-        arr = hooks.get(event)
-        if isinstance(arr, list):
-            hooks[event] = [
-                m for m in arr
-                if not any("squeez" in str(h.get("command", "")) for h in m.get("hooks", []))
-            ]
-            if not hooks[event]:
-                del hooks[event]
-    if not hooks:
-        settings.pop("hooks", None)
-
-try:
-    shutil.copy2(path, path + ".bak")
-except Exception:
-    pass
-tmp = path + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    json.dump(settings, f, indent=2)
-os.replace(tmp, path)
-"#;
+/// Gemini nests its event map under `hooks`, labels each entry, takes a bare
+/// script path (no `bash` prefix) and a per-hook timeout.
+fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
+    let spec = |event: &'static str, script: &str, timeout_ms: u64| settings_json::HookSpec {
+        event,
+        matcher: Some(".*"),
+        command: hooks_dir.join(script).display().to_string(),
+        name: Some(format!("squeez-{}", event.to_lowercase())),
+        timeout_ms: Some(timeout_ms),
+    };
+    vec![
+        spec("SessionStart", "gemini-session-start.sh", 5000),
+        spec("BeforeTool", "gemini-before-tool.sh", 5000),
+        spec("AfterTool", "gemini-after-tool.sh", 3000),
+    ]
+}
 
 pub struct GeminiCliAdapter;
 
@@ -183,20 +96,6 @@ impl GeminiCliAdapter {
         Ok(())
     }
 
-    fn run_python(script: &str, args: &[&str]) -> std::io::Result<()> {
-        let status = std::process::Command::new("python3")
-            .arg("-c")
-            .arg(script)
-            .args(args)
-            .status()?;
-        if !status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("python3 settings patch exited {status}"),
-            ));
-        }
-        Ok(())
-    }
 }
 
 impl HostAdapter for GeminiCliAdapter {
@@ -220,12 +119,10 @@ impl HostAdapter for GeminiCliAdapter {
         let hooks_dir = Self::hooks_dir();
         Self::write_hook_scripts(&hooks_dir)?;
         let settings = Self::settings_path();
-        Self::run_python(
-            PATCH_SCRIPT,
-            &[
-                settings.to_str().unwrap_or(""),
-                hooks_dir.to_str().unwrap_or(""),
-            ],
+        settings_json::patch_events(
+            &settings,
+            settings_json::EventRoot::Nested,
+            &hook_specs(&hooks_dir),
         )?;
         Ok(())
     }
@@ -237,7 +134,11 @@ impl HostAdapter for GeminiCliAdapter {
         }
         let settings = Self::settings_path();
         if settings.exists() {
-            Self::run_python(UNPATCH_SCRIPT, &[settings.to_str().unwrap_or("")])?;
+            settings_json::unpatch_events(
+                &settings,
+                settings_json::EventRoot::Nested,
+                &SQUEEZ_EVENTS,
+            )?;
         }
         let memory = Self::memory_path();
         if memory.exists() {
