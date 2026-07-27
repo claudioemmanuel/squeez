@@ -137,9 +137,31 @@ const RANK_HEX = {
   Lendário: '#FBBF24',
 };
 
-/** Curva de XP acumulado necessário para alcançar cada um dos 15 degraus. */
+/**
+ * Curva de XP acumulado necessário para alcançar cada um dos 15 degraus.
+ *
+ * Progressão geométrica (base 150, razão ~1.55), no formato dos MMOs: cada
+ * degrau custa ~55% mais que o anterior. A curva antiga era quase linear
+ * (total 6.500) e dava para varrer os degraus em poucas sessões — Épico saía
+ * numa tarde. Aqui o total é 125.730 XP, ~19x maior, e o custo por degrau
+ * cresce de 150 XP até 44.710 XP.
+ *
+ * Efeito prático (sessão pesada ~70 XP: ~40 edits + 3 commits + 2 suítes
+ * verdes + 1 bug resolvido):
+ *
+ *   Comum II        150 XP        ~2 sessões    <- fisgada inicial rápida
+ *   Incomum I     2.170 XP       ~12 sessões
+ *   Raro I        8.810 XP       ~46 sessões
+ *   Épico I      33.560 XP      ~171 sessões
+ *   Lendário I  125.730 XP      ~639 sessões    <- endgame, não um checkpoint
+ *
+ * No topo uma ação isolada vale ~0,002% do degrau e uma sessão inteira ~0,08%,
+ * que é a escala de grind de MMO pretendida. Mexer aqui reprecifica todo o
+ * histórico: o XP acumulado não muda, só o degrau que ele compra.
+ */
 const RANK_THRESHOLDS = [
-  0, 50, 120, 220, 350, 500, 700, 950, 1250, 1650, 2150, 2800, 3700, 4900, 6500,
+  0, 150, 380, 740, 1300, 2170, 3510, 5590, 8810, 13810, 21560, 33560, 52170,
+  81020, 125730,
 ];
 
 const RANKS = RANK_COLORS.flatMap((color) =>
