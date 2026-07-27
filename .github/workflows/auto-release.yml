@@ -7,6 +7,16 @@ on:
 permissions:
   contents: write
 
+# Two merges landing close together each trigger this workflow. Without a
+# gate both runs check out main, bump to the same version and race on
+# `git push origin main` — the loser dies with "! [rejected] (non-fast-forward)"
+# and its release is silently dropped. Serialising the group makes the second
+# run check out AFTER the first has pushed, so it sees the new tag and cuts
+# its own release. Never cancel-in-progress: a cancelled run is a lost release.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
 jobs:
   tag-and-release:
     # Recursion guards:
@@ -122,10 +132,31 @@ jobs:
           # Using the namespaced [squeez-release-bot] marker so the recursion
           # guard cannot be tripped by prose in user commit messages.
           git commit -m "chore(release): bump version to ${{ steps.version.outputs.next }} [squeez-release-bot]"
-          # Annotated tag so `git push --tags` propagates it (lightweight tags
-          # are not pushed by `--follow-tags`, which silently broke the prior
-          # release pipeline when v1.0.0 was cut but never published).
+
+          # The `concurrency` gate serialises this workflow, but anything else
+          # pushing to main mid-run (a direct push, another workflow) still
+          # rejects our push. Rebase onto the new tip and retry rather than
+          # dropping the release on the floor.
+          pushed=""
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              pushed=1
+              break
+            fi
+            echo "push rejected (attempt ${attempt}/3) — rebasing onto origin/main"
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort || true; break; }
+          done
+          if [ -z "$pushed" ]; then
+            echo "::error::could not push the version bump to main after 3 attempts"
+            exit 1
+          fi
+
+          # Tag only once main has settled, so the tag can never point at a
+          # commit that lost a push race. Annotated so `git push --tags`
+          # propagates it (lightweight tags are not pushed by --follow-tags,
+          # which silently broke the pipeline when v1.0.0 was cut but never
+          # published).
           git tag -a "v${{ steps.version.outputs.next }}" -m "Release v${{ steps.version.outputs.next }}"
-          git push origin main
           git push origin "v${{ steps.version.outputs.next }}"
           echo "Released v${{ steps.version.outputs.next }} — release.yml will take it from here."
