@@ -391,6 +391,171 @@ impl JsonValue {
             _ => &[],
         }
     }
+
+    pub fn is_obj(&self) -> bool {
+        matches!(self, JsonValue::Obj(_))
+    }
+
+    /// String value of `key`, or "" when absent or not a string. Mirrors the
+    /// `str(x.get(key, ""))` idiom the settings patchers rely on.
+    pub fn get_str(&self, key: &str) -> &str {
+        self.get(key).and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut JsonValue> {
+        match self {
+            JsonValue::Obj(fields) => {
+                fields.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn as_arr_mut(&mut self) -> Option<&mut Vec<JsonValue>> {
+        match self {
+            JsonValue::Arr(items) => Some(items),
+            _ => None,
+        }
+    }
+
+    /// Insert or replace `key`. An existing key keeps its position, matching
+    /// Python dict-assignment semantics — settings files stay diff-stable.
+    pub fn set(&mut self, key: &str, val: JsonValue) {
+        if let JsonValue::Obj(fields) = self {
+            match fields.iter_mut().find(|(k, _)| k == key) {
+                Some((_, slot)) => *slot = val,
+                None => fields.push((key.to_string(), val)),
+            }
+        }
+    }
+
+    pub fn remove(&mut self, key: &str) -> Option<JsonValue> {
+        match self {
+            JsonValue::Obj(fields) => fields
+                .iter()
+                .position(|(k, _)| k == key)
+                .map(|i| fields.remove(i).1),
+            _ => None,
+        }
+    }
+
+    /// Borrow `key` as an array, replacing any non-array value with `[]` first.
+    /// The `ensure_list` primitive of the settings patchers.
+    pub fn ensure_arr(&mut self, key: &str) -> &mut Vec<JsonValue> {
+        if !matches!(self.get(key), Some(JsonValue::Arr(_))) {
+            self.set(key, JsonValue::Arr(Vec::new()));
+        }
+        self.get_mut(key)
+            .and_then(|v| v.as_arr_mut())
+            .expect("just ensured an array")
+    }
+
+    /// Borrow `key` as an object, replacing any non-object value with `{}` first.
+    pub fn ensure_obj(&mut self, key: &str) -> &mut JsonValue {
+        if !matches!(self.get(key), Some(JsonValue::Obj(_))) {
+            self.set(key, JsonValue::Obj(Vec::new()));
+        }
+        self.get_mut(key).expect("just ensured an object")
+    }
+
+    pub fn obj_is_empty(&self) -> bool {
+        matches!(self, JsonValue::Obj(f) if f.is_empty())
+    }
+
+    /// Convenience constructor for the `{"type":"command","command":…}` shape
+    /// used by every host's hook and statusLine entries.
+    pub fn command_entry(command: &str) -> JsonValue {
+        JsonValue::Obj(vec![
+            ("type".to_string(), JsonValue::Str("command".to_string())),
+            ("command".to_string(), JsonValue::Str(command.to_string())),
+        ])
+    }
+}
+
+/// Strict JSON string escaping — unlike [`escape_str`], which is lossy (it
+/// drops `\r`) and tuned for one-line log records, this preserves every input
+/// byte so user settings files round-trip unchanged.
+fn escape_strict(s: &str, out: &mut String) {
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+}
+
+/// Numbers are parsed into `f64`, which loses the int/float distinction. Emit
+/// integral values without a decimal point so `"maxLines": 120` survives a
+/// round-trip as `120` rather than `120.0`.
+fn write_num(n: f64, out: &mut String) {
+    if n.is_finite() && n.fract() == 0.0 && n.abs() < 1e15 {
+        out.push_str(&format!("{}", n as i64));
+    } else if n.is_finite() {
+        out.push_str(&format!("{}", n));
+    } else {
+        out.push_str("null");
+    }
+}
+
+fn write_pretty(v: &JsonValue, indent: usize, out: &mut String) {
+    let pad = "  ".repeat(indent);
+    let inner_pad = "  ".repeat(indent + 1);
+    match v {
+        JsonValue::Null => out.push_str("null"),
+        JsonValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        JsonValue::Num(n) => write_num(*n, out),
+        JsonValue::Str(s) => {
+            out.push('"');
+            escape_strict(s, out);
+            out.push('"');
+        }
+        JsonValue::Arr(items) if items.is_empty() => out.push_str("[]"),
+        JsonValue::Arr(items) => {
+            out.push_str("[\n");
+            for (i, item) in items.iter().enumerate() {
+                out.push_str(&inner_pad);
+                write_pretty(item, indent + 1, out);
+                if i + 1 < items.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&pad);
+            out.push(']');
+        }
+        JsonValue::Obj(fields) if fields.is_empty() => out.push_str("{}"),
+        JsonValue::Obj(fields) => {
+            out.push_str("{\n");
+            for (i, (k, val)) in fields.iter().enumerate() {
+                out.push_str(&inner_pad);
+                out.push('"');
+                escape_strict(k, out);
+                out.push_str("\": ");
+                write_pretty(val, indent + 1, out);
+                if i + 1 < fields.len() {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str(&pad);
+            out.push('}');
+        }
+    }
+}
+
+/// Serialize with 2-space indentation, byte-compatible with the
+/// `json.dump(obj, f, indent=2)` this replaced.
+pub fn to_pretty(v: &JsonValue) -> String {
+    let mut out = String::new();
+    write_pretty(v, 0, &mut out);
+    out
 }
 
 /// Parses a single JSON value from `input`. Returns `None` on malformed input
