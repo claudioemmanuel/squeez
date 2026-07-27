@@ -147,6 +147,48 @@ fn zeroed_tokens_est_warns_tracking_dead() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Bash output is compressed at PreToolUse, so its PostToolUse `track` record
+/// is always `tokens_est:0`. A session of purely wrapped Bash calls still has
+/// live accounting via the `type:"bash"` wrap record and must not warn.
+#[test]
+fn wrapped_bash_records_count_as_live_accounting() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    std::fs::write(
+        dir.join("sessions").join("2026-07-20-13.jsonl"),
+        "{\"type\":\"bash\",\"cmd\":\"ls\",\"in_tk\":98,\"out_tk\":98,\"ts\":1}\n\
+         {\"type\":\"tool\",\"tool\":\"Bash\",\"tokens_est\":0,\"ts\":2}\n",
+    )
+    .unwrap();
+    let (lines, has_fail) = doctor::run_with(&dir, &settings, &Config::default());
+    assert!(!has_fail, "got: {lines:?}");
+    assert!(
+        lines.iter().any(|l| l.starts_with("[ok]") && l.contains("freshness")),
+        "wrapped Bash accounting must read as alive: {lines:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A wrap record whose in_tk/out_tk are both zero is not proof of life —
+/// the genuine "pipeline dead" warning must survive.
+#[test]
+fn zeroed_bash_wrap_record_still_warns() {
+    let dir = tmp();
+    let settings = healthy_install(&dir);
+    std::fs::write(
+        dir.join("sessions").join("2026-07-20-13.jsonl"),
+        "{\"type\":\"bash\",\"cmd\":\"ls\",\"in_tk\":0,\"out_tk\":0,\"ts\":1}\n\
+         {\"type\":\"tool\",\"tool\":\"Bash\",\"tokens_est\":0,\"ts\":2}\n",
+    )
+    .unwrap();
+    let (lines, _) = doctor::run_with(&dir, &settings, &Config::default());
+    assert!(
+        lines.iter().any(|l| l.starts_with("[WARN]") && l.contains("tokens_est:0")),
+        "got: {lines:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn quick_check_silent_when_healthy_and_loud_when_disabled() {
     let dir = tmp();
