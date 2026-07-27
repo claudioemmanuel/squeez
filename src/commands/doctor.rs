@@ -103,7 +103,36 @@ fn newest_session(sessions: &Path) -> Option<SystemTime> {
     newest
 }
 
-/// True if any of the newest session logs carries a nonzero tokens_est —
+/// Nonzero unsigned integer value for `key` in a JSONL record line.
+fn nonzero_field(line: &str, key: &str) -> bool {
+    line.split(&format!("\"{}\":", key))
+        .skip(1)
+        .filter_map(|rest| {
+            rest.trim_start()
+                .split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse::<u64>()
+                .ok()
+        })
+        .any(|v| v > 0)
+}
+
+/// True if a session-log line proves accounting is still running.
+///
+/// Two record shapes count: the PostToolUse `track` record (`tokens_est`) and
+/// the `squeez wrap` record (`type:"bash"` with `in_tk`/`out_tk`). Bash output
+/// is compressed at PreToolUse, so its PostToolUse `track` record is always
+/// `tokens_est:0` — a session of purely wrapped Bash calls has live accounting
+/// but no nonzero `tokens_est` anywhere.
+fn accounting_alive_line(line: &str) -> bool {
+    if nonzero_field(line, "tokens_est") {
+        return true;
+    }
+    line.contains("\"type\":\"bash\"")
+        && (nonzero_field(line, "in_tk") || nonzero_field(line, "out_tk"))
+}
+
+/// True if any of the newest session logs shows live token accounting —
 /// distinguishes "accounting alive" from the all-zeros drift outage.
 fn tokens_est_alive(sessions: &Path) -> bool {
     let mut files: Vec<(SystemTime, std::path::PathBuf)> = std::fs::read_dir(sessions)
@@ -119,20 +148,7 @@ fn tokens_est_alive(sessions: &Path) -> bool {
         .collect();
     files.sort_by(|a, b| b.0.cmp(&a.0));
     files.iter().take(2).any(|(_, p)| {
-        std::fs::read_to_string(p).is_ok_and(|s| {
-            s.lines().any(|l| {
-                l.split("\"tokens_est\":")
-                    .nth(1)
-                    .and_then(|rest| {
-                        rest.trim_start()
-                            .split(|c: char| !c.is_ascii_digit())
-                            .next()?
-                            .parse::<u64>()
-                            .ok()
-                    })
-                    .is_some_and(|v| v > 0)
-            })
-        })
+        std::fs::read_to_string(p).is_ok_and(|s| s.lines().any(accounting_alive_line))
     })
 }
 
