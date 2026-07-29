@@ -140,28 +140,37 @@ const RANK_HEX = {
 /**
  * Curva de XP acumulado necessário para alcançar cada um dos 15 degraus.
  *
- * Progressão geométrica (base 150, razão ~1.55), no formato dos MMOs: cada
- * degrau custa ~55% mais que o anterior. A curva antiga era quase linear
- * (total 6.500) e dava para varrer os degraus em poucas sessões — Épico saía
- * numa tarde. Aqui o total é 125.730 XP, ~19x maior, e o custo por degrau
- * cresce de 150 XP até 44.710 XP.
+ * Progressão geométrica: base 60, razão ~1.45. Cada degrau custa ~45% mais que
+ * o anterior; o teto é 24.100 XP acumulados.
  *
- * Efeito prático (sessão pesada ~70 XP: ~40 edits + 3 commits + 2 suítes
- * verdes + 1 bug resolvido):
+ * A curva anterior (base 150, razão 1.55, teto 125.730) foi calibrada sobre uma
+ * premissa errada — "sessão pesada = ~70 XP". A medição real do primeiro pato
+ * em produção deu ~700 XP/dia, 10x isso, porque o gatilho de "bug resolvido"
+ * pagava 10 XP toda vez que a palavra "error" aparecia numa saída e o comando
+ * seguinte vinha limpo. Corrigido o vazamento (ver hooks/post-tool-use.js), a
+ * torneira honesta é a economia de tokens do squeez.
  *
- *   Comum II        150 XP        ~2 sessões    <- fisgada inicial rápida
- *   Incomum I     2.170 XP       ~12 sessões
- *   Raro I        8.810 XP       ~46 sessões
- *   Épico I      33.560 XP      ~171 sessões
- *   Lendário I  125.730 XP      ~639 sessões    <- endgame, não um checkpoint
+ * PREMISSA DE CALIBRAÇÃO: ~20 XP por dia ativo
+ *   = até 8 XP de ação (teto duro por sessão) + ~12 XP de economia
+ *     (~300k tokens líquidos/dia a 25.000:1, ver lib/squeez.js).
  *
- * No topo uma ação isolada vale ~0,002% do degrau e uma sessão inteira ~0,08%,
- * que é a escala de grind de MMO pretendida. Mexer aqui reprecifica todo o
- * histórico: o XP acumulado não muda, só o degrau que ele compra.
+ * As duas colunas abaixo medem coisas diferentes — a confusão entre elas foi o
+ * que quebrou a calibração anterior:
+ *
+ *   degrau        XP acumulado    tempo acumulado a 20 XP/dia ativo
+ *   Comum II              60      ~3 dias        <- fisgada inicial rápida
+ *   Incomum I          1.100      ~2 meses
+ *   Raro I             3.650      ~6 meses
+ *   Épico I           11.400      ~1,5 ano
+ *   Lendário I        24.100      ~3,3 anos      <- endgame, não um checkpoint
+ *
+ * Mexer aqui reprecifica todo o histórico: o XP acumulado não muda, só o degrau
+ * que ele compra. Para recalibrar o ritmo prefira ajustar TOKENS_PER_XP em
+ * lib/squeez.js — a taxa é o botão de calibração, a curva é a forma.
  */
 const RANK_THRESHOLDS = [
-  0, 150, 380, 740, 1300, 2170, 3510, 5590, 8810, 13810, 21560, 33560, 52170,
-  81020, 125730,
+  0, 60, 150, 275, 460, 720, 1100, 1660, 2470, 3650, 5350, 7800, 11400, 16600,
+  24100,
 ];
 
 const RANKS = RANK_COLORS.flatMap((color) =>
@@ -183,6 +192,15 @@ function rankIndexFromXp(xp) {
 function rankFromIndex(index) {
   const clamped = Math.max(0, Math.min(MAX_RANK_INDEX, index));
   return RANKS[clamped];
+}
+
+/**
+ * Estágio de crescimento do desenho (0-4), um por cor de raridade. É o que dá
+ * recompensa visível ao subir de rank: o sub-nível (III/II/I) só muda o rótulo,
+ * a cor muda a silhueta inteira. Ver lib/art.js STAGES.
+ */
+function stageFromRank(index) {
+  return Math.floor(Math.max(0, Math.min(MAX_RANK_INDEX, index)) / SUB_LEVELS.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +252,7 @@ module.exports = {
   buildBuddy,
   rankIndexFromXp,
   rankFromIndex,
+  stageFromRank,
   applyDecay,
   daysBetween,
 };

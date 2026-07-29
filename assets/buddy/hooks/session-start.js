@@ -31,6 +31,7 @@ function main() {
     archetype: state.archetype,
     rankLabel: rank.label,
     rankHex: rank.hex,
+    rankIndex: rank.index,
     xp: state.xp,
     shiny: state.shiny,
     ansi: false, // texto puro pra ir no contexto, não no terminal

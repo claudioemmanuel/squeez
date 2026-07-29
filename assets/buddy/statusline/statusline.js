@@ -9,6 +9,7 @@ const fs = require('fs');
 
 const { readState, currentRank } = require('../lib/state');
 const { renderDuckArt, renderStatusline, ansiFg, hexToRgb, ANSI_RESET } = require('../lib/art');
+const { stageFromRank } = require('../lib/engine');
 const { buildHudLines } = require('../lib/hud');
 const { getUsage } = require('../lib/usage');
 
@@ -28,7 +29,7 @@ function render(input, usage, ansi = !process.env.NO_COLOR) {
   const rank = currentRank(state);
 
   const duckHex = state.shiny ? SHINY_CYAN : rank.hex;
-  const art = renderDuckArt(state.archetype).map((line) =>
+  const art = renderDuckArt(state.archetype, stageFromRank(rank.index)).map((line) =>
     ansi ? ansiFg(hexToRgb(duckHex)) + line + ANSI_RESET : line
   );
   const hud = buildHudLines({ input, usage, state, rank, ansi });

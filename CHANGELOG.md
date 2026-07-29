@@ -9,6 +9,32 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+### Added
+- feat(buddy): duck grows through 5 silhouettes, one per rarity colour
+- feat(buddy): per-archetype face (brow + eye) replaces the variable-width eye slot
+- feat(buddy): `buddy-cli.js reset`, and `stats` now reports XP/day and rank ETA
+- feat(buddy): steepen the XP curve into an MMO-style progression (#196)
+
+### Fixed
+- fix(buddy): stop paying 10 XP whenever "error" appeared on screen and the next
+  command was clean — the trigger fired on `grep error`, on paths containing
+  "failed", on any log line, and re-armed indefinitely. Measured ~700 XP/day
+  against the ~70 the curve assumed. Replaced by a real red→green test
+  transition, with action XP capped at 8 per session.
+- fix(buddy): XP from squeez savings was inert at 1M tokens per XP (137k tokens
+  saved over 5 days earned 0 XP). Repriced to 25k:1 and made the primary source.
+- fix(buddy): card drew a mangled variant of the profile duck, and the eye slot
+  took 3 columns for Reclamão against 2 for the others, shifting the body
+- fix(buddy): drop East-Asian-Ambiguous glyphs (`★`, `⊙`, `▤`) that render two
+  columns wide in many terminals and broke the fixed status-line gutter
+- fix(buddy): correct the XP rate in config, setup and `/buddy` docs — all three
+  still quoted rates from two repricings ago
+
+### Changed
+- chore(buddy)!: reset accumulated XP once via `schemaVersion: 2`. Identity,
+  stats, archetype and name are preserved; only the scoreboard returns to zero,
+  since the balance was produced by the leaking trigger above.
+
 ## [1.43.1] - 2026-07-27
 
 ### Added

@@ -16,9 +16,19 @@ test('arte de perfil tem largura fixa em todos os arquétipos', () => {
   }
 });
 
-test('olho do arquétipo aparece na cabeça', () => {
-  assert.ok(renderDuckArt('Reclamão')[1].includes('ಠ'));
-  assert.ok(renderDuckArt('Motivador')[1].includes('★'));
+test('rosto do arquétipo aparece na cabeça', () => {
+  assert.ok(renderDuckArt('Reclamão')[1].includes('-ಠ'));
+  assert.ok(renderDuckArt('Motivador')[1].includes('^*'));
+});
+
+test('estágio muda o topo da silhueta sem mexer na largura', () => {
+  assert.ok(renderDuckArt('Sábio', 0)[0].includes('_'));
+  assert.ok(renderDuckArt('Sábio', 4)[0].includes('\\|/'), 'lendário ganha coroa');
+  for (let stage = 0; stage <= 4; stage++) {
+    for (const line of renderDuckArt('Sábio', stage)) {
+      assert.strictEqual([...line].length, 11, `estágio ${stage}: coluna de 11`);
+    }
+  }
 });
 
 test('barra tem sempre 9 células e respeita o percentual', () => {

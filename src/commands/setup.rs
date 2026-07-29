@@ -43,7 +43,7 @@ memory_retention_days = 30\n\
 auto_compress_md = true\n\
 lang = en\n\
 \n\
-# Pato-buddy companion (XP grows with squeez net savings, 100 tokens = 1 XP)\n\
+# Pato-buddy companion (XP grows with squeez net savings, 25k tokens = 1 XP)\n\
 buddy = true\n\
 ";
 

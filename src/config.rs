@@ -234,7 +234,7 @@ pub struct Config {
     pub flag_force_deny: Vec<String>,
     // ── Pato-buddy companion ─────────────────────────────────────────────────
     /// Vendored duck companion whose XP grows with squeez net savings
-    /// (100 tokens = 1 XP). When false, `squeez setup` strips the buddy hook
+    /// (25k tokens = 1 XP). When false, `squeez setup` strips the buddy hook
     /// entries and the shims exit silently. Default: true.
     pub buddy: bool,
 }
