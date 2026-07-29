@@ -2,17 +2,29 @@
 
 // Fonte de XP por economia do squeez: lê <squeez data dir>/sessions/current.json
 // e converte economia líquida (tokens_saved - overhead_tokens) em XP.
-// 1M tokens líquidos = 1 XP (progressão lenta de propósito — rank máximo
-// exige 6.5B tokens economizados). Baseline por start_ts: sessão nova zera a
-// régua; o resto sub-taxa fica acumulado em lifetimeNetSaved (nada se perde).
-// Mudança de taxa re-baseia o XP já concedido (tracker.rate registra a taxa
-// vigente; o delta da recomputação pode ser negativo).
+//
+// Esta é a fonte PRIMÁRIA de XP, e é a única não-gamificável do projeto: ou o
+// squeez economizou tokens de verdade, ou não economizou. Por isso ela não tem
+// teto por sessão, ao contrário do XP de ação (hooks/post-tool-use.js).
+//
+// TAXA: 25.000 tokens líquidos = 1 XP. A taxa anterior (1.000.000:1) era tão
+// alta que ficou inerte -- medição real do primeiro pato em produção: 137.290
+// tokens economizados em 5 dias renderam 0 XP, enquanto um gatilho quebrado de
+// "bug resolvido" despejava ~700 XP/dia. A torneira honesta precisa ser a que
+// realmente enche. A 25k:1, um dia pesado com compressão ligada (~300k tokens
+// líquidos) rende ~12 XP -- a premissa em cima da qual lib/engine.js calibra a
+// curva. Este é o botão de calibração do ritmo; a curva é a forma.
+//
+// Baseline por start_ts: sessão nova zera a régua; o resto sub-taxa fica
+// acumulado em lifetimeNetSaved (nada se perde). Mudança de taxa re-baseia o XP
+// já concedido (tracker.rate registra a taxa vigente; o delta da recomputação
+// pode ser negativo).
 
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const TOKENS_PER_XP = 1000000;
+const TOKENS_PER_XP = 25000;
 
 function squeezDataDir() {
   return process.env.SQUEEZ_DIR || path.join(os.homedir(), '.claude', 'squeez');

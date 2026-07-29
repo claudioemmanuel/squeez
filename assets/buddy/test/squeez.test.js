@@ -31,8 +31,10 @@ function writeSession(startTs, tokensSaved, overheadTokens) {
   );
 }
 
-test('taxa é 1M tokens por XP (progressão lenta de propósito)', () => {
-  assert.strictEqual(TOKENS_PER_XP, 1000000);
+test('taxa é 25k tokens por XP (fonte primária, tem que render de verdade)', () => {
+  // A taxa anterior (1M:1) ficou inerte: 137.290 tokens economizados em 5 dias
+  // renderam 0 XP em produção. Ver lib/squeez.js.
+  assert.strictEqual(TOKENS_PER_XP, 25000);
 });
 
 test('delta normal: economia líquida vira XP na taxa vigente', () => {
@@ -67,19 +69,19 @@ test('net regredindo (overhead cresce) não desconta do lifetime', () => {
 
 test('reset por start_ts: sessão nova zera baseline, lifetime acumula', () => {
   const state = {};
-  writeSession(1000, 5000000, 0);
-  applySqueezSavings(state); // +5 XP, lifetime 5M
-  writeSession(2000, 3000000, 0); // sessão nova, net 3M
+  writeSession(1000, TOKENS_PER_XP * 5, 0);
+  applySqueezSavings(state); // +5 XP
+  writeSession(2000, TOKENS_PER_XP * 3, 0); // sessão nova
   assert.strictEqual(applySqueezSavings(state), 3);
-  assert.strictEqual(state.squeez.lifetimeNetSaved, 8000000);
+  assert.strictEqual(state.squeez.lifetimeNetSaved, TOKENS_PER_XP * 8);
 });
 
 test('carry sub-taxa: resto acumula entre chamadas', () => {
   const state = {};
-  writeSession(1000, 600000, 0);
-  assert.strictEqual(applySqueezSavings(state), 0); // 600k < 1M
-  writeSession(1000, 1200000, 0);
-  assert.strictEqual(applySqueezSavings(state), 1); // lifetime 1.2M → 1 XP
+  writeSession(1000, Math.floor(TOKENS_PER_XP * 0.6), 0);
+  assert.strictEqual(applySqueezSavings(state), 0, 'abaixo da taxa não paga');
+  writeSession(1000, Math.floor(TOKENS_PER_XP * 1.2), 0);
+  assert.strictEqual(applySqueezSavings(state), 1, 'o resto anterior conta no total');
   assert.strictEqual(state.squeez.xpGranted, 1);
 });
 
@@ -109,7 +111,7 @@ test('current.json corrompido: retorna 0, não lança', () => {
 
 test('tracker corrompido no state é reconstruído', () => {
   const state = { squeez: 'garbage' };
-  writeSession(3000, 2500000, 0);
+  writeSession(3000, TOKENS_PER_XP * 2.5, 0);
   assert.strictEqual(applySqueezSavings(state), 2);
   assert.strictEqual(typeof state.squeez, 'object');
 });

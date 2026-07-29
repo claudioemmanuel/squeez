@@ -3,7 +3,7 @@
 //! The duck's Node sources are embedded in the binary and materialized into
 //! `<data_dir>/buddy/` at install, so every install method (curl, npm
 //! pre-built binary, cargo) ships the buddy without an extra download.
-//! XP grows with squeez net savings via `lib/squeez.js` (100 tokens = 1 XP).
+//! XP grows with squeez net savings via `lib/squeez.js` (25k tokens = 1 XP).
 //! Duck state lives in `~/.claude-buddy/` and is never touched here.
 
 use std::path::{Path, PathBuf};
