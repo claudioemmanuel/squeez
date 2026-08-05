@@ -142,12 +142,36 @@ function pct(value) {
   return Math.round(Math.max(0, Math.min(100, value)));
 }
 
+/** `{amount_minor, exponent}` → valor na unidade maior (4237/2 → 42.37), ou null. */
+function amount(m) {
+  if (!m || typeof m.amount_minor !== 'number') return null;
+  const exp = Number.isFinite(m.exponent) ? m.exponent : 2;
+  return m.amount_minor / 10 ** exp;
+}
+
+/**
+ * Achata o payload da API no que o HUD desenha.
+ *
+ * Em conta enterprise a chamada devolve 200 mas TODAS as janelas de rate limit
+ * vêm null (#198) — o que morde lá é o limite de crédito, que viaja em `spend`
+ * e `extra_usage`. Ambos já trazem percentuais 0-100, então alimentam `pct()`
+ * direto. `enabled`/`is_enabled` falso significa "não é limite desta conta", e
+ * vira null para o HUD não desenhar um medidor que não quer dizer nada.
+ */
 function shape(payload) {
+  const p = payload || {};
+  const sp = p.spend && p.spend.enabled !== false ? p.spend : null;
+  const extra = p.extra_usage && p.extra_usage.is_enabled ? p.extra_usage : null;
   return {
-    fiveHour: pct(payload && payload.five_hour && payload.five_hour.utilization),
-    sevenDay: pct(payload && payload.seven_day && payload.seven_day.utilization),
-    fiveHourResetsAt: (payload && payload.five_hour && payload.five_hour.resets_at) || null,
-    sevenDayResetsAt: (payload && payload.seven_day && payload.seven_day.resets_at) || null,
+    fiveHour: pct(p.five_hour && p.five_hour.utilization),
+    sevenDay: pct(p.seven_day && p.seven_day.utilization),
+    fiveHourResetsAt: (p.five_hour && p.five_hour.resets_at) || null,
+    sevenDayResetsAt: (p.seven_day && p.seven_day.resets_at) || null,
+    spend: pct(sp && sp.percent),
+    spendUsed: amount(sp && sp.used),
+    spendLimit: amount(sp && sp.limit),
+    spendCurrency: (sp && sp.used && sp.used.currency) || (sp && sp.currency) || null,
+    extraUsage: pct(extra && extra.utilization),
   };
 }
 

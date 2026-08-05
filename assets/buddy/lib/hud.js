@@ -149,6 +149,41 @@ function meter(label, percent, suffix, ansi) {
   return paint(head + bar(percent), hex, ansi) + tail;
 }
 
+const CURRENCY_SYMBOL = { USD: '$', BRL: 'R$', EUR: '€', GBP: '£' };
+
+/** "$42.37" / "$200" — centavos só quando existem. */
+function money(value, currency) {
+  if (value == null) return '';
+  return `${CURRENCY_SYMBOL[currency] || ''}${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
+/**
+ * As duas linhas do meio do HUD.
+ *
+ * Em conta enterprise toda janela de rate limit vem null (#198), e duas linhas
+ * "sem dados" são indistinguíveis de buddy quebrado. Lá o limite que morde é o
+ * de crédito, então o medidor de gasto assume o lugar. Sem janelas E sem gasto
+ * o placeholder honesto fica — melhor dizer "sem dados" do que inventar.
+ */
+function usageRows(usage, ansi) {
+  const hasWindows = usage && (usage.fiveHour != null || usage.sevenDay != null);
+  if (!hasWindows && usage && usage.spend != null) {
+    const suffix = [money(usage.spendUsed, usage.spendCurrency), money(usage.spendLimit, usage.spendCurrency)]
+      .filter(Boolean)
+      .join('/');
+    return [
+      meter('$', usage.spend, suffix, ansi),
+      usage.extraUsage != null
+        ? meter('+', usage.extraUsage, 'extra', ansi)
+        : meter('7d', null, '', ansi),
+    ];
+  }
+  return [
+    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
+    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
+  ];
+}
+
 /**
  * Monta as 4 linhas da coluna direita.
  * `input` é o JSON do host; `usage` vem de lib/usage.js (pode ser null).
@@ -180,12 +215,9 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
     dim(`· ${xp}`, ansi),
   ].join(' ');
 
-  return [
-    head,
-    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
-    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
-    tail,
-  ];
+  const [first, second] = usageRows(usage, ansi);
+
+  return [head, first, second, tail];
 }
 
 module.exports = {

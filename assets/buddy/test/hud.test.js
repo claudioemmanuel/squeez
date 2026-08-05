@@ -7,7 +7,14 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { renderDuckArt, SLOT_KITS } = require('../lib/art');
-const { bar, heatHex, untilReset, contextWindow, compactTokens } = require('../lib/hud');
+const {
+  bar,
+  heatHex,
+  untilReset,
+  contextWindow,
+  compactTokens,
+  buildHudLines,
+} = require('../lib/hud');
 const { configuredContextWindow } = require('../lib/squeez');
 
 test('arte de perfil tem largura fixa em todos os arquétipos', () => {
@@ -108,6 +115,49 @@ test('configuredContextWindow lê context_window_tokens do config.ini', () => {
     else process.env.SQUEEZ_DIR = prev;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const HUD_ARGS = { state: { xp: 10 }, rank: { label: 'Comum I', hex: '#4ADE80' }, ansi: false };
+const hudRows = (usage) =>
+  buildHudLines({ input: { model: { id: 'claude-sonnet-5' } }, usage, ...HUD_ARGS });
+
+test('medidores de plano consumidor seguem sendo 5h e 7d', () => {
+  const rows = hudRows({ fiveHour: 19, sevenDay: 45, spend: null, extraUsage: null });
+  assert.match(rows[1], /^5h\s+19%/);
+  assert.match(rows[2], /^7d\s+45%/);
+});
+
+test('plano enterprise cai para medidor de gasto quando toda janela é null', () => {
+  // #198: com as janelas null o HUD mostrava duas linhas "sem dados", que o
+  // usuário não distingue de "buddy quebrado". spend é o limite que importa lá.
+  const rows = hudRows({
+    fiveHour: null,
+    sevenDay: null,
+    spend: 21,
+    spendUsed: 42.37,
+    spendLimit: 200,
+    spendCurrency: 'USD',
+    extraUsage: 8,
+  });
+  assert.match(rows[1], /^\$\s+21%/, 'linha 2 vira medidor de gasto');
+  assert.match(rows[1], /\$42\.37\/\$200/, 'sufixo mostra usado/limite');
+  assert.match(rows[2], /^\+\s+8%/, 'linha 3 vira extra usage');
+  assert.ok(
+    !`${rows[1]}\n${rows[2]}`.includes('sem dados'),
+    'nenhuma das duas linhas de uso fica como placeholder morto'
+  );
+});
+
+test('sem janelas e sem spend, o placeholder honesto permanece', () => {
+  const rows = hudRows({ fiveHour: null, sevenDay: null, spend: null, extraUsage: null });
+  assert.match(rows[1], /^5h\s+sem dados/);
+  assert.match(rows[2], /^7d\s+sem dados/);
+});
+
+test('spend sem extra_usage mantém 7d como placeholder', () => {
+  const rows = hudRows({ fiveHour: null, sevenDay: null, spend: 55, extraUsage: null });
+  assert.match(rows[1], /^\$\s+55%/);
+  assert.match(rows[2], /^7d\s+sem dados/);
 });
 
 test('tokens compactos', () => {
