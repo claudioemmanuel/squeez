@@ -45,11 +45,7 @@ enum SpawnOutcome {
 /// deadlock, and waits up to `timeout_secs`. Factored out of `run()` so
 /// flag-forcing (E3) can call it a second time for the one-shot un-forced
 /// fallback without duplicating the spawn/drain/timeout logic.
-fn spawn_and_capture(
-    cmd_str: &str,
-    env_vars: &[(&str, &str)],
-    timeout_secs: u64,
-) -> SpawnOutcome {
+fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64) -> SpawnOutcome {
     let mut cmd = shell_command(cmd_str);
     for (k, v) in env_vars {
         cmd.env(k, v);
