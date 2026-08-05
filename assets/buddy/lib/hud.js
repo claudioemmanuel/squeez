@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { ansiFg, hexToRgb, ANSI_RESET } = require('./art');
+const { configuredContextWindow } = require('./squeez');
 
 const DIM = '\x1b[2m';
 const BAR_CELLS = 9;
@@ -94,9 +95,27 @@ function contextTokens(transcriptPath) {
   }
 }
 
-/** Janela de contexto do modelo: sufixo [1m] manda, senão 200k. */
-function contextWindow(modelId) {
-  return /\[1m\]|-1m\b|context-1m/i.test(modelId || '') ? 1_000_000 : 200_000;
+const LONG_CONTEXT_RE = /\[1m\]|-1m\b|context-1m|\b1m\s+context\b/i;
+
+/**
+ * Janela de contexto do host. Precedência:
+ *   1. `context_window_tokens` do config.ini — o usuário pinou, é autoritativo;
+ *   2. marcador de 1M no `id` OU no `display_name`;
+ *   3. 200k.
+ *
+ * O `id` sozinho não serve (#199): numa sessão 1M o Claude Code grava
+ * `claude-opus-5` cru, sem `[1m]` — verificado em 70/70 registros assistant de
+ * uma sessão 1M real. Quem carrega o sinal é `display_name`, "Opus 5 (1M context)".
+ * Aceita string (só o id) por compatibilidade com quem já chamava assim.
+ */
+function contextWindow(model, pinnedTokens) {
+  const pinned = Number(pinnedTokens);
+  if (Number.isFinite(pinned) && pinned > 0) return pinned;
+  const probe =
+    typeof model === 'string'
+      ? model
+      : `${(model && model.id) || ''} ${(model && model.display_name) || ''}`;
+  return LONG_CONTEXT_RE.test(probe) ? 1_000_000 : 200_000;
 }
 
 /** Branch atual sem spawnar git: lê .git/HEAD subindo a árvore. */
@@ -139,7 +158,6 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
   const project = path.basename(cwd);
   const branch = gitBranch(cwd);
   const model = (input.model && input.model.display_name) || '';
-  const modelId = (input.model && input.model.id) || '';
 
   const head = [
     project,
@@ -150,7 +168,7 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
     .join(' ');
 
   const used = contextTokens(input.transcript_path);
-  const window = contextWindow(modelId);
+  const window = contextWindow(input.model, configuredContextWindow());
   const ctxPct = used == null ? null : Math.min(100, Math.round((used / window) * 100));
   const ctxSuffix = used == null ? '' : `${compactTokens(used)}/${compactTokens(window)}`;
 

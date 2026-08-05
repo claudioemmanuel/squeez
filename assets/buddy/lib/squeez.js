@@ -30,6 +30,28 @@ function squeezDataDir() {
   return process.env.SQUEEZ_DIR || path.join(os.homedir(), '.claude', 'squeez');
 }
 
+/**
+ * `context_window_tokens` do config.ini, ou 0 quando não pinado. Mesma
+ * semântica do parser Rust (`Config::from_str`): ignora vazio e `#`, corta no
+ * primeiro `=`, trima os dois lados.
+ */
+function configuredContextWindow() {
+  try {
+    const raw = fs.readFileSync(path.join(squeezDataDir(), 'config.ini'), 'utf8');
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s || s.startsWith('#')) continue;
+      const eq = s.indexOf('=');
+      if (eq < 0) continue;
+      if (s.slice(0, eq).trim() !== 'context_window_tokens') continue;
+      return Number(s.slice(eq + 1).trim()) || 0;
+    }
+  } catch {
+    /* sem config.ini */
+  }
+  return 0;
+}
+
 function readCurrentSession() {
   try {
     const raw = fs.readFileSync(
@@ -91,4 +113,4 @@ function applySqueezSavings(state) {
   return rebase + gain;
 }
 
-module.exports = { applySqueezSavings, TOKENS_PER_XP };
+module.exports = { applySqueezSavings, configuredContextWindow, TOKENS_PER_XP };

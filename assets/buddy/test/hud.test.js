@@ -2,9 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { renderDuckArt, SLOT_KITS } = require('../lib/art');
 const { bar, heatHex, untilReset, contextWindow, compactTokens } = require('../lib/hud');
+const { configuredContextWindow } = require('../lib/squeez');
 
 test('arte de perfil tem largura fixa em todos os arquétipos', () => {
   for (const archetype of Object.keys(SLOT_KITS)) {
@@ -59,6 +63,51 @@ test('janela de contexto: sufixo [1m] vale 1M, resto 200k', () => {
   assert.strictEqual(contextWindow('claude-opus-4-8[1m]'), 1_000_000);
   assert.strictEqual(contextWindow('claude-sonnet-5'), 200_000);
   assert.strictEqual(contextWindow(undefined), 200_000);
+});
+
+test('janela de contexto: display_name decide quando o id não carrega marcador', () => {
+  // Regressão #199. Numa sessão 1M o Claude Code grava o id cru — verificado em
+  // 70/70 registros assistant de uma sessão 1M real. Só display_name distingue.
+  assert.strictEqual(
+    contextWindow({ id: 'claude-opus-5', display_name: 'Opus 5 (1M context)' }),
+    1_000_000
+  );
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5', display_name: 'Opus 5' }), 200_000);
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5[1m]', display_name: 'Opus 5' }), 1_000_000);
+  assert.strictEqual(contextWindow({}), 200_000);
+});
+
+test('janela de contexto: context_window_tokens pinado vence qualquer sniff', () => {
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5' }, 1_000_000), 1_000_000);
+  assert.strictEqual(
+    contextWindow({ id: 'x', display_name: 'Opus 5 (1M context)' }, 200_000),
+    200_000
+  );
+  // Valor inválido/ausente não pode sequestrar a precedência.
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5' }, 0), 200_000);
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5' }, undefined), 200_000);
+});
+
+test('configuredContextWindow lê context_window_tokens do config.ini', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'squeez-cfg-'));
+  const prev = process.env.SQUEEZ_DIR;
+  process.env.SQUEEZ_DIR = dir;
+  try {
+    assert.strictEqual(configuredContextWindow(), 0, 'sem config.ini → 0');
+
+    fs.writeFileSync(
+      path.join(dir, 'config.ini'),
+      '# comentário\ncontext_window_tokens = 1000000\nmax_lines = 40\n'
+    );
+    assert.strictEqual(configuredContextWindow(), 1_000_000);
+
+    fs.writeFileSync(path.join(dir, 'config.ini'), '# context_window_tokens = 999\n');
+    assert.strictEqual(configuredContextWindow(), 0, 'linha comentada não conta');
+  } finally {
+    if (prev === undefined) delete process.env.SQUEEZ_DIR;
+    else process.env.SQUEEZ_DIR = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('tokens compactos', () => {
