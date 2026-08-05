@@ -824,8 +824,13 @@ fn record_bash_event(
                  ## Next Steps\n\
                  <immediate plan>\n\
                  \n\
-                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).",
+                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).{}",
                 pct.min(100),
+                if crate::context::intensity::window_is_assumed(config, ctx.real_ctx_window) {
+                    crate::context::intensity::ASSUMED_WINDOW_NOTE
+                } else {
+                    ""
+                },
             ))
         } else {
             None

@@ -56,6 +56,29 @@ pub fn budget_for(cfg: &Config, real_ctx_window: u64) -> u64 {
         .max(crate::context::transcript::STANDARD_WINDOW)
 }
 
+/// Whether the window feeding budget/pressure math is a fallback guess rather
+/// than an established fact.
+///
+/// A pinned `context_window_tokens` is authoritative, and a window above the
+/// 200K standard can only have come from an explicit `[1m]` model id or from
+/// context that already exceeded 200K — both are proof. A bare 200K is neither:
+/// the host never reports the real window, and below 200K of context a 1M
+/// session is indistinguishable from a 200K one (#199), so squeez is guessing.
+pub fn window_is_assumed(cfg: &Config, real_ctx_window: u64) -> bool {
+    cfg.context_window_tokens == 0 && real_ctx_window <= crate::context::transcript::STANDARD_WINDOW
+}
+
+/// Appended to the critical-pressure warning when [`window_is_assumed`] holds.
+/// Without it squeez tells the user to `/clear` at "95%" on a 1M session that is
+/// really 19% full — the exact false alarm reported in #199. Naming the
+/// assumption and the escape hatch costs four lines and prevents the user from
+/// throwing away a session with 800K of headroom.
+pub const ASSUMED_WINDOW_NOTE: &str = "\n\n\
+     ⚠️  This percentage assumes a 200K window. The host does not report the real\n\
+     one, and below 200K of context a 1M session looks identical to a 200K one.\n\
+     If this session is 1M, the real figure is ~5x lower — pin it and re-check:\n\
+     `context_window_tokens = 1000000` in ~/.claude/squeez/config.ini";
+
 /// Legacy constants kept for any callers that imported them by name before phase 5.
 /// The actual default trigger is 65% (`ultra_trigger_pct: 0.65` in Config).
 /// These values (80/100) were the original hardcoded threshold; prefer `cfg.ultra_trigger_pct`.
@@ -228,6 +251,30 @@ mod tests {
         assert_eq!(budget(&c), crate::context::transcript::STANDARD_WINDOW);
         // 100K used is 50% of 200K → still Full, not the old always-critical.
         assert_eq!(derive(100_000, &c), Intensity::Full);
+    }
+
+    #[test]
+    fn pinned_window_is_never_assumed() {
+        let mut c = cfg();
+        c.context_window_tokens = 200_000;
+        assert!(!window_is_assumed(&c, 0));
+        assert!(!window_is_assumed(&c, 200_000));
+    }
+
+    #[test]
+    fn observed_long_window_is_proven_not_assumed() {
+        // 1M can only come from an explicit `[1m]` id or from context that has
+        // already exceeded 200K — either way it is a fact, not a guess.
+        assert!(!window_is_assumed(&cfg(), 1_000_000));
+    }
+
+    #[test]
+    fn default_200k_window_is_assumed() {
+        // #199: the transcript never carries a 1M marker, so a bare 200K is the
+        // fallback guess, not a measurement. Nothing proved this session is 200K.
+        let c = cfg();
+        assert!(window_is_assumed(&c, 200_000));
+        assert!(window_is_assumed(&c, 0), "nothing detected yet is also a guess");
     }
 
     #[test]
