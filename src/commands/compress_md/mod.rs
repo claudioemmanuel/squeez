@@ -588,7 +588,7 @@ fn compress_prose_span(text: &str, mode: Mode, locale: &Locale) -> String {
 
     // Drop multi-word phrases (case-insensitive substring)
     for phrase in locale.phrases {
-        s = drop_phrase_ci(&s, phrase);
+        s = drop_phrase_ci(s, phrase);
     }
 
     // Drop fillers + hedges + articles as whole words
@@ -762,12 +762,60 @@ fn is_clean_word(tok: &str) -> bool {
     true
 }
 
+/// Case-insensitive `starts_with`. `needle_lower` must be pre-lowercased.
+/// Streams the lowercase expansion instead of materialising it, and matches
+/// wherever `lowercase(hay).starts_with(needle_lower)` would — including when
+/// the needle runs out inside a multi-char expansion (ß → ss).
+fn ci_starts_with(hay: &str, needle_lower: &str) -> bool {
+    let mut needle = needle_lower.chars();
+    for ch in hay.chars() {
+        for lc in ch.to_lowercase() {
+            match needle.next() {
+                None => return true,
+                Some(n) if n == lc => {}
+                Some(_) => return false,
+            }
+        }
+    }
+    needle.next().is_none()
+}
+
+/// Allocation-free case-insensitive `contains`, used purely as a NECESSARY
+/// condition: when it is false, neither phrase-dropping nor word-boundary
+/// substitution can match anywhere, so their allocating passes are waste.
+///
+/// This is what makes the per-span cost proportional to the phrases that are
+/// actually present rather than to the size of the locale word lists — pt-BR
+/// runs 18 phrases plus 11 substitutions over every prose span, and a span
+/// normally contains none of them. An empty needle reports true so the callers
+/// keep their previous behaviour.
+fn contains_ci(hay: &str, needle_lower: &str) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    let mut rest = hay;
+    loop {
+        if ci_starts_with(rest, needle_lower) {
+            return true;
+        }
+        match rest.chars().next() {
+            Some(c) => rest = &rest[c.len_utf8()..],
+            None => return false,
+        }
+    }
+}
+
 /// Drop all case-insensitive occurrences of `needle` (and any immediately trailing spaces)
 /// from `s`. `needle` must be pre-lowercased.
 ///
 /// Uses dual `(s_i, l_i)` byte cursors advanced one `s`-char at a time so that Unicode
 /// case expansion (e.g. ß→ss) never desyncs the cursors.
-fn drop_phrase_ci(s: &str, needle: &str) -> String {
+fn drop_phrase_ci(s: String, needle: &str) -> String {
+    // The phrase is absent from almost every span; proving that without
+    // allocating skips both the lowercase mirror and the rebuild below.
+    if !contains_ci(&s, needle) {
+        return s;
+    }
     // Build lowercase mirror of s for matching.
     let lower: String = s.chars().flat_map(char::to_lowercase).collect();
 
@@ -813,7 +861,7 @@ fn trim_trailing_conjunction(s: &str, locale: &Locale) -> String {
 
 fn ultra_subs(mut s: String, locale: &Locale) -> String {
     for (long, short) in locale.ultra_subs {
-        s = replace_word_boundary(&s, long, short);
+        s = replace_word_boundary(s, long, short);
     }
     s
 }
@@ -822,18 +870,27 @@ fn is_word_char_unicode(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-fn replace_word_boundary(s: &str, needle: &str, repl: &str) -> String {
+fn replace_word_boundary(s: String, needle: &str, repl: &str) -> String {
     let needle_lower: String = needle.chars().flat_map(char::to_lowercase).collect();
-    let chars: Vec<(usize, char)> = s.char_indices().collect();
+    // Same guard as drop_phrase_ci: no occurrence, no work — and in particular
+    // no `chars` vector, which is the expensive part of this function.
+    if !contains_ci(&s, &needle_lower) {
+        return s;
+    }
+    // Only the chars are ever read (never the byte offsets), so this is a
+    // `Vec<char>` rather than a `Vec<(usize, char)>` — a quarter of the memory.
+    let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
+    // Reused across positions so the match buffer allocates once, not per char.
+    let mut buf = String::new();
     let mut i = 0;
     while i < chars.len() {
         // Try to match needle_lower starting at chars[i]
-        let mut buf = String::new();
+        buf.clear();
         let mut j = i;
         let mut matched = false;
         while j < chars.len() {
-            for lc in chars[j].1.to_lowercase() {
+            for lc in chars[j].to_lowercase() {
                 buf.push(lc);
             }
             j += 1;
@@ -846,15 +903,15 @@ fn replace_word_boundary(s: &str, needle: &str, repl: &str) -> String {
             }
         }
         if matched {
-            let prev_ok = i == 0 || !is_word_char_unicode(chars[i - 1].1);
-            let next_ok = j == chars.len() || !is_word_char_unicode(chars[j].1);
+            let prev_ok = i == 0 || !is_word_char_unicode(chars[i - 1]);
+            let next_ok = j == chars.len() || !is_word_char_unicode(chars[j]);
             if prev_ok && next_ok {
                 out.push_str(repl);
                 i = j;
                 continue;
             }
         }
-        out.push(chars[i].1);
+        out.push(chars[i]);
         i += 1;
     }
     out

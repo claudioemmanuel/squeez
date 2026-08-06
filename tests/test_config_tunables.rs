@@ -37,6 +37,41 @@ fn ultra_trigger_pct_parses_from_ini() {
 }
 
 #[test]
+fn wrap_timeout_defaults_to_the_prior_hardcoded_120s() {
+    assert_eq!(Config::default().wrap_timeout_secs, 120);
+}
+
+#[test]
+fn wrap_timeout_parses_from_ini() {
+    assert_eq!(Config::from_str("wrap_timeout_secs = 1800").wrap_timeout_secs, 1800);
+}
+
+#[test]
+fn wrap_timeout_env_overrides_config() {
+    // The point of the env knob (#197): unblock one long build without editing
+    // a file and without rebuilding the binary.
+    assert_eq!(squeez::config::resolve_wrap_timeout_secs(120, Some("3600")), 3600);
+}
+
+#[test]
+fn wrap_timeout_falls_back_when_env_is_unusable() {
+    for env in [None, Some(""), Some("nope"), Some("-5"), Some("0")] {
+        assert_eq!(
+            squeez::config::resolve_wrap_timeout_secs(600, env),
+            600,
+            "env {env:?} must not override a valid config value"
+        );
+    }
+}
+
+#[test]
+fn wrap_timeout_zero_in_config_keeps_the_default() {
+    // A `wrap_timeout_secs = 0` typo would otherwise kill every command
+    // instantly; treat it as unset rather than as "no time at all".
+    assert_eq!(squeez::config::resolve_wrap_timeout_secs(0, None), 120);
+}
+
+#[test]
 fn mcp_defaults_parse_from_ini() {
     let ini = "mcp_prior_summaries_default = 10\nmcp_recent_calls_default = 20";
     let c = Config::from_str(ini);

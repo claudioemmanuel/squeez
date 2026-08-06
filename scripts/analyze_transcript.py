@@ -15,6 +15,7 @@ Options:
 import argparse
 import json
 import sys
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 
 CHARS_PER_TOKEN = 4  # rough estimate, only used for payload sizing
@@ -77,6 +78,7 @@ def main():
     sidechain_lines = 0
     types_seen = defaultdict(int)
     first_ts = last_ts = None
+    answered = set()
 
     for line_no, rec in records:
         rtype = rec.get("type", "?")
@@ -87,6 +89,11 @@ def main():
             last_ts = ts
         if not args.sidechain and rec.get("isSidechain"):
             sidechain_lines += 1
+            # A skipped record still answers whatever it answers, so keep
+            # feeding `answered` before dropping it.
+            for b in content_blocks(rec):
+                if b.get("type") == "tool_result":
+                    answered.add(b.get("tool_use_id"))
             continue
         if rtype == "summary" or rec.get("isCompactSummary"):
             compactions.append({"line": line_no, "timestamp": ts})
@@ -120,6 +127,7 @@ def main():
                         file_edits[fp].append(line_no)
             elif btype == "tool_result":
                 tid = b.get("tool_use_id")
+                answered.add(tid)
                 call = tool_calls.get(tid)
                 if call is None:
                     unmatched_results.append({"line": line_no, "tool_use_id": tid})
@@ -133,12 +141,7 @@ def main():
                     errors.append({"line": line_no, "tool": tool_name,
                                    "preview": str(b.get("content"))[:200]})
 
-    # tool_use without any result
-    answered = set()
-    for line_no, rec in records:
-        for b in content_blocks(rec):
-            if b.get("type") == "tool_result":
-                answered.add(b.get("tool_use_id"))
+    # tool_use without any result — `answered` is filled by the pass above.
     unanswered_calls = [{"tool_use_id": tid, **info}
                         for tid, info in tool_calls.items() if tid not in answered]
 
@@ -158,8 +161,10 @@ def main():
         if len(lines) < 2:
             continue
         edits = sorted(file_edits.get(fp, []))
+        # "no edit strictly between a and b", by binary search on the sorted
+        # edits instead of a full scan per read pair (O(R log E), not O(R*E)).
         redundant = [b for a, b in zip(lines, lines[1:])
-                     if not any(a < e < b for e in edits)]
+                     if bisect_right(edits, a) >= bisect_left(edits, b)]
         if redundant:
             dup_reads.append({"file": fp, "all_read_lines": lines,
                               "redundant_read_lines": redundant})

@@ -42,10 +42,10 @@ enum SpawnOutcome {
 /// Spawns `cmd_str` via the platform shell with `env_vars` applied
 /// (`Command::env()` — never changes the command's own text/semantics),
 /// drains stdout+stderr on background threads to avoid pipe-buffer
-/// deadlock, and waits up to 120s. Factored out of `run()` so flag-forcing
-/// (E3) can call it a second time for the one-shot un-forced fallback
-/// without duplicating the spawn/drain/timeout logic.
-fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)]) -> SpawnOutcome {
+/// deadlock, and waits up to `timeout_secs`. Factored out of `run()` so
+/// flag-forcing (E3) can call it a second time for the one-shot un-forced
+/// fallback without duplicating the spawn/drain/timeout logic.
+fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64) -> SpawnOutcome {
     let mut cmd = shell_command(cmd_str);
     for (k, v) in env_vars {
         cmd.env(k, v);
@@ -98,9 +98,9 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)]) -> SpawnOutcome {
         buf
     });
 
-    // Poll for exit with 120s timeout
+    // Poll for exit with the configured timeout
     let call_start = Instant::now();
-    let timeout = Duration::from_secs(120);
+    let timeout = Duration::from_secs(timeout_secs);
     let exit_code = loop {
         match child.try_wait() {
             Ok(Some(s)) => break s.code().unwrap_or(1),
@@ -112,7 +112,12 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)]) -> SpawnOutcome {
                         std::thread::sleep(Duration::from_millis(200));
                     }
                     let _ = child.kill();
-                    eprintln!("squeez: command timed out after 120s");
+                    eprintln!(
+                        "squeez: command timed out after {}s — raise it with \
+                         `wrap_timeout_secs` in ~/.claude/squeez/config.ini \
+                         or SQUEEZ_WRAP_TIMEOUT_SECS",
+                        timeout_secs
+                    );
                     let _ = stdout_thread.join();
                     let _ = stderr_thread.join();
                     return SpawnOutcome::Fatal(124);
@@ -196,7 +201,12 @@ pub fn run(cmd_str: &str) -> i32 {
         }
     }
 
-    let (exit_code, combined) = match spawn_and_capture(&spawn_cmd, env_vars) {
+    let timeout_secs = crate::config::resolve_wrap_timeout_secs(
+        config.wrap_timeout_secs,
+        std::env::var("SQUEEZ_WRAP_TIMEOUT_SECS").ok().as_deref(),
+    );
+
+    let (exit_code, combined) = match spawn_and_capture(&spawn_cmd, env_vars, timeout_secs) {
         SpawnOutcome::Fatal(code) => return code,
         SpawnOutcome::Ok { exit_code, combined } => {
             if forced_label.is_some()
@@ -212,7 +222,7 @@ pub fn run(cmd_str: &str) -> i32 {
                 if ctx.flag_force_failed.len() > MAX_FLAG_FORCE_FAILED {
                     ctx.flag_force_failed.remove(0);
                 }
-                match spawn_and_capture(cmd_str, env_vars) {
+                match spawn_and_capture(cmd_str, env_vars, timeout_secs) {
                     SpawnOutcome::Fatal(code) => return code,
                     SpawnOutcome::Ok { exit_code, combined } => (exit_code, combined),
                 }
@@ -824,8 +834,13 @@ fn record_bash_event(
                  ## Next Steps\n\
                  <immediate plan>\n\
                  \n\
-                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).",
+                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).{}",
                 pct.min(100),
+                if crate::context::intensity::window_is_assumed(config, ctx.real_ctx_window) {
+                    crate::context::intensity::ASSUMED_WINDOW_NOTE
+                } else {
+                    ""
+                },
             ))
         } else {
             None

@@ -128,6 +128,12 @@ pub struct Config {
     /// and burn-rate math are keyed to the real window (e.g. 200000, or
     /// 1000000 for a `[1m]` model). 0 = keep the legacy formula. Default: 0.
     pub context_window_tokens: u64,
+    /// Seconds `squeez wrap` waits before killing the wrapped command. squeez
+    /// wraps every shell command, so this is the ceiling on any legitimately
+    /// long one — a full test suite, a release build, a data migration. The
+    /// old hardcoded 120s turned those into a bare exit 124. Overridable per
+    /// invocation via `SQUEEZ_WRAP_TIMEOUT_SECS`. Default: 120.
+    pub wrap_timeout_secs: u64,
     /// Multiplier on the internal token estimate to track a model's tokenizer
     /// density. 1.0 = legacy. Newer Claude tokenizers (e.g. Sonnet 5) pack
     /// ~1.0–1.35× more tokens into the same text, so set ~1.15 there. Budget
@@ -296,6 +302,7 @@ impl Default for Config {
             screenshot_repeat_window_secs: 300,
             strip_edit_preamble: true,
             context_window_tokens: 0,
+            wrap_timeout_secs: DEFAULT_WRAP_TIMEOUT_SECS,
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
             quota_error_threshold: 2,
@@ -335,6 +342,25 @@ impl Default for Config {
             buddy: true,
         }
     }
+}
+
+/// Prior hardcoded `squeez wrap` timeout, kept as the default so existing
+/// behaviour is unchanged when nothing is configured.
+pub const DEFAULT_WRAP_TIMEOUT_SECS: u64 = 120;
+
+/// Effective wrap timeout. `SQUEEZ_WRAP_TIMEOUT_SECS` wins when it parses to a
+/// positive number — the point of the env knob is unblocking one long command
+/// without editing a file. Anything unusable (absent, empty, non-numeric,
+/// negative, zero) falls through to the config value, and a zero there falls
+/// through to the default rather than killing every command instantly.
+pub fn resolve_wrap_timeout_secs(cfg_secs: u64, env: Option<&str>) -> u64 {
+    if let Some(secs) = env.and_then(|v| v.trim().parse::<u64>().ok()).filter(|s| *s > 0) {
+        return secs;
+    }
+    if cfg_secs > 0 {
+        return cfg_secs;
+    }
+    DEFAULT_WRAP_TIMEOUT_SECS
 }
 
 impl Config {
@@ -480,6 +506,9 @@ impl Config {
                     "handler_stats_enabled" => c.handler_stats_enabled = v == "true",
                     "context_window_tokens" => {
                         c.context_window_tokens = v.parse().unwrap_or(c.context_window_tokens)
+                    }
+                    "wrap_timeout_secs" => {
+                        c.wrap_timeout_secs = v.parse().unwrap_or(c.wrap_timeout_secs)
                     }
                     "tokenizer_scale" => {
                         c.tokenizer_scale = v.parse().unwrap_or(c.tokenizer_scale)

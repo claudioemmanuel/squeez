@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { ansiFg, hexToRgb, ANSI_RESET } = require('./art');
+const { configuredContextWindow } = require('./squeez');
 
 const DIM = '\x1b[2m';
 const BAR_CELLS = 9;
@@ -94,9 +95,27 @@ function contextTokens(transcriptPath) {
   }
 }
 
-/** Janela de contexto do modelo: sufixo [1m] manda, senão 200k. */
-function contextWindow(modelId) {
-  return /\[1m\]|-1m\b|context-1m/i.test(modelId || '') ? 1_000_000 : 200_000;
+const LONG_CONTEXT_RE = /\[1m\]|-1m\b|context-1m|\b1m\s+context\b/i;
+
+/**
+ * Janela de contexto do host. Precedência:
+ *   1. `context_window_tokens` do config.ini — o usuário pinou, é autoritativo;
+ *   2. marcador de 1M no `id` OU no `display_name`;
+ *   3. 200k.
+ *
+ * O `id` sozinho não serve (#199): numa sessão 1M o Claude Code grava
+ * `claude-opus-5` cru, sem `[1m]` — verificado em 70/70 registros assistant de
+ * uma sessão 1M real. Quem carrega o sinal é `display_name`, "Opus 5 (1M context)".
+ * Aceita string (só o id) por compatibilidade com quem já chamava assim.
+ */
+function contextWindow(model, pinnedTokens) {
+  const pinned = Number(pinnedTokens);
+  if (Number.isFinite(pinned) && pinned > 0) return pinned;
+  const probe =
+    typeof model === 'string'
+      ? model
+      : `${(model && model.id) || ''} ${(model && model.display_name) || ''}`;
+  return LONG_CONTEXT_RE.test(probe) ? 1_000_000 : 200_000;
 }
 
 /** Branch atual sem spawnar git: lê .git/HEAD subindo a árvore. */
@@ -130,6 +149,41 @@ function meter(label, percent, suffix, ansi) {
   return paint(head + bar(percent), hex, ansi) + tail;
 }
 
+const CURRENCY_SYMBOL = { USD: '$', BRL: 'R$', EUR: '€', GBP: '£' };
+
+/** "$42.37" / "$200" — centavos só quando existem. */
+function money(value, currency) {
+  if (value == null) return '';
+  return `${CURRENCY_SYMBOL[currency] || ''}${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
+/**
+ * As duas linhas do meio do HUD.
+ *
+ * Em conta enterprise toda janela de rate limit vem null (#198), e duas linhas
+ * "sem dados" são indistinguíveis de buddy quebrado. Lá o limite que morde é o
+ * de crédito, então o medidor de gasto assume o lugar. Sem janelas E sem gasto
+ * o placeholder honesto fica — melhor dizer "sem dados" do que inventar.
+ */
+function usageRows(usage, ansi) {
+  const hasWindows = usage && (usage.fiveHour != null || usage.sevenDay != null);
+  if (!hasWindows && usage && usage.spend != null) {
+    const suffix = [money(usage.spendUsed, usage.spendCurrency), money(usage.spendLimit, usage.spendCurrency)]
+      .filter(Boolean)
+      .join('/');
+    return [
+      meter('$', usage.spend, suffix, ansi),
+      usage.extraUsage != null
+        ? meter('+', usage.extraUsage, 'extra', ansi)
+        : meter('7d', null, '', ansi),
+    ];
+  }
+  return [
+    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
+    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
+  ];
+}
+
 /**
  * Monta as 4 linhas da coluna direita.
  * `input` é o JSON do host; `usage` vem de lib/usage.js (pode ser null).
@@ -139,7 +193,6 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
   const project = path.basename(cwd);
   const branch = gitBranch(cwd);
   const model = (input.model && input.model.display_name) || '';
-  const modelId = (input.model && input.model.id) || '';
 
   const head = [
     project,
@@ -150,7 +203,7 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
     .join(' ');
 
   const used = contextTokens(input.transcript_path);
-  const window = contextWindow(modelId);
+  const window = contextWindow(input.model, configuredContextWindow());
   const ctxPct = used == null ? null : Math.min(100, Math.round((used / window) * 100));
   const ctxSuffix = used == null ? '' : `${compactTokens(used)}/${compactTokens(window)}`;
 
@@ -162,12 +215,9 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
     dim(`· ${xp}`, ansi),
   ].join(' ');
 
-  return [
-    head,
-    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
-    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
-    tail,
-  ];
+  const [first, second] = usageRows(usage, ansi);
+
+  return [head, first, second, tail];
 }
 
 module.exports = {
