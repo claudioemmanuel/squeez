@@ -159,12 +159,14 @@ fn large_output_is_summarized() {
 
     // Use enough lines that the summarizer (≤40 lines out) is definitely shorter.
     // Include an error marker so is_benign() returns false (no benign multiplier).
+    // Tool is Grep, not Read: Read is exempt from summarization (see
+    // large_read_output_is_never_summarized below).
     let mut lines: Vec<String> = (0..80).map(|i| format!("build output line {i}: compiled ok")).collect();
     lines.push("error: build failed with 1 error".to_string());
     let content = lines.join("\n");
     let json = make_json(&content);
 
-    let result = compute_rewrite(&json, "Read", &dir, &cfg);
+    let result = compute_rewrite(&json, "Grep", &dir, &cfg);
     assert!(
         result.is_some(),
         "output exceeding summarize_threshold_lines should be summarized"
@@ -174,6 +176,35 @@ fn large_output_is_summarized() {
     assert!(
         summary_lines < 81,
         "summary ({summary_lines} lines) should be shorter than original (81 lines)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn large_read_output_is_never_summarized() {
+    // Regression test: source code Read output must never be replaced by the
+    // dense log summarizer. Real source files routinely mention "error",
+    // "failed", "panic" as ordinary code/comments (this crate's own
+    // is_benign() is a prime example) — that used to flip is_benign() to
+    // false, collapse the relaxed threshold, and hand the summarizer a
+    // source file, which kept only a tail slice and discarded the rest of
+    // the file the model needed to reason about or Edit.
+    let dir = tmp();
+    let mut cfg = cfg();
+    cfg.summarize_threshold_lines = 10;
+    cfg.read_summarize_threshold_lines = 5;
+
+    let mut lines: Vec<String> = (0..80)
+        .map(|i| format!("fn helper_{i}() {{ /* unique source line {i} */ }}"))
+        .collect();
+    lines.push("// handles the \"failed\" and \"panic\" error paths".to_string());
+    let content = lines.join("\n");
+    let json = make_json(&content);
+
+    let result = compute_rewrite(&json, "Read", &dir, &cfg);
+    assert!(
+        result.is_none(),
+        "Read output must pass through untouched, not be summarized"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
