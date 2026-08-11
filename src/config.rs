@@ -101,10 +101,12 @@ pub struct Config {
     /// `squeez_handler_stats` can surface under/over-performers. Default: true.
     pub handler_stats_enabled: bool,
     // ── PostToolUse compression for Read/Edit/Write (gap fix) ────────────────
-    /// Override `summarize_threshold_lines` when the tool is Read. Default 150.
-    /// Many code files are 80-300 lines and never triggered the global default
-    /// of 300, leaving them uncompressed. Set to 0 to fall back to the global
-    /// `summarize_threshold_lines`.
+    /// Override `summarize_threshold_lines` when the tool is Read. Currently
+    /// inert: `compress_output.rs` exempts Read from destructive summarization
+    /// entirely (source files are structured content, not log output — see
+    /// the `is_structured_payload` comment there). Kept for `should_apply_for_tool`
+    /// callers that do want a Read-specific override. Set to 0 to fall back to
+    /// the global `summarize_threshold_lines`.
     pub read_summarize_threshold_lines: usize,
     /// Byte-size trigger for summarize, independent of line count. A single-line
     /// 50 KB JSON blob (e.g. `az`/`curl` output) has `lines.len() == 1` and slips

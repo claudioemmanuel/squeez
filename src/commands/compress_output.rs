@@ -246,12 +246,17 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     }
 
     // Large benign outputs get summarized (Skill is handled earlier via the
-    // session-long dedup store and never reaches here). MCP results are
-    // dedup-only: they are structured payloads (JSON, DOM snapshots) that the
-    // log-oriented summarizer would corrupt, so they participate in the
-    // redundancy check above but are never summarized (audit item 2 — track
-    // and dedupe MCP traffic, leave first-sight content intact).
-    let rewritten = if !is_mcp && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
+    // session-long dedup store and never reaches here). MCP results and Read
+    // are dedup-only, never summarized: both carry structured, non-repetitive
+    // payloads (JSON, DOM snapshots, source files) the log-oriented summarizer
+    // would corrupt. Read shares MCP's failure mode: `is_benign` does raw
+    // substring matching for "error"/"failed"/"panic", which fires on ordinary
+    // source code that merely mentions those words, collapsing the relaxed
+    // threshold and handing the summarizer a source file — it then keeps a
+    // tail slice plus incidental keyword hits and drops the rest, which is
+    // exactly the content needed to reason about or Edit the file.
+    let is_structured_payload = is_mcp || tool == "Read";
+    let rewritten = if !is_structured_payload && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
         let summary = context::summarize::apply(lines.clone(), tool);
         if summary.len() < lines.len() {
             Some(summary.join("\n"))
@@ -744,12 +749,13 @@ mod tests {
     }
 
     #[test]
-    fn read_uses_lower_summarize_threshold() {
+    fn read_is_never_summarized_even_with_error_marker() {
+        // Read is a structured payload (source/config/data), not log output —
+        // see the is_structured_payload comment above. A stray "error:" line
+        // (e.g. a comment, a string literal) must not trigger the dense
+        // log summarizer regardless of line count or threshold.
         let dir = tmp();
         let cfg = Config::default();
-        // Build 200 benign lines: passes global 300 default but triggers
-        // Read-specific 150 default (×2 benign = 300; so we need >300 for benign).
-        // Use error markers to ensure non-benign path (threshold = base = 150).
         let mut lines = Vec::with_capacity(200);
         lines.push("error: synthetic".to_string());
         for i in 1..200 {
@@ -762,8 +768,8 @@ mod tests {
         );
         let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
         assert!(
-            rewrite.is_some(),
-            "Read with 200 lines + error marker should trigger summarize at threshold 150"
+            rewrite.is_none(),
+            "Read must never be replaced by the dense summarizer"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
