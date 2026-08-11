@@ -821,27 +821,38 @@ fn record_bash_event(
         };
         if critical {
             current.state_warned = true;
-            Some(format!(
-                "🚨 squeez: context critical ({}%) — save state before clearing:\n\
-                 \n\
-                 Write `.claude/session_state.md` with:\n\
-                 ## Current Objective\n\
-                 <what you're solving now>\n\
-                 ## Files Read\n\
-                 <paths + what was learned>\n\
-                 ## Decisions Taken\n\
-                 <why approach X not Y>\n\
-                 ## Next Steps\n\
-                 <immediate plan>\n\
-                 \n\
-                 Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).{}",
-                pct.min(100),
-                if crate::context::intensity::window_is_assumed(config, ctx.real_ctx_window) {
-                    crate::context::intensity::ASSUMED_WINDOW_NOTE
-                } else {
-                    ""
-                },
-            ))
+            if crate::context::intensity::window_is_assumed(config, ctx.real_ctx_window) {
+                // The host never proved this session's real window, so `pct` may
+                // be off by 5x (200K assumed vs. an actual 1M model — issue
+                // #199). Telling the user to /clear on that unproven number risks
+                // discarding a session with 800K of real headroom left, so this
+                // stays informational instead of an imperative "critical" alarm.
+                Some(format!(
+                    "ℹ️  squeez: {}% of an assumed 200K window ({}K tokens) — the \
+                     host doesn't report the real context window, so this may be a \
+                     false alarm on a larger-context model.{}",
+                    pct.min(100),
+                    effective_used / 1000,
+                    crate::context::intensity::ASSUMED_WINDOW_NOTE,
+                ))
+            } else {
+                Some(format!(
+                    "🚨 squeez: context critical ({}%) — save state before clearing:\n\
+                     \n\
+                     Write `.claude/session_state.md` with:\n\
+                     ## Current Objective\n\
+                     <what you're solving now>\n\
+                     ## Files Read\n\
+                     <paths + what was learned>\n\
+                     ## Decisions Taken\n\
+                     <why approach X not Y>\n\
+                     ## Next Steps\n\
+                     <immediate plan>\n\
+                     \n\
+                     Then run `/clear` to reset context (or `/compact [describe focus area]` for a focused summary).",
+                    pct.min(100),
+                ))
+            }
         } else {
             None
         }
