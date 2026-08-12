@@ -30,6 +30,7 @@ pub mod persona;
 pub mod package_mgr;
 pub mod playwright;
 pub mod protocol;
+pub mod prune;
 pub mod reporters;
 pub mod runtime;
 pub mod test_runner;

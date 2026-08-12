@@ -91,6 +91,12 @@ fn main() {
         Some("doctor") => {
             std::process::exit(squeez::commands::doctor::run());
         }
+        Some("prune") => {
+            // On-demand cleanup for the blob store + session memory (#201) —
+            // both already prune opportunistically elsewhere; this just gives
+            // the `run squeez prune` hints in mcp_server.rs somewhere to land.
+            std::process::exit(squeez::commands::prune::run());
+        }
         Some("calibrate") => {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::economy::calibrate::run(&rest));
@@ -130,6 +136,7 @@ fn main() {
             eprintln!("       squeez compact-summary           — PostCompact hook: re-inject session state");
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
             eprintln!("       squeez doctor                    — self-health check (hooks, config, tracking)");
+            eprintln!("       squeez prune                     — clear expired stashed blobs + old session summaries");
             eprintln!("       squeez budget-params <tool>        — output JSON budget patch for tool");
             eprintln!("       squeez --version");
             std::process::exit(1);

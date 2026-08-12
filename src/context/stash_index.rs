@@ -58,10 +58,16 @@ pub struct IndexEntry {
     pub terms: Vec<String>,
     pub shingles: Vec<u64>,
     pub preview: String,
+    /// Byte length of the blob at store time. `0` for sidecars written before
+    /// this field existed — treated as "legacy, no length to check against"
+    /// rather than a real zero-byte blob (store() never persists empty content
+    /// as a searchable blob in practice).
+    pub byte_count: u64,
 }
 
 /// Builds the sidecar index content for a blob about to be (or already)
-/// stored — top distinctive terms, shingle sketch, and a 2-line preview.
+/// stored — top distinctive terms, shingle sketch, byte length, and a 2-line
+/// preview.
 pub fn build_index(content: &str) -> IndexEntry {
     let terms = distinctive_terms(content, TOP_K_TERMS);
     let shingles = hash::shingle_minhash(content);
@@ -72,15 +78,16 @@ pub fn build_index(content: &str) -> IndexEntry {
         .map(|l| l.chars().take(100).collect::<String>())
         .collect::<Vec<_>>()
         .join(" / ");
-    IndexEntry { terms, shingles, preview }
+    IndexEntry { terms, shingles, preview, byte_count: content.len() as u64 }
 }
 
 fn serialize(entry: &IndexEntry) -> String {
     format!(
-        "{{\"terms\":{},\"shingles\":{},\"preview\":\"{}\"}}",
+        "{{\"terms\":{},\"shingles\":{},\"preview\":\"{}\",\"byte_count\":{}}}",
         crate::json_util::str_array(&entry.terms),
         crate::json_util::u64_array(&entry.shingles),
         crate::json_util::escape_str(&entry.preview),
+        entry.byte_count,
     )
 }
 
@@ -89,6 +96,9 @@ fn deserialize(s: &str) -> IndexEntry {
         terms: crate::json_util::extract_str_array(s, "terms"),
         shingles: crate::json_util::extract_u64_array(s, "shingles"),
         preview: crate::json_util::extract_str(s, "preview").unwrap_or_default(),
+        // Missing on sidecars written before this field existed — see the
+        // doc comment on `IndexEntry::byte_count`.
+        byte_count: crate::json_util::extract_u64(s, "byte_count").unwrap_or(0),
     }
 }
 
