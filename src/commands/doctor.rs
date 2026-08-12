@@ -180,6 +180,18 @@ fn check_freshness(squeez_dir: &Path, cfg: &Config) -> CheckLine {
     ok("freshness: tracking artifacts are current")
 }
 
+/// Blob-store check: reports current stash size (#201/#200 — this is the
+/// "make it observable" half of both issues). Informational only, never a
+/// FAIL/WARN — a big stash isn't unhealthy on its own, just worth seeing.
+fn check_blob_store(squeez_dir: &Path) -> CheckLine {
+    let (count, bytes) = crate::context::retrieve::stats_under(squeez_dir);
+    ok(format!(
+        "blob store: {} stashed output(s), {:.1} KB — `squeez prune` to clear expired ones early",
+        count,
+        bytes as f64 / 1024.0
+    ))
+}
+
 /// Full doctor report. Returns the printable lines and whether any check FAILed.
 pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<String>, bool) {
     let checks = [
@@ -187,6 +199,7 @@ pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<S
         check_hooks_registered(settings_path),
         check_config(cfg),
         check_freshness(squeez_dir, cfg),
+        check_blob_store(squeez_dir),
     ];
     let has_fail = checks.iter().any(|c| c.fail);
     let mut lines: Vec<String> = vec![format!(

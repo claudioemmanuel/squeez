@@ -837,14 +837,19 @@ fn tool_enterprise_savings() -> String {
 /// verbatim text, or a clear not-found message when the id is malformed /
 /// expired / missing.
 fn tool_retrieve(key: &str, start_line: Option<usize>, count: Option<usize>) -> String {
+    use crate::context::retrieve::RetrieveOutcome;
     if key.is_empty() {
         return "squeez_retrieve: missing 'key' — pass the id from a [squeez: ... key=\"<id>\"] marker.".to_string();
     }
-    match crate::context::retrieve::retrieve(key) {
-        Some(original) if start_line.is_none() && count.is_none() => original,
-        Some(original) => slice_lines(&original, start_line, count),
-        None => format!(
+    match crate::context::retrieve::retrieve_checked(key) {
+        RetrieveOutcome::Found(original) if start_line.is_none() && count.is_none() => original,
+        RetrieveOutcome::Found(original) => slice_lines(&original, start_line, count),
+        RetrieveOutcome::NotFound => format!(
             "squeez_retrieve: no stored output for key '{}'. It may be malformed, expired (past retrieve_ttl_days), or never stored.",
+            key
+        ),
+        RetrieveOutcome::Corrupted => format!(
+            "squeez_retrieve: integrity check failed for key '{}' — the stored content no longer matches its hash (corrupted or truncated on disk). This blob cannot be safely recovered.",
             key
         ),
     }
