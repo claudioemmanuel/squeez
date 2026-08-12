@@ -52,12 +52,46 @@ pub fn store_guarded(content: &str) -> Result<String, &'static str> {
 /// Retrieve a previously stored blob by id. `None` if the id is malformed, the
 /// blob is missing, or it was pruned.
 pub fn retrieve(id: &str) -> Option<String> {
-    retrieve_in(&blobs_dir(), id)
+    match retrieve_checked_in(&blobs_dir(), id) {
+        RetrieveOutcome::Found(content) => Some(content),
+        RetrieveOutcome::NotFound | RetrieveOutcome::Corrupted => None,
+    }
+}
+
+/// Result of a verified retrieval — distinguishes "never stored / expired"
+/// from "stored, but the bytes on disk no longer match the id" so a caller
+/// can tell the model the difference instead of serving corrupted content.
+pub enum RetrieveOutcome {
+    Found(String),
+    NotFound,
+    Corrupted,
+}
+
+/// Retrieve a previously stored blob by id, verifying it on the way out.
+/// Since the id is the FNV-1a hash of the content computed at store time
+/// (`store_in`), a truncated or corrupted blob rehashes to a different
+/// value — this is caught here instead of being served silently.
+pub fn retrieve_checked(id: &str) -> RetrieveOutcome {
+    retrieve_checked_in(&blobs_dir(), id)
+}
+
+/// Number of stashed blobs and their total size in bytes (`.idx` sidecars
+/// excluded). Used by `squeez doctor` to make blob-store growth observable.
+pub fn stats() -> (usize, u64) {
+    stats_in(&blobs_dir())
+}
+
+/// Like `stats()`, but under an explicit `squeez_dir` rather than the global
+/// `SQUEEZ_DIR`-derived one — lets `squeez doctor` stay testable with an
+/// injected directory the way its other checks already are.
+pub fn stats_under(squeez_dir: &Path) -> (usize, u64) {
+    stats_in(&squeez_dir.join("blobs"))
 }
 
 /// Remove blobs whose last modification is older than `ttl_secs`. Best-effort;
-/// a `ttl_secs` of 0 disables pruning (keeps everything).
-pub fn prune(ttl_secs: u64) {
+/// a `ttl_secs` of 0 disables pruning (keeps everything). Returns the number
+/// of blobs removed and the bytes freed.
+pub fn prune(ttl_secs: u64) -> (usize, u64) {
     prune_in(&blobs_dir(), ttl_secs)
 }
 
@@ -115,27 +149,56 @@ fn store_in(dir: &Path, content: &str) -> Option<String> {
     Some(id)
 }
 
-fn retrieve_in(dir: &Path, id: &str) -> Option<String> {
+fn retrieve_checked_in(dir: &Path, id: &str) -> RetrieveOutcome {
     if !is_valid_id(id) {
-        return None;
+        return RetrieveOutcome::NotFound;
     }
-    std::fs::read_to_string(dir.join(id)).ok()
+    let Ok(content) = std::fs::read_to_string(dir.join(id)) else {
+        return RetrieveOutcome::NotFound;
+    };
+    let recomputed = format!("{:016x}", fnv1a_64(content.as_bytes()));
+    if recomputed != id {
+        return RetrieveOutcome::Corrupted;
+    }
+    RetrieveOutcome::Found(content)
 }
 
-fn prune_in(dir: &Path, ttl_secs: u64) {
+fn stats_in(dir: &Path) -> (usize, u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (0, 0);
+    };
+    entries.flatten().fold((0, 0), |(count, bytes), entry| {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            return (count, bytes);
+        };
+        if !is_valid_id(&name) {
+            return (count, bytes);
+        }
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        (count + 1, bytes + size)
+    })
+}
+
+fn prune_in(dir: &Path, ttl_secs: u64) -> (usize, u64) {
     if ttl_secs == 0 {
-        return;
+        return (0, 0);
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return (0, 0);
     };
+    let mut removed = 0usize;
+    let mut freed = 0u64;
     for entry in entries.flatten() {
         let Ok(meta) = entry.metadata() else { continue };
         let Ok(modified) = meta.modified() else { continue };
         // `elapsed()` errors only if mtime is in the future — treat as fresh.
         let age = modified.elapsed().map(|d| d.as_secs()).unwrap_or(0);
         if age > ttl_secs {
-            let _ = std::fs::remove_file(entry.path());
+            let size = meta.len();
+            if std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+                freed += size;
+            }
             if let Some(name) = entry.file_name().to_str() {
                 if is_valid_id(name) {
                     crate::context::stash_index::remove_index_in(dir, name);
@@ -143,6 +206,7 @@ fn prune_in(dir: &Path, ttl_secs: u64) {
             }
         }
     }
+    (removed, freed)
 }
 
 #[cfg(test)]
@@ -158,6 +222,15 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&p);
         p
+    }
+
+    /// Unverified retrieve, matching `retrieve()`'s pre-#200 semantics — used
+    /// by tests that only care about presence/absence, not integrity.
+    fn retrieve_in(dir: &Path, id: &str) -> Option<String> {
+        match retrieve_checked_in(dir, id) {
+            RetrieveOutcome::Found(content) => Some(content),
+            RetrieveOutcome::NotFound | RetrieveOutcome::Corrupted => None,
+        }
     }
 
     #[test]
@@ -231,10 +304,66 @@ mod tests {
     fn prune_keeps_fresh_blobs() {
         let dir = tmp("prune");
         let id = store_in(&dir, "prune me please, this is long enough").unwrap();
-        prune_in(&dir, 0); // ttl 0 disables pruning entirely
+        assert_eq!(prune_in(&dir, 0), (0, 0)); // ttl 0 disables pruning entirely
         assert!(retrieve_in(&dir, &id).is_some());
         prune_in(&dir, 86_400); // just-written blob is younger than 1 day → survives
         assert!(retrieve_in(&dir, &id).is_some());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prune_removes_expired_blobs_and_reports_stats() {
+        let dir = tmp("prune-expired");
+        let content = "this blob is old enough to be pruned away";
+        let id = store_in(&dir, content).unwrap();
+        // Back-date the blob's mtime past the TTL instead of sleeping in a test.
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
+        let file = std::fs::File::open(dir.join(&id)).unwrap();
+        file.set_modified(past).unwrap();
+
+        let (removed, freed) = prune_in(&dir, 60);
+        assert_eq!(removed, 1);
+        assert_eq!(freed, content.len() as u64);
+        assert!(retrieve_in(&dir, &id).is_none(), "expired blob should be gone");
+        assert!(!dir.join(format!("{id}.idx")).exists(), "sidecar should be removed too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retrieve_checked_detects_corruption() {
+        let dir = tmp("corrupt");
+        let id = store_in(&dir, "the original, untouched content goes here").unwrap();
+        // Flip the bytes on disk without updating the filename/id.
+        std::fs::write(dir.join(&id), "a completely different payload now").unwrap();
+
+        match retrieve_checked_in(&dir, &id) {
+            RetrieveOutcome::Corrupted => {}
+            _ => panic!("expected Corrupted for a blob whose content no longer matches its id"),
+        }
+        // The unverified `retrieve_in` test helper folds `Corrupted` into
+        // "not found" too — there is no longer an unchecked read path (#200).
+        assert!(retrieve_in(&dir, &id).is_none(), "corrupted content must never be handed back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retrieve_checked_returns_found_for_intact_blob() {
+        let dir = tmp("intact");
+        let original = "clean content, never touched after store";
+        let id = store_in(&dir, original).unwrap();
+        match retrieve_checked_in(&dir, &id) {
+            RetrieveOutcome::Found(content) => assert_eq!(content, original),
+            _ => panic!("expected Found for an intact blob"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retrieve_checked_returns_not_found_for_missing_id() {
+        let dir = tmp("missing");
+        match retrieve_checked_in(&dir, "0000000000000000") {
+            RetrieveOutcome::NotFound => {}
+            _ => panic!("expected NotFound for a never-stored id"),
+        }
     }
 }
