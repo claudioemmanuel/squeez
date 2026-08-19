@@ -1,11 +1,15 @@
 //! Information-preservation scoring — detect over-compression that would force
 //! Claude to re-investigate.
 //!
-//! Background: the rtk competitor regression (rtk-ai/rtk#582) showed that
-//! aggressive bash-output compression which strips structural markers (file
-//! paths, line numbers, error codes) causes the LLM to generate 50% more
-//! output tokens trying to explain or re-derive what was removed — a net
-//! +18% total cost despite "winning" on input tokens.
+//! Background: bash-output compression that strips structural markers (file
+//! paths, line numbers, error codes) can cost more than it saves — the model
+//! spends output tokens re-deriving what was removed, or simply goes back
+//! and runs the command again. The effect is sharpest on low-entropy
+//! content, where there was little to compress in the first place.
+//!
+//! So this module measures the thing that actually predicts a re-run: not
+//! "did we compress" but "did the model keep enough to avoid going back for
+//! more".
 //!
 //! This module extracts structural anchors from baseline output and measures
 //! what fraction survives compression. Distinct from `quality_score` (which
@@ -14,9 +18,6 @@
 //! tool calls are needed.
 //!
 //! All extraction is byte-scan based, zero-dep, deterministic.
-//!
-//! References:
-//! - <https://github.com/rtk-ai/rtk/issues/582>
 
 use std::collections::HashSet;
 
@@ -288,7 +289,7 @@ pub fn info_preservation(baseline: &str, compressed: &str) -> f64 {
 }
 
 /// True when reduction is aggressive AND preservation has dropped below the
-/// floor — the regime where rtk regression occurred.
+/// floor — the regime where over-compression starts costing more than it saves.
 pub fn is_compression_risk(reduction_pct: f64, preservation: f64) -> bool {
     reduction_pct >= RISK_REDUCTION_THRESHOLD && preservation < RISK_PRESERVATION_FLOOR
 }

@@ -1,0 +1,56 @@
+In deploy.sh line 7:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 14:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 21:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 28:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 35:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 42:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 49:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+
+In deploy.sh line 56:
+rm -rf $BUILD_DIR/artifacts
+       ^-- SC2086: Double quote to prevent globbing and word splitting.
+
+Did you mean:
+rm -rf "$BUILD_DIR"/artifacts
+

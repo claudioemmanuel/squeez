@@ -205,6 +205,20 @@ pub struct Config {
     /// output and suppresses the header (follow-up warnings still print).
     /// 0 = disabled. Default: 24.
     pub net_win_min_tokens: usize,
+    /// Run `economy::preservation`'s anchor scan at wrap time on
+    /// high-reduction calls (>= 90%). When the surviving-anchor fraction
+    /// falls below `preservation_floor`, the verbatim original is stashed
+    /// even outside the usual size gates and the header carries
+    /// `[anchors: N%]`. Default: true.
+    pub preservation_guard: bool,
+    /// Surviving-anchor fraction below which a high-reduction call is
+    /// treated as over-compressed. Default: 0.70 (matches
+    /// `preservation::RISK_PRESERVATION_FLOOR`).
+    pub preservation_floor: f32,
+    /// Use the shipped filter-DSL rule pack (`assets/filters_builtin.ini`).
+    /// User and project `filters.ini` rules always shadow a built-in of the
+    /// same name; this switch turns the whole pack off. Default: true.
+    pub builtin_filters: bool,
     // ── Bash-wrap safety (#150) ──────────────────────────────────────────────
     /// Master switch for rewriting Bash commands to `squeez wrap '…'` in the
     /// PreToolUse hook. When false, commands run unwrapped (no output
@@ -322,6 +336,9 @@ impl Default for Config {
             relevance_truncation_enabled: true,
             class_density: true,
             net_win_min_tokens: 24,
+            preservation_guard: true,
+            preservation_floor: 0.70,
+            builtin_filters: true,
             wrap_bash: true,
             bash_risk_patterns: vec![
                 "rm -rf".to_string(),
@@ -564,6 +581,11 @@ impl Config {
                     "net_win_min_tokens" => {
                         c.net_win_min_tokens = v.parse().unwrap_or(c.net_win_min_tokens)
                     }
+                    "preservation_guard" => c.preservation_guard = v == "true",
+                    "preservation_floor" => {
+                        c.preservation_floor = v.parse().unwrap_or(c.preservation_floor)
+                    }
+                    "builtin_filters" => c.builtin_filters = v == "true",
                     "wrap_bash" => c.wrap_bash = v == "true",
                     "bash_risk_patterns" => {
                         c.bash_risk_patterns =

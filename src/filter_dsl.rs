@@ -4,9 +4,10 @@
 //! sections holding an ORDERED pipeline of stages (order in the file is
 //! preserved — this is not a flat key=value map).
 //!
-//! Layering (first match wins): `./.squeez/filters.ini` (project) >
-//! `~/.claude/squeez/filters.ini` (user) > none (falls back to the normal
-//! handler dispatch in `filter.rs`).
+//! Layering (most specific wins): `./.squeez/filters.ini` (project) >
+//! `~/.claude/squeez/filters.ini` (user) > the shipped pack
+//! (`assets/filters_builtin.ini`, `builtin_filters = false` to disable) >
+//! none (falls back to the normal handler dispatch in `filter.rs`).
 //!
 //! Matching a command to a filter section: the section name is treated as
 //! a prefix of the command string (`"cargo tree"` matches `cargo tree
@@ -117,10 +118,13 @@ pub fn parse(content: &str) -> Vec<FilterDef> {
                 }
             }
             "on_empty" => current.stages.push(Stage::OnEmpty(unquote(value))),
-            "test_input" => pending_test_input = Some(unquote(value)),
+            // Test fixtures are the one place `\n` must expand: a filter
+            // pipeline only means anything over multiple lines, and an INI
+            // value is a single line.
+            "test_input" => pending_test_input = Some(unescape(&unquote(value))),
             "test_expect" => {
                 if let Some(input) = pending_test_input.take() {
-                    current.tests.push((input, unquote(value)));
+                    current.tests.push((input, unescape(&unquote(value))));
                 }
             }
             _ => {}
@@ -157,6 +161,31 @@ fn parse_match_line(value: &str) -> (String, Option<String>) {
         Some((pat, guard)) => (unquote(pat.trim()), Some(unquote(guard.trim()))),
         None => (unquote(value), None),
     }
+}
+
+/// Expands `\n`, `\t` and `\\` in a test fixture. Applied only to
+/// `test_input` / `test_expect` — stage patterns stay literal, so a pattern
+/// containing a backslash keeps meaning exactly what it says.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 fn unquote(s: &str) -> String {
@@ -296,13 +325,27 @@ fn user_filters_path() -> PathBuf {
     crate::session::squeez_dir().join("filters.ini")
 }
 
-/// Loads and merges all layers, USER entries first and PROJECT entries
-/// last: `find_in` breaks a same-length-name tie by keeping the last
-/// element seen (`Iterator::max_by_key`'s documented tie-break), so
-/// project must be last in this list for a project def to shadow a
-/// same-named user def.
-fn load_all() -> Vec<FilterDef> {
+/// The shipped rule pack. The DSL engine has always been able to cover the
+/// long tail `GenericHandler` can't; what was missing was any content in it,
+/// so every user started from an empty `filters.ini`.
+pub const BUILTIN_FILTERS: &str = include_str!("../assets/filters_builtin.ini");
+
+/// Parses the shipped pack. Exposed so `filter-test` can run its inline
+/// tests without a `filters.ini` on disk.
+pub fn builtin_defs() -> Vec<FilterDef> {
+    parse(BUILTIN_FILTERS)
+}
+
+/// Loads and merges all layers, BUILT-IN first, then USER, then PROJECT:
+/// `find_in` breaks a same-length-name tie by keeping the last element seen
+/// (`Iterator::max_by_key`'s documented tie-break), so the later a layer
+/// appears in this list the more it wins. Built-in is first precisely so
+/// that any user or project rule of the same name shadows it.
+fn load_all(builtin: bool) -> Vec<FilterDef> {
     let mut defs = Vec::new();
+    if builtin {
+        defs.extend(builtin_defs());
+    }
     if let Ok(content) = std::fs::read_to_string(user_filters_path()) {
         defs.extend(parse(&content));
     }
@@ -315,11 +358,11 @@ fn load_all() -> Vec<FilterDef> {
 /// Finds the best-matching filter definition for `cmd`: the longest
 /// section name that is a prefix of `cmd`. On a length tie, the
 /// project-level definition wins (see `load_all`'s ordering note).
-pub fn find_for_command(cmd: &str) -> Option<FilterDef> {
-    find_in(&load_all(), cmd)
+pub fn find_for_command(cmd: &str, builtin: bool) -> Option<FilterDef> {
+    find_in(&load_all(builtin), cmd)
 }
 
-fn find_in(defs: &[FilterDef], cmd: &str) -> Option<FilterDef> {
+pub fn find_in(defs: &[FilterDef], cmd: &str) -> Option<FilterDef> {
     defs.iter()
         .filter(|d| cmd.starts_with(d.name.as_str()))
         .max_by_key(|d| d.name.len())
@@ -378,7 +421,10 @@ pub fn format_reports(reports: &[TestReport]) -> String {
 
 /// CLI entry point for `squeez filter-test`.
 pub fn run_cli() -> i32 {
-    let defs = load_all();
+    // Always includes the shipped pack: `filter-test` is the gate that keeps
+    // a broken built-in rule out of a release, so it must not depend on the
+    // user having opted into the pack locally.
+    let defs = load_all(true);
     let reports = run_tests(&defs);
     let any_failed = reports.iter().any(|r| !r.failed.is_empty());
     print!("{}", format_reports(&reports));

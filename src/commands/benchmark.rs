@@ -46,7 +46,9 @@ pub struct ScenarioResult {
     /// baseline that survive compression. See `economy::preservation`.
     pub info_preservation: f64,
     /// True when reduction_pct >= 90% AND info_preservation < 0.70 — the
-    /// regime where rtk-ai/rtk#582 reported a net +18% cost regression.
+    /// regime where compression stops paying: on low-entropy content there
+    /// is little to remove, and a transformed format can cost more than it
+    /// saves. See `economy::preservation`.
     pub compression_risk: bool,
     /// Extra context saved via cross-call dedup (Wrap scenarios only).
     pub context_saved_tokens: usize,
@@ -1417,6 +1419,18 @@ fn build_scenarios(fixtures: &PathBuf) -> Vec<Scenario> {
     f!("env_dump",     "env_dump.txt",              "env",        ["PATH"]);
     f!("git_copilot",  "git_copilot_session.txt",  "git",        []);
 
+    // ── Built-in filter-DSL pack coverage ────────────────────────────────────
+    // These commands have no dedicated handler and fell through to
+    // GenericHandler until the shipped rule pack landed. Benchmarking them is
+    // what makes the pack's contribution visible instead of asserted — the
+    // hint is the command string the DSL matches on.
+    f!("pip_install",      "pip_install.txt",         "pip install",      ["Successfully installed"]);
+    f!("systemctl_status", "systemctl_status.txt",    "systemctl status", ["Active:"]);
+    f!("rsync_transfer",   "rsync_transfer.txt",      "rsync ",           ["total size"]);
+    f!("shellcheck_run",   "shellcheck_findings.txt", "shellcheck ",      ["SC2086"]);
+    f!("mypy_errors",      "mypy_errors.txt",         "mypy ",            ["error:", "Found"]);
+    f!("bundle_install",   "bundle_install.txt",      "bundle install",   ["Bundle complete"]);
+
     // Synthetic filter scenarios
     s.push(Scenario {
         name: "cargo_build_noisy".to_string(),
@@ -2376,7 +2390,7 @@ pub fn print_human(report: &BenchmarkReport) {
     );
     let total_scored = report.quality_pass_count + report.quality_fail_count;
     println!(
-        "  flagged  {}/{}  (rtk-ai/rtk#582 regime — Claude may inflate output tokens)",
+        "  flagged  {}/{}  (high reduction, low anchor survival — the runtime\n           preservation guard re-stashes these and tags the header)",
         report.compression_risk_count, total_scored,
     );
     if report.compression_risk_count > 0 {

@@ -126,6 +126,9 @@ const SCHEMA: &[(&str, Kind)] = &[
     ("success_collapse_deny", Kind::List),
     ("flag_force", Kind::FlagForce),
     ("flag_force_deny", Kind::List),
+    ("preservation_guard", Kind::Bool),
+    ("preservation_floor", Kind::F32),
+    ("builtin_filters", Kind::Bool),
     ("buddy", Kind::Bool),
 ];
 
@@ -215,6 +218,9 @@ fn field_value(c: &Config, key: &str) -> Option<String> {
         "success_collapse_deny" => c.success_collapse_deny.join(","),
         "flag_force" => c.flag_force.clone(),
         "flag_force_deny" => c.flag_force_deny.join(","),
+        "preservation_guard" => c.preservation_guard.to_string(),
+        "preservation_floor" => c.preservation_floor.to_string(),
+        "builtin_filters" => c.builtin_filters.to_string(),
         "buddy" => c.buddy.to_string(),
         _ => return None,
     };

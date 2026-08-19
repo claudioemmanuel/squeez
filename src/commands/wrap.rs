@@ -187,7 +187,16 @@ pub fn run(cmd_str: &str) -> i32 {
     };
     let mut spawn_cmd = cmd_str.to_string();
     let mut forced_label: Option<String> = None;
-    if flag_force_tier == "full"
+    // `git status --porcelain=v1 -b` is the one injection allowed at the
+    // default `env` tier: `git status` is read-only and the flag changes
+    // formatting only, so it carries none of the "this changes what the
+    // command does" risk that keeps the rest of the arg tier behind `full`.
+    // It is also the highest-frequency command in an agent session, which is
+    // where the win is.
+    let arg_tier_ok = flag_force_tier == "full"
+        || (flag_force_tier == "env"
+            && crate::commands::flag_force::is_env_safe_injection(cmd_str));
+    if arg_tier_ok
         && !crate::commands::flag_force::has_shell_metachars(cmd_str)
         && !config
             .flag_force_deny
@@ -336,13 +345,73 @@ pub fn run(cmd_str: &str) -> i32 {
     // header is suppressed. Redundancy/success-collapse always leave a non-empty
     // marker, so they never land here.
     let degenerate_empty = output_str.trim().is_empty() && !combined.trim().is_empty();
+
+    // ── Preservation guard (runtime) ────────────────────────────────────
+    // `economy::preservation` scores how many navigation anchors (file
+    // paths, `file:line` refs, error markers, test verdicts) survived
+    // compression. It used to run only in `benchmark`, which meant the
+    // guard we describe publicly did not exist in production. A
+    // high-reduction call that dropped most anchors is the regime where the
+    // model re-investigates — so instead of weakening the compression, we
+    // guarantee the original stays one `squeez_retrieve` away and say so in
+    // the header. Gated on reduction >= 90% to keep the anchor scan off the
+    // common path.
+    let anchors_pct = if config.preservation_guard && !redundancy_hit && input_tokens > 0 {
+        let reduction_now =
+            100.0 - (output_tokens as f64 * 100.0 / input_tokens as f64);
+        if reduction_now >= crate::economy::preservation::RISK_REDUCTION_THRESHOLD {
+            Some(crate::economy::preservation::info_preservation(&combined, &output_str))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let anchors_low = anchors_pct.is_some_and(|s| s < config.preservation_floor as f64);
+
+    // Retrieve-marker eligibility, computed BEFORE the net-win gate.
+    // The marker costs ~40 tokens and is emitted only because compression
+    // ran, so it is compression-attributable overhead and belongs inside
+    // the win/loss decision — unlike the session advisories further down,
+    // which print regardless of this call and are exempt by design. It used
+    // to be appended after the gate, so a call that saved 25 tokens could
+    // emit a 40-token marker and still print a header claiming a win.
+    // Eligibility is computed without the `net_win_gate` term to break the
+    // circularity (the gate needs the cost, the cost needs the gate); the
+    // marker is only actually stored and emitted below when the gate stays
+    // open, so folding the cost in can only push toward gating.
+    let stash_eligible = config.retrieve_enabled
+        && !redundancy_hit
+        && !combined.trim().is_empty()
+        && (success_collapsed
+            || anchors_low
+            || (orig_line_count >= config.retrieve_min_lines
+                && output_str.len() + 256 < combined.len()));
+    let marker_cost = if stash_eligible {
+        // Cost the real marker shape with a placeholder key, so the estimate
+        // cannot drift from the text actually emitted.
+        crate::tokens::estimate(&retrieve_marker_text(orig_line_count, "0000000000000000"))
+    } else {
+        0
+    };
+
+    // A forced call is exempt, and not as a favour: when an arg injection
+    // ran, `combined` is the INJECTED command's output, not what the user's
+    // command would have printed. Falling back to it is not a passthrough —
+    // it hands the model a machine format nobody asked for (raw `git status`
+    // porcelain codes, `-json` NDJSON). The reporter's rendering is the only
+    // faithful form we have, so it ships regardless of the marginal count.
+    // `input_tokens` is measured on that injected output too, which is why
+    // the injection's real win is invisible to this arithmetic.
     let net_win_gate = degenerate_empty
-        || (config.net_win_min_tokens > 0
-            && !redundancy_hit
-            && input_tokens.saturating_sub(output_tokens) < config.net_win_min_tokens);
-    // Session accounting records what is actually emitted — zero savings on
-    // a gated passthrough.
-    let emitted_tokens = if net_win_gate { input_tokens } else { output_tokens };
+        || (!redundancy_hit
+            && forced_label.is_none()
+            && is_net_loss(
+                input_tokens,
+                output_tokens,
+                marker_cost,
+                config.net_win_min_tokens,
+            ));
 
     // ── Reversible compression: stash the original so the model can recover it ──
     // When a large output was meaningfully compressed, save the verbatim
@@ -353,22 +422,23 @@ pub fn run(cmd_str: &str) -> i32 {
     // stashes regardless of line count -- a collapsed `ok git push (...)` on
     // a 6-line output still needs a recovery path, the usual size gates exist
     // to bound the (very different) compression-worth-it decision.
-    let retrieve_marker = if config.retrieve_enabled
-        && !redundancy_hit
-        && !net_win_gate
-        && !combined.trim().is_empty()
-        && (success_collapsed
-            || (orig_line_count >= config.retrieve_min_lines && output_str.len() + 256 < combined.len()))
-    {
+    let retrieve_marker = if stash_eligible && !net_win_gate {
         context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
-        context::retrieve::store(&combined).map(|id| {
-            format!(
-                "[squeez: full {}-line output stored — call squeez_retrieve with key=\"{}\" to expand, or squeez_stash_search to find it later]",
-                orig_line_count, id
-            )
-        })
+        context::retrieve::store(&combined)
+            .map(|id| retrieve_marker_text(orig_line_count, &id))
     } else {
         None
+    };
+
+    // Session accounting records what is actually emitted — zero savings on
+    // a gated passthrough, and the marker counts against the win when it
+    // ships.
+    let emitted_tokens = if net_win_gate {
+        input_tokens
+    } else if retrieve_marker.is_some() {
+        output_tokens.saturating_add(marker_cost)
+    } else {
+        output_tokens
     };
 
     // ── Sensitive path warning (E7 tier 2) ──────────────────────────────
@@ -474,10 +544,28 @@ pub fn run(cmd_str: &str) -> i32 {
             Some(label) => format!(" [forced: {}]", label),
             None => String::new(),
         };
+        // Preservation guard: only surfaced when the score fell below the
+        // floor, so a healthy call pays nothing for it.
+        let anchors_tag = match anchors_pct {
+            Some(score) if anchors_low => {
+                format!(" [anchors: {}%]", (score * 100.0).round() as u32)
+            }
+            _ => String::new(),
+        };
+        // Under a forced injection there is no honest percentage to print:
+        // `input_tokens` was measured on the injected command's output, not
+        // on what the user's command would have produced, so both a win and
+        // a loss against it are meaningless. Report the emitted size and the
+        // provenance tag, and claim nothing about reduction.
+        let size_part = if forced_label.is_some() {
+            format!("{} tokens (forced baseline)", emitted_tokens)
+        } else {
+            format!("{}→{} tokens (-{}%)", input_tokens, emitted_tokens, reduction)
+        };
         let header = format!(
-            "# squeez [{}] {}→{} tokens (-{}%) {}ms{}{}{}{}{}",
-            cmd_name, input_tokens, emitted_tokens, reduction, elapsed_ms,
-            intensity_tag, budget_tag, agent_tag, enterprise_tag, forced_tag
+            "# squeez [{}] {} {}ms{}{}{}{}{}{}",
+            cmd_name, size_part, elapsed_ms,
+            intensity_tag, budget_tag, agent_tag, enterprise_tag, forced_tag, anchors_tag
         );
         println!("{}", header);
         overhead_lines.push(header);
@@ -613,6 +701,39 @@ pub fn run(cmd_str: &str) -> i32 {
     }
 
     exit_code
+}
+
+/// Did this call save less than it cost?
+///
+/// `marker_cost` is the retrieve marker's size when the call is eligible to
+/// ship one, and 0 otherwise. Counting it here is the point: the marker only
+/// exists because compression ran, so a call whose saving is smaller than
+/// its own marker is a net loss no matter what the reduction percentage
+/// says. `min_tokens == 0` disables the gate entirely.
+///
+/// The case this really decides is `success_collapse`, which stashes
+/// regardless of size: a 6-line `git commit` collapsing to one line saves
+/// far less than the ~40-token marker announcing the stash.
+pub(crate) fn is_net_loss(
+    input_tokens: usize,
+    output_tokens: usize,
+    marker_cost: usize,
+    min_tokens: usize,
+) -> bool {
+    min_tokens > 0
+        && input_tokens
+            .saturating_sub(output_tokens)
+            .saturating_sub(marker_cost)
+            < min_tokens
+}
+
+/// The retrieve marker's exact text. Shared by the emitted marker and by the
+/// pre-gate cost estimate so the two can never drift apart.
+fn retrieve_marker_text(orig_line_count: usize, id: &str) -> String {
+    format!(
+        "[squeez: full {}-line output stored — call squeez_retrieve with key=\"{}\" to expand, or squeez_stash_search to find it later]",
+        orig_line_count, id
+    )
 }
 
 fn passthrough(cmd: &str) -> i32 {
@@ -862,4 +983,49 @@ fn record_bash_event(
 
     current.save(&dir);
     warning
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_net_loss, retrieve_marker_text};
+
+    /// What the marker actually costs, measured the same way the gate does.
+    fn marker_cost() -> usize {
+        crate::tokens::estimate(&retrieve_marker_text(60, "0000000000000000"))
+    }
+
+    #[test]
+    fn the_marker_is_expensive_enough_to_matter() {
+        // If this ever drops near zero the gate below stops meaning anything.
+        assert!(marker_cost() >= 20, "marker cost collapsed to {}", marker_cost());
+    }
+
+    #[test]
+    fn a_saving_smaller_than_the_marker_is_a_net_loss() {
+        let cost = marker_cost();
+        // Saves 30 tokens, then spends `cost` announcing it.
+        let (input, output) = (100, 70);
+        assert!(
+            is_net_loss(input, output, cost, 24),
+            "30 saved minus a {cost}-token marker must not count as a win"
+        );
+        // The identical saving with no marker to ship is a genuine win.
+        assert!(!is_net_loss(input, output, 0, 24));
+    }
+
+    #[test]
+    fn a_saving_that_clears_both_marker_and_threshold_passes() {
+        assert!(!is_net_loss(1000, 100, marker_cost(), 24));
+    }
+
+    #[test]
+    fn zero_threshold_disables_the_gate() {
+        assert!(!is_net_loss(100, 99, marker_cost(), 0));
+    }
+
+    #[test]
+    fn saturating_arithmetic_survives_an_inflating_call() {
+        // Compression that made the output BIGGER must gate, not underflow.
+        assert!(is_net_loss(10, 500, 0, 24));
+    }
 }

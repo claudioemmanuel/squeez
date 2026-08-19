@@ -1,0 +1,27 @@
+Requirement already satisfied: urllib3 in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: certifi in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: charset-normalizer in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: idna in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: requests in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: six in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: python-dateutil in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: pytz in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: numpy in ./venv/lib/python3.12/site-packages (2.0.7)
+Requirement already satisfied: pandas in ./venv/lib/python3.12/site-packages (2.0.7)
+Collecting httpx
+  Using cached httpx-1.0.0-py3-none-any.whl (98 kB)
+Downloading httpx-1.0.0-py3-none-any.whl (98 kB)
+Collecting anyio
+  Using cached anyio-1.0.0-py3-none-any.whl (98 kB)
+Downloading anyio-1.0.0-py3-none-any.whl (98 kB)
+Collecting sniffio
+  Using cached sniffio-1.0.0-py3-none-any.whl (98 kB)
+Downloading sniffio-1.0.0-py3-none-any.whl (98 kB)
+Collecting h11
+  Using cached h11-1.0.0-py3-none-any.whl (98 kB)
+Downloading h11-1.0.0-py3-none-any.whl (98 kB)
+Collecting httpcore
+  Using cached httpcore-1.0.0-py3-none-any.whl (98 kB)
+Downloading httpcore-1.0.0-py3-none-any.whl (98 kB)
+Installing collected packages: h11, sniffio, idna, httpcore, anyio, httpx
+Successfully installed anyio-4.3.0 h11-0.14.0 httpcore-1.0.5 httpx-0.27.0 sniffio-1.3.1

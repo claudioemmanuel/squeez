@@ -10,9 +10,12 @@ pub struct DataToolHandler;
 
 impl Handler for DataToolHandler {
     fn compress(&self, cmd: &str, lines: Vec<String>, config: &Config) -> Vec<String> {
-        let name = cmd.split_whitespace().next().unwrap_or("").to_lowercase();
-        let name = name.rsplit('/').next().unwrap_or(&name);
-        match name {
+        // Must go through `filter::extract_name`, not re-derive the name:
+        // deriving it here missed env prefixes and runner wrappers, so
+        // `TF_LOG=debug terraform plan` and `npx terraform plan` reached this
+        // handler and then fell through to the generic JSON/YAML branch.
+        let name = crate::filter::extract_name(cmd);
+        match name.as_str() {
             "terraform" => compress_terraform(lines, config),
             "helm" => compress_helm(lines, config),
             _ => compress_json_yaml(lines, config),

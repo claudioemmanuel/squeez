@@ -1,0 +1,25 @@
+src/services/handler_1.py:4: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_1.py:4: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_2.py:8: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_2.py:8: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_3.py:12: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_3.py:12: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_4.py:16: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_4.py:16: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_5.py:20: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_5.py:20: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_6.py:24: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_6.py:24: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_7.py:28: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_7.py:28: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_8.py:32: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_8.py:32: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_9.py:36: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_9.py:36: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_10.py:40: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_10.py:40: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_11.py:44: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_11.py:44: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+src/services/handler_12.py:48: error: Incompatible return value type (got "str", expected "int")  [return-value]
+src/services/handler_12.py:48: note: See https://mypy.rtfd.io/en/stable/_refs.html#code-return-value
+Found 12 errors in 12 files (checked 148 source files)

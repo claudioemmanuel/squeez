@@ -17,6 +17,12 @@
 //!   applied twice to the same base command after one failure (see
 //!   `looks_like_unrecognized_option` + `SessionContext::flag_force_failed`),
 //!   and never applied to a `flag_force_deny`-listed prefix.
+//!
+//! One exception runs at the `env` tier: `git status --porcelain=v1 -b`.
+//! `git status` is read-only and porcelain changes only how the result is
+//! printed, so it carries none of the risk that keeps the rest of the arg
+//! tier opt-in -- and it is the highest-frequency command in an agent
+//! session. `is_env_safe_injection` is what marks that exception.
 
 /// Env vars always safe to set: disable locale/pager/color quirks without
 /// changing what the command does.
@@ -44,6 +50,13 @@ pub struct ArgInjection {
     pub label: String,
 }
 
+/// True for the injections safe enough to run at the default `env` tier:
+/// the command is read-only and the flag changes only how the result is
+/// printed. Everything else stays behind `flag_force = full`.
+pub fn is_env_safe_injection(cmd: &str) -> bool {
+    matches!(arg_injection(cmd), Some(inj) if inj.label.starts_with("--porcelain"))
+}
+
 /// Appends a machine-readable-output flag when `cmd` matches a known
 /// test/lint runner `commands::reporters` has a structured parser for, and
 /// doesn't already request one. Returns `None` when no injection applies.
@@ -53,6 +66,23 @@ pub fn arg_injection(cmd: &str) -> Option<ArgInjection> {
     let name = first.rsplit('/').next().unwrap_or(first);
 
     match name {
+        "git" => {
+            let mut args = cmd.split_whitespace().skip(1);
+            if args.next() != Some("status") {
+                return None;
+            }
+            // Yield to the user: any output-shape flag they set themselves
+            // wins, and `-z` would break the line-based reporter.
+            let already_shaped = cmd.split_whitespace().any(|a| {
+                a.starts_with("--porcelain")
+                    || matches!(a, "--short" | "-s" | "--long" | "-z" | "--branch" | "-b")
+            });
+            if already_shaped {
+                None
+            } else {
+                Some(inject(cmd, "--porcelain=v1 -b"))
+            }
+        }
         "jest" | "vitest" => {
             if cmd.contains("--json") {
                 None
@@ -128,6 +158,39 @@ mod tests {
         assert_eq!(inj.cmd, "jest --coverage --json");
         assert_eq!(inj.label, "--json");
         assert!(arg_injection("jest --json").is_none());
+    }
+
+    #[test]
+    fn git_status_gets_porcelain_and_is_env_safe() {
+        let inj = arg_injection("git status").expect("should inject");
+        assert_eq!(inj.cmd, "git status --porcelain=v1 -b");
+        assert!(is_env_safe_injection("git status"));
+        // Only git status — not every git subcommand.
+        assert!(arg_injection("git log --oneline").is_none());
+        assert!(arg_injection("git diff").is_none());
+    }
+
+    #[test]
+    fn git_status_yields_to_a_user_supplied_output_flag() {
+        for already in [
+            "git status --porcelain",
+            "git status -s",
+            "git status --short",
+            "git status --long",
+            "git status -z",
+            "git status -b",
+        ] {
+            assert!(arg_injection(already).is_none(), "should not re-shape {already:?}");
+        }
+    }
+
+    #[test]
+    fn the_other_injections_stay_behind_the_full_tier() {
+        // Only the porcelain injection is promoted to the default env tier.
+        for cmd in ["jest", "go test ./...", "eslint .", "ruff check ."] {
+            assert!(arg_injection(cmd).is_some(), "{cmd:?} should still inject at full");
+            assert!(!is_env_safe_injection(cmd), "{cmd:?} must not run at the env tier");
+        }
     }
 
     #[test]

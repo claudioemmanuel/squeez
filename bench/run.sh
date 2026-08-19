@@ -35,8 +35,20 @@ for f in "$FIXTURES"/*.txt; do
     before=$(( ${#input} / 4 ))
     [ "$before" -eq 0 ] && continue
 
-    # Derive handler hint from fixture name: "git_log_200.txt" → hint="git"
+    # Derive handler hint from fixture name: "git_log_200.txt" → hint="git".
+    # That rule can't express a multi-word command, and the built-in
+    # filter-DSL rules match on a command PREFIX ("pip install", "systemctl
+    # status"), so those fixtures need the real command string or they fall
+    # through to GenericHandler and under-report the rule's effect.
     hint="${name%%_*}"
+    case "$name" in
+        pip_install.txt)         hint="pip install" ;;
+        bundle_install.txt)      hint="bundle install" ;;
+        systemctl_status.txt)    hint="systemctl status" ;;
+        rsync_transfer.txt)      hint="rsync -av src/ dst/" ;;
+        shellcheck_findings.txt) hint="shellcheck deploy.sh" ;;
+        mypy_errors.txt)         hint="mypy src/" ;;
+    esac
 
     # mdcompress_* fixtures use the markdown compressor instead of filter.
     # Prose is locale-specific: a *ptbr* fixture must be compressed with the

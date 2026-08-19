@@ -1,0 +1,18 @@
+Fetching gem metadata from https://rubygems.org/...
+Using rake 1.2.3
+Using concurrent-ruby 1.2.3
+Using i18n 1.2.3
+Using minitest 1.2.3
+Using tzinfo 1.2.3
+Using zeitwerk 1.2.3
+Using activesupport 1.2.3
+Using builder 1.2.3
+Using erubi 1.2.3
+Using racc 1.2.3
+Using nokogiri 1.2.3
+Using crass 1.2.3
+Using loofah 1.2.3
+Using rails-html-sanitizer 1.2.3
+Fetching nokogiri 1.16.0
+Installing nokogiri 1.16.0 with native extensions
+Bundle complete! 18 Gemfile dependencies, 84 gems now installed.
