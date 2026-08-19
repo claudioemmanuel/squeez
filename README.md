@@ -19,7 +19,7 @@ End-to-end token optimizer for seven AI CLI hosts — Claude Code, GitHub Copilo
 
 > Latest first. Full history in [CHANGELOG.md](CHANGELOG.md).
 
-### Shipped filter pack + native `git status` — *unreleased*
+### v1.46.0 — shipped filter pack + native `git status`
 
 The filter DSL could always cover the long tail `GenericHandler` can't compress — it just shipped empty, so every user started from a blank `filters.ini`. This release fills it, adds a native `git status` path, and makes two guards that were only ever measured in benchmarks run for real.
 

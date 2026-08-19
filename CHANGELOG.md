@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Future entries are maintained automatically by release-please from
 conventional commit messages on `main`.
 
-## [Unreleased]
+## [1.46.0] - 2026-08-19
 
 ### Added
 - feat(filter): ship a built-in filter-DSL rule pack — 41 rules for the long
