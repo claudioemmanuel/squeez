@@ -20,6 +20,9 @@ for _c in python3 python py; do
         break
     fi
 done
+# No interpreter, nothing this hook can parse — leave quietly rather than
+# failing the host's session-start under `set -e`.
+[ -z "$SQUEEZ_PY" ] && exit 0
 
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
 if [ ! -x "$SQUEEZ" ]; then

@@ -168,6 +168,10 @@ fn buddy_dir_from_statusline(cmd: &str) -> Option<PathBuf> {
         return None;
     }
     let rest = norm.strip_prefix("bash ")?;
+    if rest.starts_with('-') {
+        // `bash -c '…'` — a chained HUD wrapper, not a plain shim path.
+        return None;
+    }
     let rest = rest.strip_prefix('"').unwrap_or(rest);
     let (dir, _) = rest.split_once("/shims/statusline.sh")?;
     Some(PathBuf::from(dir))
@@ -186,24 +190,23 @@ fn hud_command_file(buddy_dir: &Path) -> PathBuf {
 
 /// Register the vendored pato-buddy hooks.
 fn register_buddy_hooks(hooks_root: &mut JsonValue, buddy_dir: &Path) {
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "SessionStart",
-        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "session-start.sh")),
-    );
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "PostToolUse",
-        settings_json::hook_entry(
-            Some("Edit|Write|Bash"),
-            &buddy_shim(buddy_dir, "post-tool-use.sh"),
-        ),
-    );
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "Stop",
-        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "stop.sh")),
-    );
+    // Upgraded in place for the same reason the core hooks are: a Windows
+    // install carries `\buddy\shims\…` commands bash cannot execute, and a
+    // presence-only check would recognise them and then leave them broken
+    // forever — with `doctor` reporting a FAIL that `squeez setup` never fixes.
+    for (event, shim, matcher) in [
+        ("SessionStart", "session-start.sh", None),
+        ("PostToolUse", "post-tool-use.sh", Some("Edit|Write|Bash")),
+        ("Stop", "stop.sh", None),
+    ] {
+        settings_json::upgrade_buddy_hook(
+            hooks_root,
+            event,
+            shim,
+            matcher,
+            &buddy_shim(buddy_dir, shim),
+        );
+    }
 }
 
 /// Point the statusLine at the buddy chain shim.
@@ -217,16 +220,19 @@ fn register_buddy_statusline(settings: &mut JsonValue, buddy_dir: &Path) {
         .filter(|s| s.is_obj())
         .map(|s| s.get_str("command").to_string())
         .unwrap_or_default();
+    let shim = buddy_shim(buddy_dir, "statusline.sh");
     if settings_json::is_buddy_cmd(&current) {
+        // Already ours — but possibly in the unrunnable Windows spelling, so
+        // refresh the command instead of returning and freezing it.
+        if current != shim {
+            settings.set("statusLine", JsonValue::command_entry(&shim));
+        }
         return;
     }
     if !current.is_empty() {
         let _ = std::fs::write(hud_command_file(buddy_dir), &current);
     }
-    settings.set(
-        "statusLine",
-        JsonValue::command_entry(&buddy_shim(buddy_dir, "statusline.sh")),
-    );
+    settings.set("statusLine", JsonValue::command_entry(&shim));
 }
 
 /// Restore the statusLine that buddy adopted, or drop it when none was stored.

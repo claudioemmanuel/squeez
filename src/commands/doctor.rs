@@ -95,19 +95,39 @@ fn hook_command_problem(cmd: &str, exists: impl Fn(&Path) -> bool) -> Option<Str
     }
     let path = match arg.strip_prefix('"') {
         Some(rest) => rest.strip_suffix('"')?,
-        None if arg.contains(' ') => return None,
+        // Backslashes are checked BEFORE spaces: `C:\Users\First Last\…` has
+        // both, and it is broken either way. Testing for a space first would
+        // have skipped it and reported a real #209 install as healthy.
         None if arg.contains('\\') => {
             return Some(format!(
                 "unquoted backslashes — bash reads it as `{}`",
                 arg.replace('\\', "")
             ))
         }
+        None if arg.contains(' ') => return None,
         None => arg,
     };
+    // A relative path resolves against doctor's working directory, not the
+    // host's, so it cannot be judged. Foreign hooks may legally use one, and
+    // `bash scripts/squeez-wrapper.sh` reaches here purely because it contains
+    // the string "squeez" — blaming squeez for it would be wrong.
+    if !path.starts_with('/') && !path.starts_with('\\') && !is_drive_qualified(path) {
+        return None;
+    }
     if !exists(Path::new(path)) {
         return Some(format!("script not found: {path}"));
     }
     None
+}
+
+/// `C:/…` — anchored on Windows even when this check runs on Unix, where
+/// `Path::is_absolute` would say otherwise.
+fn is_drive_qualified(path: &str) -> bool {
+    let mut chars = path.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some(c), Some(':')) if c.is_ascii_alphabetic()
+    )
 }
 
 /// Every squeez hook command registered in `settings`, from both the nested
@@ -415,6 +435,35 @@ mod tests {
     #[test]
     fn missing_script_is_reported() {
         let why = hook_command_problem("bash \"/h/.claude/squeez/hooks/x.sh\"", absent)
+            .expect("must be flagged");
+        assert!(why.contains("script not found"), "{why}");
+    }
+
+    /// `C:\Users\First Last\…` has BOTH a backslash and a space, and is broken
+    /// either way. Testing for the space first reported a real #209 install as
+    /// healthy — and `C:\Users\First Last` is an ordinary Windows profile.
+    #[test]
+    fn a_backslash_path_containing_a_space_is_still_reported() {
+        let cmd = "bash C:\\Users\\Jesse Klotz\\.claude\\squeez\\hooks\\pretooluse.sh";
+        let why = hook_command_problem(cmd, present).expect("must be flagged");
+        assert!(why.contains("unquoted backslashes"), "{why}");
+    }
+
+    /// A relative path resolves against doctor's own working directory, so it
+    /// cannot be judged. A user's own `bash scripts/squeez-wrapper.sh` reaches
+    /// this check purely because the string contains "squeez"; failing it would
+    /// blame squeez and prescribe a `squeez setup` that cannot fix it.
+    #[test]
+    fn a_relative_foreign_command_is_not_blamed_on_squeez() {
+        assert_eq!(
+            hook_command_problem("bash scripts/squeez-wrapper.sh", absent),
+            None
+        );
+    }
+
+    #[test]
+    fn drive_qualified_paths_are_still_checked_for_existence() {
+        let why = hook_command_problem("bash \"C:/Users/J/.claude/squeez/hooks/x.sh\"", absent)
             .expect("must be flagged");
         assert!(why.contains("script not found"), "{why}");
     }

@@ -179,30 +179,75 @@ pub fn upgrade_squeez_hook(
     matcher: Option<&str>,
     command: &str,
 ) {
+    upgrade_hook(hooks_root, event, matcher, command, |cmd| {
+        is_core_script(cmd, script)
+    })
+}
+
+/// Register a buddy shim for `event`, rewriting an existing registration of the
+/// same shim in place.
+///
+/// Buddy needs this for the same reason the core hooks do. Making buddy
+/// detection separator-agnostic is what lets a Windows-written `\buddy\` entry
+/// be RECOGNISED — but recognising it under a presence-only check is precisely
+/// what would freeze it: `squeez setup` would see the shim as already present
+/// and leave the unrunnable command in place forever.
+pub fn upgrade_buddy_hook(
+    hooks_root: &mut JsonValue,
+    event: &str,
+    shim: &str,
+    matcher: Option<&str>,
+    command: &str,
+) {
+    upgrade_hook(hooks_root, event, matcher, command, |cmd| {
+        is_buddy_cmd(cmd) && normalize_sep(cmd).contains(shim)
+    })
+}
+
+/// True if `cmd` is squeez's own registration of core hook `script`.
+///
+/// Anchored on `/hooks/`, and buddy is excluded: the buddy SessionStart shim is
+/// also called `session-start.sh`, so an unanchored substring match would
+/// convert the buddy registration into a second copy of the core hook.
+fn is_core_script(cmd: &str, script: &str) -> bool {
+    let norm = normalize_sep(cmd);
+    cmd.contains("squeez") && !is_buddy_cmd(cmd) && norm.contains(&format!("/hooks/{script}"))
+}
+
+/// Shared body of the two upgraders: rewrite the hook that `matches`, or append.
+fn upgrade_hook(
+    hooks_root: &mut JsonValue,
+    event: &str,
+    matcher: Option<&str>,
+    command: &str,
+    matches: impl Fn(&str) -> bool,
+) {
     let arr = hooks_root.ensure_arr(event);
-    let existing = arr.iter_mut().find(|m| {
-        entry_cmd_any(m, |cmd| {
-            cmd.contains("squeez") && normalize_sep(cmd).contains(script)
-        })
-    });
-    let Some(entry) = existing else {
+    let Some(entry) = arr.iter_mut().find(|m| entry_cmd_any(m, &matches)) else {
         arr.push(hook_entry(matcher, command));
         return;
     };
-    if let Some(m) = matcher {
-        if entry.get_str("matcher") != m {
-            entry.set("matcher", JsonValue::Str(m.to_string()));
+    let hooks = entry.get_mut("hooks").and_then(|h| h.as_arr_mut());
+    let Some(hooks) = hooks else { return };
+    // Rewrite the hook that actually matched — NOT hooks[0]. Another tool may
+    // have merged its own hook into this entry, and overwriting index 0 would
+    // delete it and leave squeez's hook registered twice.
+    let mut only_ours = true;
+    for hook in hooks.iter_mut() {
+        if !matches(hook.get_str("command")) {
+            only_ours = false;
+            continue;
+        }
+        if hook.get_str("command") != command {
+            hook.set("command", JsonValue::Str(command.to_string()));
         }
     }
-    let Some(hook) = entry
-        .get_mut("hooks")
-        .and_then(|h| h.as_arr_mut())
-        .and_then(|a| a.first_mut())
-    else {
-        return;
-    };
-    if hook.get_str("command") != command {
-        hook.set("command", JsonValue::Str(command.to_string()));
+    // The matcher is a property of the whole entry. Widening it when a foreign
+    // hook shares the entry would silently change what that hook fires on.
+    if let Some(m) = matcher {
+        if only_ours && entry.get_str("matcher") != m {
+            entry.set("matcher", JsonValue::Str(m.to_string()));
+        }
     }
 }
 
