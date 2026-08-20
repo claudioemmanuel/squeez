@@ -1,7 +1,8 @@
 """Hermes plugin adapter for squeez fallback compression.
 
 When installed via `squeez setup --host=hermes`, this plugin is dropped into
-~/.hermes/plugins/squeez-fallback/__init__.py. Hermes auto-discovers plugins
+$HERMES_HOME/plugins/squeez-fallback/__init__.py, defaulting to ~/.hermes when
+that variable is unset. Hermes auto-discovers plugins
 on session start — no config file patching needed.
 
 The plugin hooks pre_tool_call and wraps unrecognized terminal commands

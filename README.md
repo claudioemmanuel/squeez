@@ -344,6 +344,20 @@ Runs a command, compresses its output, and prints a savings header:
 # squeez [git log] 2692→289 tokens (-89%) 0.2ms [adaptive: Ultra]
 ```
 
+`wrap` re-executes the command through a shell: `sh -c` on Unix, and on
+Windows `bash -c`, then `sh -c`, when one of them resolves on `PATH` — every
+agent host writes its terminal commands for bash there, so re-running them
+under `cmd.exe` corrupts quoting, `$(…)`, backticks and `;`. `cmd /C` remains
+the fallback when no POSIX shell is present, and is also retried automatically
+if the preferred shell cannot be spawned. `%SystemRoot%\System32\bash.exe` is
+skipped: that is the WSL launcher, which would run the command inside a Linux
+distro rather than against the host filesystem. `CLAUDE_CODE_GIT_BASH_PATH` is
+honoured when set. Set `SQUEEZ_SHELL` to force a specific shell:
+
+```bash
+SQUEEZ_SHELL="C:/Program Files/Git/bin/bash.exe" squeez wrap 'ls -la'
+```
+
 ### `squeez filter`
 
 Reads from stdin. Use for manual pipelines:
@@ -627,6 +641,15 @@ tail_preserved=20
 ### OpenCode
 
 Plugin installed at `~/.config/opencode/plugins/squeez.js`. OpenCode auto-loads plugins on startup. All Bash commands are automatically compressed via `squeez wrap`.
+
+### Hermes
+
+Directory plugin installed at `$HERMES_HOME/plugins/squeez-fallback/` —
+`~/.hermes/plugins/` when `HERMES_HOME` is unset (a leading `~` is expanded).
+Set `HERMES_HOME` if Hermes lives elsewhere (e.g. `%LOCALAPPDATA%\hermes` on
+Windows), otherwise
+`squeez setup --host=hermes` will not detect it. Directory plugins are opt-in;
+enable it once with `hermes plugins enable squeez-fallback`.
 
 ### GitHub Copilot CLI
 
