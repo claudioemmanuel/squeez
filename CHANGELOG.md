@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Future entries are maintained automatically by release-please from
 conventional commit messages on `main`.
 
+## [Unreleased]
+
 ## [1.46.0] - 2026-08-19
 
 ### Added
@@ -17669,7 +17671,7 @@ pxpipe-inspired savings techniques ([#183](https://github.com/claudioemmanuel/sq
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.45.2...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.46.0...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0

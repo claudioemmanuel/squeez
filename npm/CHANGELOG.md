@@ -9,6 +9,50 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+## [1.46.0] - 2026-08-19
+
+### Added
+- feat(filter): ship a built-in filter-DSL rule pack — 41 rules for the long
+  tail with no dedicated handler (`pip`, `bundle`, `composer`, `mypy`,
+  `shellcheck`, `systemctl`, `rsync`, `golangci-lint`, …), each with an
+  inline self-test that CI gates on. Project and user rules shadow any
+  built-in; `builtin_filters = false` disables the pack.
+- feat(git): native `git status --porcelain=v1 -b` reporter — working-tree
+  summary with exact paths preserved, no raw porcelain codes, and
+  rebase/merge/bisect state read from `.git/` markers rather than a second
+  `git status` run. Promoted to the default `flag_force = env` tier because
+  the command is read-only and the flag only changes formatting.
+- feat(bench): six scenarios covering the built-in rule pack (46 total), and
+  per-fixture command hints in `bench/run.sh` so multi-word DSL rules are
+  measured instead of falling through to the generic handler.
+
+### Fixed
+- fix(wrap): count the retrieve marker inside the net-win gate. The ~40-token
+  marker was appended after the gate had already ruled the call a win, so a
+  call saving less than the marker cost could still print a winning header.
+- fix(economy): run the preservation guard at wrap time. `economy::preservation`
+  only ever executed in `benchmark`; it now scores anchor survival on
+  >=90%-reduction calls and stashes the original with an `[anchors: N%]` tag
+  when the score falls below `preservation_floor`.
+- fix(filter): route `data_tool` through `extract_name`, so
+  `TF_LOG=debug terraform plan` and `npx terraform plan` reach the terraform
+  branch instead of the generic JSON/YAML one.
+- fix(filter): peel command wrappers in a loop and cover `sudo`/`time`/
+  `command`/`nice`/`env`, so `sudo npx vitest` dispatches as `vitest`.
+- fix(filter): dispatch a pipeline on its final stage when that stage
+  transforms the stream (`cargo build | grep error` is grep output, not a
+  cargo build log).
+- fix(wrap): suppress the reduction percentage under a forced flag injection.
+  Input tokens are measured on the injected command's output, so neither a
+  win nor a loss against it is meaningful; the header now reports the emitted
+  size and the provenance tag instead of a fabricated ratio.
+
+### Changed
+- docs: restate the over-compression trade-off in `README.md` and
+  `economy::preservation` in terms of the measured effect — compression has a
+  floor on low-entropy content — instead of a third-party bug report.
+- docs: add a "What's new" section at the top of the README.
+
 ## [1.45.2] - 2026-08-12
 
 ### Added
@@ -17627,7 +17671,7 @@ pxpipe-inspired savings techniques ([#183](https://github.com/claudioemmanuel/sq
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.45.2...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.46.0...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0
