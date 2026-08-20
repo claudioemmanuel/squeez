@@ -174,3 +174,48 @@ fn session_efficiency_exposes_overhead_tokens() {
     // net_saved = tokens_saved(200) - overhead_tokens(777) = -577
     assert!(resp.contains("-577"), "missing signed net_saved: {}", resp);
 }
+
+/// Regression for #210: a stashed blob containing tab indentation used to be
+/// spliced into the JSON-RPC frame with the tab still literal, and the MCP
+/// client rejected the whole response ("Invalid control character at:").
+/// This is the reporter's exact repro, driven through the public dispatcher.
+#[test]
+fn retrieve_response_with_control_chars_is_valid_json() {
+    let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("squeez-mcp-ctrl-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let prev = std::env::var("SQUEEZ_DIR").ok();
+    std::env::set_var("SQUEEZ_DIR", &dir);
+
+    let original = "fn main() {\n\tlet s = \"tab\\tinside\";\r\n}\u{7}";
+    let key = squeez::context::retrieve::store(original).expect("blob must store");
+    let req = format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\",\
+\"params\":{{\"name\":\"squeez_retrieve\",\"arguments\":{{\"key\":\"{}\"}}}}}}",
+        key
+    );
+    let resp = handle_request(&req).expect("must respond");
+
+    match prev {
+        Some(v) => std::env::set_var("SQUEEZ_DIR", v),
+        None => std::env::remove_var("SQUEEZ_DIR"),
+    }
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert_jsonrpc_response(&resp, "42");
+    assert!(
+        !resp.contains('\t'),
+        "raw tab leaked into the JSON-RPC frame: {:?}",
+        resp
+    );
+    let parsed = squeez::json_util::parse_value(&resp)
+        .unwrap_or_else(|| panic!("response must be parseable JSON: {:?}", resp));
+    let text = parsed
+        .get("result")
+        .and_then(|r| r.get("content"))
+        .map(|c| c.as_arr())
+        .and_then(|a| a.first())
+        .map(|e| e.get_str("text"))
+        .expect("result.content[0].text");
+    assert_eq!(text, original, "blob must round-trip byte-for-byte");
+}
