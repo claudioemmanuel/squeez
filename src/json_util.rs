@@ -97,11 +97,16 @@ pub fn extract_str_array(json: &str, key: &str) -> Vec<String> {
 }
 
 /// Escape a string for inclusion in a JSON string value (not quoted).
+///
+/// Produces valid JSON string contents for arbitrary UTF-8, including every
+/// C0 control character. Escaping `\t` (and the rest of `U+0000..U+001F`) is
+/// not cosmetic: MCP responses are assembled by hand in
+/// [`crate::commands::mcp_server`], so an unescaped tab in a retrieved blob
+/// made the whole JSON-RPC frame unparseable for the client (issue #210).
 pub fn escape_str(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "")
+    let mut out = String::with_capacity(s.len());
+    escape_strict(s, &mut out);
+    out
 }
 
 /// Serialize a string slice as a JSON array of strings.
@@ -472,9 +477,9 @@ impl JsonValue {
     }
 }
 
-/// Strict JSON string escaping — unlike [`escape_str`], which is lossy (it
-/// drops `\r`) and tuned for one-line log records, this preserves every input
-/// byte so user settings files round-trip unchanged.
+/// Strict JSON string escaping, written into an existing buffer. Preserves
+/// every input byte so user settings files round-trip unchanged; [`escape_str`]
+/// is the allocating form.
 fn escape_strict(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch {
