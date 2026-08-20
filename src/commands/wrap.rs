@@ -12,22 +12,89 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
 
-/// Returns a `Command` pre-configured to run `cmd` through the platform shell.
-/// Unix/Git Bash: `sh -c <cmd>`
-/// Windows native: `cmd /C <cmd>`
+/// The shell `wrap` re-executes a captured command under: program plus its
+/// "run this string" flag.
+///
+/// Pure over `on_path` so the Windows branch stays testable from any host.
+///
+/// Windows used to hardcode `cmd /C`, but every agent host squeez supports
+/// hands its terminal commands to git-bash there — so a command the agent
+/// wrote for bash got re-executed by cmd.exe and quietly came out wrong:
+/// `python -c 'print(1)'` produced empty output, `$(…)` and backticks were not
+/// expanded, `$HOME` stayed literal, and `;` was passed to the first program as
+/// an argument instead of separating statements (issue #208). Wrong-but-
+/// plausible output is worse than a loud failure, because the agent then
+/// reasons on top of it. So: prefer bash when it is there, keep `cmd` as the
+/// fallback, and let `SQUEEZ_SHELL` override both.
+fn shell_choice(
+    shell_override: Option<String>,
+    windows: bool,
+    on_path: impl Fn(&str) -> bool,
+) -> (String, &'static str) {
+    if let Some(shell) = shell_override.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        let flag = if is_cmd_shell(&shell) { "/C" } else { "-c" };
+        return (shell, flag);
+    }
+    if !windows {
+        return ("sh".to_string(), "-c");
+    }
+    for candidate in ["bash", "sh"] {
+        if on_path(candidate) {
+            return (candidate.to_string(), "-c");
+        }
+    }
+    ("cmd".to_string(), "/C")
+}
+
+/// `cmd.exe` is the only shell squeez drives with `/C`; everything else
+/// (bash, sh, zsh, dash, busybox) takes `-c`.
+fn is_cmd_shell(shell: &str) -> bool {
+    let base = shell
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    base == "cmd" || base == "cmd.exe"
+}
+
+/// True if `program` is an executable on PATH. Only consulted on Windows, and
+/// only once per process — see [`resolved_shell`].
+#[cfg(windows)]
+fn program_on_path(program: &str) -> bool {
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&paths).any(|dir| {
+        dir.join(format!("{program}.exe")).is_file() || dir.join(program).is_file()
+    })
+}
+
+#[cfg(not(windows))]
+fn program_on_path(_program: &str) -> bool {
+    false
+}
+
+/// `wrap` runs on every Bash tool call, so the PATH scan is done once.
+fn resolved_shell() -> &'static (String, &'static str) {
+    static SHELL: std::sync::OnceLock<(String, &'static str)> = std::sync::OnceLock::new();
+    SHELL.get_or_init(|| {
+        shell_choice(
+            std::env::var("SQUEEZ_SHELL").ok(),
+            cfg!(windows),
+            program_on_path,
+        )
+    })
+}
+
+/// Returns a `Command` pre-configured to run `cmd` through the shell.
+/// Unix: `sh -c <cmd>`. Windows: `bash -c <cmd>` when bash is on PATH (the
+/// de-facto agent shell there), otherwise `cmd /C <cmd>`. `SQUEEZ_SHELL`
+/// overrides the choice on every platform.
 fn shell_command(cmd: &str) -> Command {
-    #[cfg(windows)]
-    {
-        let mut c = Command::new("cmd");
-        c.args(["/C", cmd]);
-        c
-    }
-    #[cfg(not(windows))]
-    {
-        let mut c = Command::new("sh");
-        c.args(["-c", cmd]);
-        c
-    }
+    let (program, flag) = resolved_shell();
+    let mut c = Command::new(program);
+    c.args([flag, cmd]);
+    c
 }
 
 /// Result of spawning and fully draining one command. `Fatal` carries the
@@ -987,7 +1054,87 @@ fn record_bash_event(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_net_loss, retrieve_marker_text};
+    use super::{is_cmd_shell, is_net_loss, retrieve_marker_text, shell_choice};
+
+    /// Nothing is on PATH — the bare-Windows case.
+    fn nothing(_: &str) -> bool {
+        false
+    }
+    /// git-bash is installed, which is the normal state on any machine running
+    /// one of these agent CLIs on Windows.
+    fn has_bash(p: &str) -> bool {
+        p == "bash"
+    }
+
+    #[test]
+    fn unix_always_uses_sh() {
+        assert_eq!(shell_choice(None, false, has_bash), ("sh".to_string(), "-c"));
+        assert_eq!(shell_choice(None, false, nothing), ("sh".to_string(), "-c"));
+    }
+
+    /// #208: cmd.exe re-executed commands the agent had written for bash, so
+    /// quotes, `$(…)`, backticks, `$HOME` and `;` all came out wrong — silently.
+    #[test]
+    fn windows_prefers_bash_when_it_is_on_path() {
+        assert_eq!(shell_choice(None, true, has_bash), ("bash".to_string(), "-c"));
+    }
+
+    #[test]
+    fn windows_falls_back_to_cmd_without_a_posix_shell() {
+        assert_eq!(shell_choice(None, true, nothing), ("cmd".to_string(), "/C"));
+    }
+
+    #[test]
+    fn windows_accepts_sh_when_bash_is_absent() {
+        assert_eq!(
+            shell_choice(None, true, |p| p == "sh"),
+            ("sh".to_string(), "-c")
+        );
+    }
+
+    #[test]
+    fn squeez_shell_overrides_every_platform() {
+        assert_eq!(
+            shell_choice(Some("zsh".into()), false, nothing),
+            ("zsh".to_string(), "-c")
+        );
+        assert_eq!(
+            shell_choice(Some("C:/Program Files/Git/bin/bash.exe".into()), true, nothing),
+            ("C:/Program Files/Git/bin/bash.exe".to_string(), "-c")
+        );
+    }
+
+    /// An override back to cmd must come with cmd's flag, not `-c`.
+    #[test]
+    fn squeez_shell_pointing_at_cmd_gets_the_cmd_flag() {
+        assert_eq!(
+            shell_choice(Some("cmd".into()), true, has_bash),
+            ("cmd".to_string(), "/C")
+        );
+        assert_eq!(
+            shell_choice(Some(r"C:\Windows\System32\cmd.exe".into()), true, has_bash).1,
+            "/C"
+        );
+    }
+
+    /// An unset variable reaches us as `Some("")` in some shells; treat blank
+    /// as "not set" rather than trying to exec an empty program name.
+    #[test]
+    fn a_blank_override_is_ignored() {
+        assert_eq!(shell_choice(Some("   ".into()), true, has_bash), ("bash".to_string(), "-c"));
+        assert_eq!(shell_choice(Some("".into()), false, nothing), ("sh".to_string(), "-c"));
+    }
+
+    #[test]
+    fn only_cmd_is_a_cmd_shell() {
+        assert!(is_cmd_shell("cmd"));
+        assert!(is_cmd_shell("CMD.EXE"));
+        assert!(is_cmd_shell(r"C:\Windows\System32\cmd.exe"));
+        assert!(!is_cmd_shell("bash"));
+        assert!(!is_cmd_shell("/bin/sh"));
+        assert!(!is_cmd_shell("C:/Program Files/Git/bin/bash.exe"));
+    }
+
 
     /// What the marker actually costs, measured the same way the gate does.
     fn marker_cost() -> usize {
