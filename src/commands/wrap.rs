@@ -3,6 +3,7 @@ use crate::context;
 use crate::filter;
 use crate::{json_util, session};
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 #[cfg(unix)]
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -29,7 +30,7 @@ static CHILD_PID: AtomicI32 = AtomicI32::new(-1);
 fn shell_choice(
     shell_override: Option<String>,
     windows: bool,
-    on_path: impl Fn(&str) -> bool,
+    resolve: impl Fn(&str) -> Option<String>,
 ) -> (String, &'static str) {
     if let Some(shell) = shell_override.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
         let flag = if is_cmd_shell(&shell) { "/C" } else { "-c" };
@@ -39,11 +40,61 @@ fn shell_choice(
         return ("sh".to_string(), "-c");
     }
     for candidate in ["bash", "sh"] {
-        if on_path(candidate) {
-            return (candidate.to_string(), "-c");
+        if let Some(program) = resolve(candidate) {
+            return (program, "-c");
         }
     }
     ("cmd".to_string(), "/C")
+}
+
+/// `%SystemRoot%\System32\bash.exe` is the WSL launcher, not a POSIX shell for
+/// this filesystem: it runs the command inside a Linux distro where the host's
+/// drive paths and toolchain do not exist, and it errors outright when WSL is
+/// enabled with no distro installed. It also normally precedes git-bash on
+/// PATH, so picking the first `bash.exe` found would reintroduce exactly the
+/// silent-wrong-output class this change exists to remove.
+#[cfg_attr(not(windows), allow(dead_code))] // reached via resolve_shell_program on Windows; tested everywhere
+fn is_wsl_launcher(path: &str) -> bool {
+    let p = path.replace('\\', "/").to_ascii_lowercase();
+    p.ends_with("/system32/bash.exe") || p.ends_with("/sysnative/bash.exe")
+}
+
+/// First directory in `dirs` holding an executable `program`, as an absolute
+/// path. Kept pure so the Windows rules are testable from any host.
+///
+/// Two rules earn their place. Relative entries are skipped: `split_paths`
+/// yields an empty `PathBuf` for the empty segment a trailing `;` leaves
+/// behind, and joining onto it produces a RELATIVE path — which would test the
+/// agent's current repo for a file named `bash.exe`. And the resolved absolute
+/// path is returned rather than a bool, so the shell that gets spawned is the
+/// same file the probe approved.
+/// True if `dir` is anchored rather than relative to the process's current
+/// directory: POSIX-rooted, UNC/`\`-rooted, or drive-qualified.
+///
+/// `Path::is_absolute` cannot be used here — it answers for the HOST platform,
+/// so `C:/Windows` is "relative" when the check runs on Unix, which makes the
+/// Windows rules impossible to test from CI.
+#[cfg_attr(not(windows), allow(dead_code))] // reached via resolve_shell_program on Windows; tested everywhere
+fn is_rooted(dir: &str) -> bool {
+    let mut chars = dir.chars();
+    match (chars.next(), chars.next()) {
+        (Some('/'), _) | (Some('\\'), _) => true,
+        (Some(c), Some(':')) => c.is_ascii_alphabetic(),
+        _ => false,
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))] // reached via resolve_shell_program on Windows; tested everywhere
+fn pick_program(
+    dirs: impl Iterator<Item = std::path::PathBuf>,
+    program: &str,
+    is_file: impl Fn(&Path) -> bool,
+) -> Option<String> {
+    dirs.filter(|d| is_rooted(&d.display().to_string()))
+        .map(|d| d.join(program))
+        .map(|p| p.display().to_string())
+        .filter(|p| !is_wsl_launcher(p))
+        .find(|p| is_file(Path::new(p)))
 }
 
 /// `cmd.exe` is the only shell squeez drives with `/C`; everything else
@@ -57,21 +108,32 @@ fn is_cmd_shell(shell: &str) -> bool {
     base == "cmd" || base == "cmd.exe"
 }
 
-/// True if `program` is an executable on PATH. Only consulted on Windows, and
-/// only once per process — see [`resolved_shell`].
+/// Resolve a shell to an absolute path. Only consulted on Windows, and only
+/// once per process — see [`resolved_shell`].
+///
+/// `CLAUDE_CODE_GIT_BASH_PATH` is honoured first: when the host has already
+/// been told where git-bash lives, that is a better answer than any PATH scan.
 #[cfg(windows)]
-fn program_on_path(program: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| {
-        dir.join(format!("{program}.exe")).is_file() || dir.join(program).is_file()
-    })
+fn resolve_shell_program(program: &str) -> Option<String> {
+    if program == "bash" {
+        if let Some(hinted) = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH") {
+            let p = std::path::PathBuf::from(hinted);
+            if p.is_file() {
+                return Some(p.display().to_string());
+            }
+        }
+    }
+    let paths = std::env::var_os("PATH")?;
+    // Only `.exe` — `Command::new` appends `.exe` to an extensionless program
+    // name on Windows, so an extensionless match would pass the probe and then
+    // fail to spawn.
+    let exe = format!("{program}.exe");
+    pick_program(std::env::split_paths(&paths), &exe, |p| p.is_file())
 }
 
 #[cfg(not(windows))]
-fn program_on_path(_program: &str) -> bool {
-    false
+fn resolve_shell_program(_program: &str) -> Option<String> {
+    None
 }
 
 /// `wrap` runs on every Bash tool call, so the PATH scan is done once.
@@ -81,20 +143,30 @@ fn resolved_shell() -> &'static (String, &'static str) {
         shell_choice(
             std::env::var("SQUEEZ_SHELL").ok(),
             cfg!(windows),
-            program_on_path,
+            resolve_shell_program,
         )
     })
 }
 
-/// Returns a `Command` pre-configured to run `cmd` through the shell.
-/// Unix: `sh -c <cmd>`. Windows: `bash -c <cmd>` when bash is on PATH (the
-/// de-facto agent shell there), otherwise `cmd /C <cmd>`. `SQUEEZ_SHELL`
-/// overrides the choice on every platform.
-fn shell_command(cmd: &str) -> Command {
+/// The shells `wrap` will try, in order.
+///
+/// Unix: `sh -c <cmd>`. Windows: `bash -c <cmd>` when a non-WSL bash resolves
+/// (the de-facto agent shell there), then `sh`, otherwise `cmd /C <cmd>`.
+/// `SQUEEZ_SHELL` overrides the choice on every platform.
+///
+/// The second entry exists only on Windows, and only when the first choice is
+/// not already `cmd`. Before this change Windows always used `cmd`, which is
+/// effectively guaranteed to be present; now that a POSIX shell is preferred,
+/// a shell that resolves but cannot be spawned would turn every wrapped tool
+/// call into an empty exit-1. Falling back keeps the call working — a spawn
+/// failure means nothing ran, so retrying cannot execute anything twice.
+fn shell_candidates() -> Vec<(String, &'static str)> {
     let (program, flag) = resolved_shell();
-    let mut c = Command::new(program);
-    c.args([flag, cmd]);
-    c
+    let mut out = vec![(program.clone(), *flag)];
+    if cfg!(windows) && !is_cmd_shell(program) {
+        out.push(("cmd".to_string(), "/C"));
+    }
+    out
 }
 
 /// Result of spawning and fully draining one command. `Fatal` carries the
@@ -113,22 +185,34 @@ enum SpawnOutcome {
 /// flag-forcing (E3) can call it a second time for the one-shot un-forced
 /// fallback without duplicating the spawn/drain/timeout logic.
 fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64) -> SpawnOutcome {
-    let mut cmd = shell_command(cmd_str);
-    for (k, v) in env_vars {
-        cmd.env(k, v);
-    }
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("squeez: {}", e);
-            return SpawnOutcome::Fatal(1);
+    let mut spawned = None;
+    let mut spawn_err = None;
+    for (program, flag) in shell_candidates() {
+        let mut cmd = Command::new(&program);
+        cmd.args([flag, cmd_str]);
+        for (k, v) in env_vars {
+            cmd.env(k, v);
         }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        match cmd.spawn() {
+            Ok(c) => {
+                spawned = Some(c);
+                break;
+            }
+            Err(e) => spawn_err = Some(format!("{program}: {e}")),
+        }
+    }
+    let Some(mut child) = spawned else {
+        eprintln!(
+            "squeez: {}",
+            spawn_err.unwrap_or_else(|| "no usable shell".to_string())
+        );
+        return SpawnOutcome::Fatal(1);
     };
 
     // Store PID for signal forwarding (Unix only)
@@ -804,13 +888,18 @@ fn retrieve_marker_text(orig_line_count: usize, id: &str) -> String {
 }
 
 fn passthrough(cmd: &str) -> i32 {
-    let status = shell_command(cmd)
-        .status()
-        .unwrap_or_else(|e| {
-            eprintln!("squeez: {}", e);
-            std::process::exit(1);
-        });
-    status.code().unwrap_or(1)
+    let mut last_err = None;
+    for (program, flag) in shell_candidates() {
+        match Command::new(&program).args([flag, cmd]).status() {
+            Ok(status) => return status.code().unwrap_or(1),
+            Err(e) => last_err = Some(format!("{program}: {e}")),
+        }
+    }
+    eprintln!(
+        "squeez: {}",
+        last_err.unwrap_or_else(|| "no usable shell".to_string())
+    );
+    std::process::exit(1);
 }
 
 fn is_streaming(cmd: &str) -> bool {
@@ -1054,16 +1143,20 @@ fn record_bash_event(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_cmd_shell, is_net_loss, retrieve_marker_text, shell_choice};
+    use super::{
+        is_cmd_shell, is_net_loss, is_rooted, is_wsl_launcher, pick_program,
+        retrieve_marker_text, shell_choice,
+    };
+    use std::path::{Path, PathBuf};
 
     /// Nothing is on PATH — the bare-Windows case.
-    fn nothing(_: &str) -> bool {
-        false
+    fn nothing(_: &str) -> Option<String> {
+        None
     }
     /// git-bash is installed, which is the normal state on any machine running
     /// one of these agent CLIs on Windows.
-    fn has_bash(p: &str) -> bool {
-        p == "bash"
+    fn has_bash(p: &str) -> Option<String> {
+        (p == "bash").then(|| "C:/Program Files/Git/bin/bash.exe".to_string())
     }
 
     #[test]
@@ -1076,7 +1169,19 @@ mod tests {
     /// quotes, `$(…)`, backticks, `$HOME` and `;` all came out wrong — silently.
     #[test]
     fn windows_prefers_bash_when_it_is_on_path() {
-        assert_eq!(shell_choice(None, true, has_bash), ("bash".to_string(), "-c"));
+        assert_eq!(
+            shell_choice(None, true, has_bash),
+            ("C:/Program Files/Git/bin/bash.exe".to_string(), "-c")
+        );
+    }
+
+    /// The resolved ABSOLUTE path must come back, not the bare name: the shell
+    /// that gets spawned has to be the same file the probe approved.
+    #[test]
+    fn windows_returns_the_resolved_path_not_the_bare_name() {
+        let (program, _) = shell_choice(None, true, has_bash);
+        assert!(program.ends_with("bash.exe"), "{program}");
+        assert!(program.contains('/'), "must be a path, not a bare name: {program}");
     }
 
     #[test]
@@ -1087,9 +1192,62 @@ mod tests {
     #[test]
     fn windows_accepts_sh_when_bash_is_absent() {
         assert_eq!(
-            shell_choice(None, true, |p| p == "sh"),
-            ("sh".to_string(), "-c")
+            shell_choice(None, true, |p| (p == "sh").then(|| "C:/msys64/usr/bin/sh.exe".into())),
+            ("C:/msys64/usr/bin/sh.exe".to_string(), "-c")
         );
+    }
+
+    // ── PATH resolution ──────────────────────────────────────────────────
+
+    /// `%SystemRoot%\System32\bash.exe` is the WSL launcher, which runs the
+    /// command inside a Linux distro where the host's drive paths and toolchain
+    /// do not exist — silently wrong output, i.e. the exact class #208 is about.
+    /// It also normally precedes git-bash on PATH.
+    #[test]
+    fn wsl_launcher_is_recognised() {
+        assert!(is_wsl_launcher(r"C:\Windows\System32\bash.exe"));
+        assert!(is_wsl_launcher("C:/Windows/System32/bash.exe"));
+        assert!(is_wsl_launcher(r"C:\WINDOWS\SYSNATIVE\BASH.EXE"));
+        assert!(!is_wsl_launcher(r"C:\Program Files\Git\bin\bash.exe"));
+        assert!(!is_wsl_launcher("C:/msys64/usr/bin/bash.exe"));
+    }
+
+    #[test]
+    fn path_scan_skips_the_wsl_launcher_and_takes_git_bash() {
+        let dirs = [
+            PathBuf::from("C:/Windows/System32"),
+            PathBuf::from("C:/Program Files/Git/bin"),
+        ];
+        let found = pick_program(dirs.into_iter(), "bash.exe", |_| true);
+        assert_eq!(found, Some("C:/Program Files/Git/bin/bash.exe".to_string()));
+    }
+
+    /// A trailing `;` in PATH yields an EMPTY entry, and joining onto it gives
+    /// a RELATIVE path — which would probe the agent's current repo for a file
+    /// named `bash.exe` and then run it as the shell for every command.
+    #[test]
+    fn path_scan_ignores_relative_entries() {
+        let dirs = [PathBuf::from(""), PathBuf::from("relative/bin")];
+        assert_eq!(pick_program(dirs.into_iter(), "bash.exe", |_| true), None);
+    }
+
+    /// Anchoring must be judged by the Windows rules even when the check runs
+    /// on Unix, which is why `Path::is_absolute` cannot be used.
+    #[test]
+    fn rooted_covers_both_platforms_regardless_of_host() {
+        assert!(is_rooted("/usr/bin"));
+        assert!(is_rooted(r"C:\Windows\System32"));
+        assert!(is_rooted("C:/Program Files/Git/bin"));
+        assert!(is_rooted(r"\\server\share\bin"));
+        assert!(!is_rooted(""));
+        assert!(!is_rooted("relative/bin"));
+        assert!(!is_rooted("bin"));
+    }
+
+    #[test]
+    fn path_scan_returns_none_when_nothing_matches() {
+        let dirs = [PathBuf::from("C:/nowhere")];
+        assert_eq!(pick_program(dirs.into_iter(), "bash.exe", |_: &Path| false), None);
     }
 
     #[test]
@@ -1121,7 +1279,10 @@ mod tests {
     /// as "not set" rather than trying to exec an empty program name.
     #[test]
     fn a_blank_override_is_ignored() {
-        assert_eq!(shell_choice(Some("   ".into()), true, has_bash), ("bash".to_string(), "-c"));
+        assert_eq!(
+            shell_choice(Some("   ".into()), true, has_bash).0,
+            "C:/Program Files/Git/bin/bash.exe"
+        );
         assert_eq!(shell_choice(Some("".into()), false, nothing), ("sh".to_string(), "-c"));
     }
 

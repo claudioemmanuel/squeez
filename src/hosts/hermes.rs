@@ -43,10 +43,22 @@ const HERMES_MANIFEST: &str = include_str!("../../plugins/hermes/plugin.yaml");
 
 /// Split out from [`HermesAdapter::hermes_dir`] so the override is testable
 /// without mutating the process environment.
+///
+/// A leading `~` is expanded. Environment variables are not shell-expanded by
+/// the OS, so a `HERMES_HOME` set from a config file or a quoted Windows
+/// variable arrives as the literal string `~/hermes` — using it verbatim would
+/// create a directory actually named `~` under whatever the agent's current
+/// directory happens to be, usually the user's repo.
 fn hermes_dir_from(hermes_home: Option<String>, home: &str) -> PathBuf {
-    match hermes_home.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(format!("{}/.hermes", home)),
+    let Some(dir) = hermes_home.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+        return PathBuf::from(format!("{}/.hermes", home));
+    };
+    match dir.strip_prefix('~') {
+        Some("") => PathBuf::from(home),
+        Some(rest) if rest.starts_with('/') || rest.starts_with('\\') => {
+            PathBuf::from(format!("{}{}", home, rest))
+        }
+        _ => PathBuf::from(dir),
     }
 }
 
@@ -61,6 +73,13 @@ impl HermesAdapter {
     /// silently skip a perfectly good Hermes (issue #208).
     fn hermes_dir() -> PathBuf {
         hermes_dir_from(std::env::var("HERMES_HOME").ok(), &home_dir())
+    }
+
+    /// Exposed for tests: proves the variable this adapter actually reads is
+    /// named `HERMES_HOME`, which `hermes_dir_from` alone cannot pin.
+    #[cfg(test)]
+    fn hermes_dir_for_test() -> PathBuf {
+        Self::hermes_dir()
     }
 
     fn plugins_dir() -> PathBuf {
@@ -229,6 +248,34 @@ mod tests {
     fn default_location_is_used_when_hermes_home_is_unset_or_blank() {
         assert_eq!(hermes_dir_from(None, "/home/j"), PathBuf::from("/home/j/.hermes"));
         assert_eq!(hermes_dir_from(Some("  ".into()), "/home/j"), PathBuf::from("/home/j/.hermes"));
+    }
+
+    /// The OS does not shell-expand environment variables, so a HERMES_HOME set
+    /// from a config file or a quoted Windows variable arrives as the literal
+    /// string `~/hermes`. Used verbatim it would create a directory actually
+    /// NAMED `~` under the agent's current directory — usually the user's repo.
+    #[test]
+    fn a_literal_tilde_is_expanded_not_taken_as_a_directory_name() {
+        assert_eq!(hermes_dir_from(Some("~/hermes".into()), "/home/j"), PathBuf::from("/home/j/hermes"));
+        assert_eq!(hermes_dir_from(Some("~".into()), "/home/j"), PathBuf::from("/home/j"));
+        // `~foo` is a username reference, not this user's home — left alone.
+        assert_eq!(hermes_dir_from(Some("~other/h".into()), "/home/j"), PathBuf::from("~other/h"));
+    }
+
+    /// `hermes_dir_from` cannot pin the NAME of the variable the adapter reads;
+    /// renaming it would leave every other test green while re-breaking #208.
+    #[test]
+    fn the_adapter_reads_the_variable_called_hermes_home() {
+        static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _g = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("HERMES_HOME").ok();
+        std::env::set_var("HERMES_HOME", "/tmp/squeez-hermes-probe");
+        let dir = HermesAdapter::hermes_dir_for_test();
+        match prev {
+            Some(v) => std::env::set_var("HERMES_HOME", v),
+            None => std::env::remove_var("HERMES_HOME"),
+        }
+        assert_eq!(dir, PathBuf::from("/tmp/squeez-hermes-probe"));
     }
 
     #[test]

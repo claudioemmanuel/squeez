@@ -7,6 +7,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
+      # CI runs on macOS, so the #[cfg(windows)] blocks are otherwise only
+      # compiled at release-tag time. Two of the bugs this project has shipped
+      # (#209, #208) lived in exactly that code. `check` does not link, so a
+      # cross-target check is enough to keep it compiling.
+      - name: Type-check the Windows-only code paths
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo check --target x86_64-pc-windows-msvc --all-targets
       - name: Run buddy (vendored pato-buddy) tests
         run: node --test assets/buddy/test/*.test.js
       - name: Build release binary
