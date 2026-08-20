@@ -458,6 +458,15 @@ impl JsonValue {
         self.get_mut(key).expect("just ensured an object")
     }
 
+    /// Key/value pairs of an object, in insertion order. Empty for any other
+    /// kind — lets a caller walk a settings map without knowing its keys.
+    pub fn obj_entries(&self) -> &[(String, JsonValue)] {
+        match self {
+            JsonValue::Obj(fields) => fields,
+            _ => &[],
+        }
+    }
+
     pub fn obj_is_empty(&self) -> bool {
         matches!(self, JsonValue::Obj(f) if f.is_empty())
     }

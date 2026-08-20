@@ -7,6 +7,23 @@
 # message so the parent agent can dedup against what the sub-agent already saw.
 set -euo pipefail
 
+# Resolve a working Python interpreter.
+#
+# Hardcoding python3 is not safe on Windows: python.org installs ship
+# python.exe with no python3.exe, so the name resolves to the Microsoft Store
+# App Execution Alias under %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is
+# on PATH and passes `command -v`, but exits non-zero when run — which left
+# every squeez hook silently dead (issue #209). Probe by EXECUTING each
+# candidate, not by locating it.
+SQUEEZ_PY=""
+for _c in python3 python py; do
+    if command -v "$_c" >/dev/null 2>&1 && "$_c" -c "" >/dev/null 2>&1; then
+        SQUEEZ_PY="$_c"
+        break
+    fi
+done
+[ -z "$SQUEEZ_PY" ] && exit 0
+
 SQUEEZ="${SQUEEZ_BIN:-$HOME/.claude/squeez/bin/squeez}"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
@@ -18,7 +35,7 @@ input=$(cat)
 
 # Wrap last_assistant_message into a tool_result-compatible JSON so that
 # track-result's existing extract_content() logic picks it up correctly.
-wrapped=$(printf '%s' "$input" | python3 -c "
+wrapped=$(printf '%s' "$input" | "$SQUEEZ_PY" -c "
 import json, sys
 try:
     d = json.load(sys.stdin)

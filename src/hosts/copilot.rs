@@ -20,7 +20,10 @@ const SQUEEZ_EVENTS: [&str; 3] = ["PreToolUse", "SessionStart", "PostToolUse"];
 /// Copilot keeps its event map at the top level and takes plain `bash <path>`
 /// commands with no timeout.
 fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
-    let cmd = |script: &str| format!("bash {}", hooks_dir.join(script).display());
+    // Quoted + forward-slash, same as the Claude Code adapter: Copilot CLI runs
+    // these through bash on Windows too, where raw `\` separators are eaten as
+    // escapes (#209).
+    let cmd = |script: &str| format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script)));
     vec![
         settings_json::HookSpec {
             event: "PreToolUse",
