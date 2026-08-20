@@ -5,12 +5,15 @@ When installed via `squeez setup --host=hermes`, this plugin is dropped into
 on session start — no config file patching needed.
 
 The plugin hooks pre_tool_call and wraps unrecognized terminal commands
-with `squeez wrap`. Commands already rewritten by rtk (prefix "rtk ") are
-skipped, so rtk's specialized handlers always take priority.
+with `squeez wrap`. Commands another plugin has already rewritten are
+skipped so the first wrapper keeps priority -- set
+SQUEEZ_HERMES_NEVER_WRAP to a comma-separated list of prefixes to declare
+those, e.g. SQUEEZ_HERMES_NEVER_WRAP="foo ,bar ".
 
 Requires: squeez binary in PATH (cargo install squeez or npm install -g squeez)
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -20,7 +23,6 @@ _squeez_missing_warned = False
 
 # Commands that should never be wrapped (would break functionality)
 _NEVER_WRAP = (
-    "rtk ",          # already rtk-handled — rtk's specialized filters are better
     "squeez ",       # already squeez-handled (prevents double-wrap)
     "--no-squeez ",  # explicit bypass prefix
     "cd ",           # wrapping breaks cwd persistence in Hermes terminal
@@ -35,6 +37,18 @@ _NEVER_WRAP = (
 # Shell metacharacters that make wrapping unsafe (squeez wrap handles
 # single commands; compound/piped commands should pass through raw)
 _UNSAFE_CHARS = ("&&", "||", "|", ";", ">", "<", "$(", "`", "\n")
+
+
+def _never_wrap_prefixes():
+    """_NEVER_WRAP plus any prefixes declared in SQUEEZ_HERMES_NEVER_WRAP.
+
+    Another Hermes plugin may rewrite a command before this hook runs; wrapping
+    the rewritten form would double-wrap it. Which prefixes those are depends on
+    what else the user has installed, so they are declared rather than guessed.
+    """
+    extra = os.environ.get("SQUEEZ_HERMES_NEVER_WRAP", "")
+    declared = tuple(p for p in (part.strip() for part in extra.split(",")) if p)
+    return _NEVER_WRAP + declared
 
 
 def register(ctx):
@@ -59,12 +73,12 @@ def _check_squeez():
 
 
 def _pre_tool_call(tool_name=None, args=None, **_kwargs):
-    """Wrap terminal commands with squeez when rtk hasn't already handled them.
+    """Wrap a terminal command with squeez unless something already handled it.
 
-    Flow:
-      1. rtk-rewrite plugin fires first (alphabetical: rtk < squeez)
-      2. If rtk knows the command → "rtk <cmd>" → we skip (starts with "rtk ")
-      3. If rtk doesn't know it → original command → we wrap with "squeez wrap"
+    Plugins fire in alphabetical order, so a rewriting plugin that sorts before
+    "squeez" has already replaced the command by the time this runs. Such a
+    command arrives with that plugin's own prefix and is skipped; anything else
+    is wrapped with `squeez wrap`.
     """
     try:
         if tool_name != "terminal" or not isinstance(args, dict):
@@ -77,7 +91,7 @@ def _pre_tool_call(tool_name=None, args=None, **_kwargs):
         command = command.strip()
 
         # Skip if already wrapped or shouldn't be wrapped
-        if command.startswith(_NEVER_WRAP):
+        if command.startswith(_never_wrap_prefixes()):
             return
 
         # Skip compound/piped commands (squeez wrap is for single commands)
