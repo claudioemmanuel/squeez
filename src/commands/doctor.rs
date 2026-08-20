@@ -7,6 +7,7 @@
 
 use crate::config::Config;
 use crate::hosts::claude_code::hooks_manifest;
+use crate::json_util::JsonValue;
 use crate::session;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -70,6 +71,141 @@ fn check_hooks_registered(settings_path: &Path) -> CheckLine {
             missing.join(", ")
         ))
     }
+}
+
+/// Why a registered hook `command` cannot actually run, or `None` when it is
+/// sound. Pure over `exists` so the Windows failure modes stay testable from
+/// any host.
+///
+/// `check_hooks_registered` only asks whether the script *name* appears
+/// somewhere in settings.json. That is why doctor reported all-green on an
+/// install where every hook died with `No such file or directory` (#209): the
+/// registered command was `bash C:\Users\Jesse\.claude\squeez\hooks\…`, bash
+/// ate each backslash as an escape, and the file it then looked for did not
+/// exist. Note that a plain existence check is not enough to catch this — on
+/// Windows the *unmangled* path does resolve; it is the quoting that is wrong.
+fn hook_command_problem(cmd: &str, exists: impl Fn(&Path) -> bool) -> Option<String> {
+    // Only `bash <script>` is statically checkable. Anything else — a bare
+    // path (codex/gemini invoke their hooks directly) or a compound
+    // `bash -c '…'` chain (the adopted-HUD statusLine) — is left alone rather
+    // than guessed at, since a false FAIL is worse than a missed one.
+    let arg = cmd.strip_prefix("bash ")?.trim();
+    if arg.starts_with('-') {
+        return None;
+    }
+    let path = match arg.strip_prefix('"') {
+        Some(rest) => rest.strip_suffix('"')?,
+        // Backslashes are checked BEFORE spaces: `C:\Users\First Last\…` has
+        // both, and it is broken either way. Testing for a space first would
+        // have skipped it and reported a real #209 install as healthy.
+        None if arg.contains('\\') => {
+            return Some(format!(
+                "unquoted backslashes — bash reads it as `{}`",
+                arg.replace('\\', "")
+            ))
+        }
+        None if arg.contains(' ') => return None,
+        None => arg,
+    };
+    // A relative path resolves against doctor's working directory, not the
+    // host's, so it cannot be judged. Foreign hooks may legally use one, and
+    // `bash scripts/squeez-wrapper.sh` reaches here purely because it contains
+    // the string "squeez" — blaming squeez for it would be wrong.
+    if !path.starts_with('/') && !path.starts_with('\\') && !is_drive_qualified(path) {
+        return None;
+    }
+    if !exists(Path::new(path)) {
+        return Some(format!("script not found: {path}"));
+    }
+    None
+}
+
+/// `C:/…` — anchored on Windows even when this check runs on Unix, where
+/// `Path::is_absolute` would say otherwise.
+fn is_drive_qualified(path: &str) -> bool {
+    let mut chars = path.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some(c), Some(':')) if c.is_ascii_alphabetic()
+    )
+}
+
+/// Every squeez hook command registered in `settings`, from both the nested
+/// `hooks` map and the legacy top-level shape.
+fn registered_squeez_commands(settings: &JsonValue) -> Vec<String> {
+    let mut out = Vec::new();
+    let push = |cmd: &str, out: &mut Vec<String>| {
+        if cmd.contains("squeez") && !out.iter().any(|c| c == cmd) {
+            out.push(cmd.to_string());
+        }
+    };
+    let mut roots = vec![settings];
+    if let Some(nested) = settings.get("hooks").filter(|h| h.is_obj()) {
+        roots.push(nested);
+    }
+    for root in roots {
+        for (_event, entries) in root.obj_entries() {
+            for entry in entries.as_arr() {
+                for hook in entry.get("hooks").map(|h| h.as_arr()).unwrap_or(&[]) {
+                    push(hook.get_str("command"), &mut out);
+                }
+            }
+        }
+    }
+    // statusLine is an object, not an event array, and squeez registers one too.
+    if let Some(status) = settings.get("statusLine").filter(|s| s.is_obj()) {
+        push(status.get_str("command"), &mut out);
+    }
+    out
+}
+
+/// Registered hooks must be commands a shell can actually execute — not merely
+/// strings that mention the right filename.
+fn check_hooks_runnable(settings_path: &Path) -> CheckLine {
+    let Some(settings) = crate::hosts::settings_json::load_lenient(settings_path) else {
+        return warn("runnable: settings.json unreadable — skipped");
+    };
+    let commands = registered_squeez_commands(&settings);
+    if commands.is_empty() {
+        return warn("runnable: no squeez hook commands to check");
+    }
+    let broken: Vec<String> = commands
+        .iter()
+        .filter_map(|c| hook_command_problem(c, |p| p.exists()).map(|why| format!("{c} — {why}")))
+        .collect();
+    if broken.is_empty() {
+        return ok(format!("runnable: {} hook commands resolve", commands.len()));
+    }
+    fail(format!(
+        "runnable: {} of {} hook commands cannot execute — run `squeez setup`\n         {}",
+        broken.len(),
+        commands.len(),
+        broken.join("\n         ")
+    ))
+}
+
+/// The hooks drive their JSON handling through Python, so a missing or broken
+/// interpreter makes them no-ops. Probe by EXECUTING each candidate: on Windows
+/// `python3` is usually the Microsoft Store alias stub, which is on PATH and
+/// passes `command -v` but exits non-zero when run (#209).
+fn check_interpreter() -> CheckLine {
+    for candidate in ["python3", "python", "py"] {
+        let runs = std::process::Command::new(candidate)
+            .args(["-c", ""])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if runs {
+            return ok(format!("interpreter: hooks will use `{candidate}`"));
+        }
+    }
+    fail(
+        "interpreter: no working python on PATH (tried python3, python, py) — \
+         hooks parse their payloads with it, so compression is inert. \
+         Install Python and re-run `squeez doctor`",
+    )
 }
 
 /// Config check: a disabled pipeline is the exact silent-death mode doctor
@@ -197,6 +333,8 @@ pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<S
     let checks = [
         check_hooks_drift(squeez_dir),
         check_hooks_registered(settings_path),
+        check_hooks_runnable(settings_path),
+        check_interpreter(),
         check_config(cfg),
         check_freshness(squeez_dir, cfg),
         check_blob_store(squeez_dir),
@@ -259,4 +397,111 @@ pub fn run() -> i32 {
         println!("{}", l);
     }
     i32::from(has_fail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every path in these cases is asked about through this predicate, so the
+    /// Windows shapes can be exercised from a macOS CI runner.
+    fn present(_p: &Path) -> bool {
+        true
+    }
+    fn absent(_p: &Path) -> bool {
+        false
+    }
+
+    /// #209: doctor was green on an install where every hook died with
+    /// `No such file or directory`. On Windows the unmangled path DOES exist,
+    /// so only the quoting tells the two apart.
+    #[test]
+    fn unquoted_backslash_command_is_reported_even_when_the_file_exists() {
+        let cmd = "bash C:\\Users\\JesseKlotz\\.claude\\squeez\\hooks\\pretooluse.sh";
+        let why = hook_command_problem(cmd, present).expect("must be flagged");
+        assert!(why.contains("unquoted backslashes"), "{why}");
+        assert!(
+            why.contains("C:UsersJesseKlotz.claudesqueezhookspretooluse.sh"),
+            "must show what bash actually sees: {why}"
+        );
+    }
+
+    #[test]
+    fn quoted_forward_slash_command_is_accepted() {
+        let cmd = "bash \"C:/Users/JesseKlotz/.claude/squeez/hooks/pretooluse.sh\"";
+        assert_eq!(hook_command_problem(cmd, present), None);
+    }
+
+    #[test]
+    fn missing_script_is_reported() {
+        let why = hook_command_problem("bash \"/h/.claude/squeez/hooks/x.sh\"", absent)
+            .expect("must be flagged");
+        assert!(why.contains("script not found"), "{why}");
+    }
+
+    /// `C:\Users\First Last\…` has BOTH a backslash and a space, and is broken
+    /// either way. Testing for the space first reported a real #209 install as
+    /// healthy — and `C:\Users\First Last` is an ordinary Windows profile.
+    #[test]
+    fn a_backslash_path_containing_a_space_is_still_reported() {
+        let cmd = "bash C:\\Users\\Jesse Klotz\\.claude\\squeez\\hooks\\pretooluse.sh";
+        let why = hook_command_problem(cmd, present).expect("must be flagged");
+        assert!(why.contains("unquoted backslashes"), "{why}");
+    }
+
+    /// A relative path resolves against doctor's own working directory, so it
+    /// cannot be judged. A user's own `bash scripts/squeez-wrapper.sh` reaches
+    /// this check purely because the string contains "squeez"; failing it would
+    /// blame squeez and prescribe a `squeez setup` that cannot fix it.
+    #[test]
+    fn a_relative_foreign_command_is_not_blamed_on_squeez() {
+        assert_eq!(
+            hook_command_problem("bash scripts/squeez-wrapper.sh", absent),
+            None
+        );
+    }
+
+    #[test]
+    fn drive_qualified_paths_are_still_checked_for_existence() {
+        let why = hook_command_problem("bash \"C:/Users/J/.claude/squeez/hooks/x.sh\"", absent)
+            .expect("must be flagged");
+        assert!(why.contains("script not found"), "{why}");
+    }
+
+    /// A false FAIL is worse than a missed one, so anything that is not a plain
+    /// `bash <script>` is left alone: bare paths (codex/gemini run their hooks
+    /// directly) and the `bash -c '…'` adopted-HUD statusLine chain.
+    #[test]
+    fn non_plain_commands_are_left_alone() {
+        assert_eq!(hook_command_problem("/h/.claude/squeez/hooks/x.sh", absent), None);
+        assert_eq!(
+            hook_command_problem(
+                "bash -c 'input=$(cat); echo \"$input\" | { hud; } 2>/dev/null'",
+                absent
+            ),
+            None
+        );
+        assert_eq!(hook_command_problem("bash two words here", absent), None);
+    }
+
+    #[test]
+    fn registered_commands_are_collected_from_both_shapes_and_deduped() {
+        let settings = crate::json_util::parse_value(
+            r#"{
+                 "hooks": {
+                   "PreToolUse": [{"hooks":[{"command":"bash \"/h/squeez/hooks/pretooluse.sh\""}]}],
+                   "Stop": [{"hooks":[{"command":"bash \"/h/squeez/buddy/shims/stop.sh\""}]}]
+                 },
+                 "PostToolUse": [{"hooks":[{"command":"bash \"/h/squeez/hooks/posttooluse.sh\""}]}],
+                 "SessionStart": [{"hooks":[{"command":"bash /opt/other/hook.sh"}]}],
+                 "statusLine": {"command":"bash \"/h/squeez/buddy/shims/statusline.sh\""}
+               }"#,
+        )
+        .unwrap();
+        let mut cmds = registered_squeez_commands(&settings);
+        cmds.sort();
+        assert_eq!(cmds.len(), 4, "foreign hook excluded, squeez ones kept: {cmds:?}");
+        assert!(cmds.iter().all(|c| c.contains("squeez")));
+        assert!(cmds.iter().any(|c| c.contains("statusline.sh")));
+    }
 }

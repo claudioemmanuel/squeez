@@ -2,6 +2,22 @@
 # squeez statusline — emits a compact status line for Claude Code statusLine hook.
 # Reads session data from ~/.claude/squeez/ and outputs a single line.
 
+# Resolve a working Python interpreter.
+#
+# Hardcoding python3 is not safe on Windows: python.org installs ship
+# python.exe with no python3.exe, so the name resolves to the Microsoft Store
+# App Execution Alias under %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is
+# on PATH and passes `command -v`, but exits non-zero when run — which left
+# every squeez hook silently dead (issue #209). Probe by EXECUTING each
+# candidate, not by locating it.
+SQUEEZ_PY=""
+for _c in python3 python py; do
+    if command -v "$_c" >/dev/null 2>&1 && "$_c" -c "" >/dev/null 2>&1; then
+        SQUEEZ_PY="$_c"
+        break
+    fi
+done
+
 SQUEEZ_DIR="${SQUEEZ_DIR:-$HOME/.claude/squeez}"
 SESSION_FILE="$SQUEEZ_DIR/sessions/current.json"
 CONTEXT_FILE="$SQUEEZ_DIR/sessions/context.json"
@@ -15,8 +31,8 @@ fi
 # Read session fields
 saved_tokens=0
 total_calls=0
-if command -v python3 &>/dev/null; then
-    read -r saved_tokens total_calls < <(python3 -c "
+if [[ -n "$SQUEEZ_PY" ]]; then
+    read -r saved_tokens total_calls < <("$SQUEEZ_PY" -c "
 import json
 try:
     with open('$SESSION_FILE') as f:
@@ -30,8 +46,8 @@ fi
 # Read agent_spawns and total_in from context.json
 agent_spawns=0
 total_in=0
-if [[ -f "$CONTEXT_FILE" ]] && command -v python3 &>/dev/null; then
-    read -r agent_spawns total_in < <(python3 -c "
+if [[ -f "$CONTEXT_FILE" ]] && [[ -n "$SQUEEZ_PY" ]]; then
+    read -r agent_spawns total_in < <("$SQUEEZ_PY" -c "
 import json
 try:
     with open('$CONTEXT_FILE') as f:
@@ -47,8 +63,8 @@ fi
 
 # Read efficiency_overall_bp from last line of summaries.jsonl
 efficiency_bp=""
-if [[ -f "$SUMMARIES_FILE" ]] && command -v python3 &>/dev/null; then
-    efficiency_bp=$(python3 -c "
+if [[ -f "$SUMMARIES_FILE" ]] && [[ -n "$SQUEEZ_PY" ]]; then
+    efficiency_bp=$("$SQUEEZ_PY" -c "
 import json
 try:
     with open('$SUMMARIES_FILE') as f:
@@ -68,7 +84,7 @@ parts=("squeez")
 
 if [[ "$saved_tokens" -gt 0 ]]; then
     if [[ "$total_in" -gt 0 ]]; then
-        ratio=$(python3 -c "print(f'{$saved_tokens*100/$total_in:.0f}')" 2>/dev/null || echo "")
+        ratio=$("$SQUEEZ_PY" -c "print(f'{$saved_tokens*100/$total_in:.0f}')" 2>/dev/null || echo "")
         parts+=("| -${saved_tokens}tk ${ratio}%")
     else
         parts+=("| -${saved_tokens}tk")
@@ -84,7 +100,7 @@ if [[ "$agent_spawns" -gt 0 ]]; then
 fi
 
 if [[ -n "$efficiency_bp" ]] && [[ "$efficiency_bp" -gt 0 ]]; then
-    eff_pct=$(python3 -c "print(f'{$efficiency_bp/100:.1f}')" 2>/dev/null || echo "")
+    eff_pct=$("$SQUEEZ_PY" -c "print(f'{$efficiency_bp/100:.1f}')" 2>/dev/null || echo "")
     if [[ -n "$eff_pct" ]]; then
         parts+=("| Eff: ${eff_pct}%")
     fi

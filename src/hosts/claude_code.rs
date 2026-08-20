@@ -62,7 +62,7 @@ const SQUEEZ_EVENTS: [&str; 6] = [
 ];
 
 fn hook_cmd(hooks_dir: &Path, script: &str) -> String {
-    format!("bash {}", hooks_dir.join(script).display())
+    format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script)))
 }
 
 /// Every `command` string inside a matcher entry.
@@ -116,34 +116,6 @@ fn migrate_legacy_events(
     }
 }
 
-/// PreToolUse is upgraded in place rather than appended: an older install may
-/// carry a narrower matcher (Bash-only) or a stale hook path, and duplicating
-/// the entry would run the hook twice.
-fn upgrade_pretooluse(hooks_root: &mut JsonValue, command: &str) {
-    let arr = hooks_root.ensure_arr("PreToolUse");
-    let existing = arr.iter_mut().find(|m| {
-        entry_commands(m)
-            .iter()
-            .any(|c| c.contains("pretooluse.sh") && c.contains("squeez"))
-    });
-    let Some(entry) = existing else {
-        arr.push(settings_json::hook_entry(Some(PRETOOLUSE_MATCHER), command));
-        return;
-    };
-    if entry.get_str("matcher") != PRETOOLUSE_MATCHER {
-        entry.set("matcher", JsonValue::Str(PRETOOLUSE_MATCHER.to_string()));
-    }
-    if let Some(first) = entry
-        .get_mut("hooks")
-        .and_then(|h| h.as_arr_mut())
-        .and_then(|a| a.first_mut())
-    {
-        if first.get_str("command") != command {
-            first.set("command", JsonValue::Str(command.to_string()));
-        }
-    }
-}
-
 /// Statusline chain wrapper written when buddy adopts a third-party HUD:
 /// `bash -c 'input=$(cat); echo "$input" | { <HUD>; } 2>/dev/null; echo "$input" | bash <…>/statusline.sh'`
 const CHAIN_PREFIX: &str = "bash -c 'input=$(cat); echo \"$input\" | { ";
@@ -172,7 +144,7 @@ fn strip_squeez_statusline(settings: &mut JsonValue) {
         return;
     }
     let cmd = status.get_str("command");
-    if !cmd.contains("squeez") || cmd.contains("/buddy/") {
+    if !cmd.contains("squeez") || settings_json::is_buddy_cmd(cmd) {
         return;
     }
     match unwrap_chained_hud(cmd).map(|s| s.to_string()) {
@@ -183,8 +155,33 @@ fn strip_squeez_statusline(settings: &mut JsonValue) {
     }
 }
 
+/// The buddy directory a `statusLine` command points at, or `None` when the
+/// command is not one of ours.
+///
+/// Tolerates `\` separators, because an install written by squeez <= 1.46.0 on
+/// Windows spells the same path `…\buddy\shims\statusline.sh` and must still
+/// be recognised — otherwise uninstall leaves the shim behind and re-setup
+/// mistakes buddy's own statusLine for a third-party HUD to adopt (#209).
+fn buddy_dir_from_statusline(cmd: &str) -> Option<PathBuf> {
+    let norm = settings_json::normalize_sep(cmd);
+    if !norm.contains("/buddy/") {
+        return None;
+    }
+    let rest = norm.strip_prefix("bash ")?;
+    if rest.starts_with('-') {
+        // `bash -c '…'` — a chained HUD wrapper, not a plain shim path.
+        return None;
+    }
+    let rest = rest.strip_prefix('"').unwrap_or(rest);
+    let (dir, _) = rest.split_once("/shims/statusline.sh")?;
+    Some(PathBuf::from(dir))
+}
+
 fn buddy_shim(buddy_dir: &Path, name: &str) -> String {
-    format!("bash {}", buddy_dir.join("shims").join(name).display())
+    format!(
+        "bash {}",
+        settings_json::shell_arg(&buddy_dir.join("shims").join(name))
+    )
 }
 
 fn hud_command_file(buddy_dir: &Path) -> PathBuf {
@@ -193,24 +190,23 @@ fn hud_command_file(buddy_dir: &Path) -> PathBuf {
 
 /// Register the vendored pato-buddy hooks.
 fn register_buddy_hooks(hooks_root: &mut JsonValue, buddy_dir: &Path) {
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "SessionStart",
-        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "session-start.sh")),
-    );
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "PostToolUse",
-        settings_json::hook_entry(
-            Some("Edit|Write|Bash"),
-            &buddy_shim(buddy_dir, "post-tool-use.sh"),
-        ),
-    );
-    settings_json::ensure_buddy_hook(
-        hooks_root,
-        "Stop",
-        settings_json::hook_entry(None, &buddy_shim(buddy_dir, "stop.sh")),
-    );
+    // Upgraded in place for the same reason the core hooks are: a Windows
+    // install carries `\buddy\shims\…` commands bash cannot execute, and a
+    // presence-only check would recognise them and then leave them broken
+    // forever — with `doctor` reporting a FAIL that `squeez setup` never fixes.
+    for (event, shim, matcher) in [
+        ("SessionStart", "session-start.sh", None),
+        ("PostToolUse", "post-tool-use.sh", Some("Edit|Write|Bash")),
+        ("Stop", "stop.sh", None),
+    ] {
+        settings_json::upgrade_buddy_hook(
+            hooks_root,
+            event,
+            shim,
+            matcher,
+            &buddy_shim(buddy_dir, shim),
+        );
+    }
 }
 
 /// Point the statusLine at the buddy chain shim.
@@ -224,16 +220,19 @@ fn register_buddy_statusline(settings: &mut JsonValue, buddy_dir: &Path) {
         .filter(|s| s.is_obj())
         .map(|s| s.get_str("command").to_string())
         .unwrap_or_default();
-    if current.contains("/buddy/") {
+    let shim = buddy_shim(buddy_dir, "statusline.sh");
+    if settings_json::is_buddy_cmd(&current) {
+        // Already ours — but possibly in the unrunnable Windows spelling, so
+        // refresh the command instead of returning and freezing it.
+        if current != shim {
+            settings.set("statusLine", JsonValue::command_entry(&shim));
+        }
         return;
     }
     if !current.is_empty() {
         let _ = std::fs::write(hud_command_file(buddy_dir), &current);
     }
-    settings.set(
-        "statusLine",
-        JsonValue::command_entry(&buddy_shim(buddy_dir, "statusline.sh")),
-    );
+    settings.set("statusLine", JsonValue::command_entry(&shim));
 }
 
 /// Restore the statusLine that buddy adopted, or drop it when none was stored.
@@ -261,7 +260,7 @@ fn unregister_buddy_statusline(settings: &mut JsonValue, data_dir: &Path) {
     let is_buddy_status = settings
         .get("statusLine")
         .filter(|s| s.is_obj())
-        .is_some_and(|s| s.get_str("command").contains("/buddy/"));
+        .is_some_and(|s| settings_json::is_buddy_cmd(s.get_str("command")));
     if is_buddy_status {
         restore_adopted_hud(settings, &data_dir.join("buddy"));
     }
@@ -298,18 +297,24 @@ fn patch_settings(
     let hooks_root = settings.ensure_obj("hooks");
     migrate_legacy_events(hooks_root, legacy);
 
-    upgrade_pretooluse(hooks_root, &hook_cmd(hooks_dir, "pretooluse.sh"));
-    for (event, script) in [
-        ("SessionStart", "session-start.sh"),
-        ("PostToolUse", "posttooluse.sh"),
-        ("SubagentStop", "subagent-stop.sh"),
-        ("PreCompact", "precompact.sh"),
-        ("PostCompact", "postcompact.sh"),
+    // Every core hook is upgraded in place, not merely ensured present: an
+    // older install may carry a narrower PreToolUse matcher, a stale hook
+    // path, or — on Windows — a command string bash cannot execute at all
+    // (#209). Appending instead would run the hook twice.
+    for (event, script, matcher) in [
+        ("PreToolUse", "pretooluse.sh", Some(PRETOOLUSE_MATCHER)),
+        ("SessionStart", "session-start.sh", None),
+        ("PostToolUse", "posttooluse.sh", None),
+        ("SubagentStop", "subagent-stop.sh", None),
+        ("PreCompact", "precompact.sh", None),
+        ("PostCompact", "postcompact.sh", None),
     ] {
-        settings_json::ensure_squeez_hook(
+        settings_json::upgrade_squeez_hook(
             hooks_root,
             event,
-            settings_json::hook_entry(None, &hook_cmd(hooks_dir, script)),
+            script,
+            matcher,
+            &hook_cmd(hooks_dir, script),
         );
     }
 
@@ -350,14 +355,9 @@ fn unpatch_settings(settings_path: &Path) -> std::io::Result<()> {
         .filter(|s| s.is_obj())
         .map(|s| s.get_str("command").to_string())
         .unwrap_or_default();
-    if let Some(buddy_dir) = status_cmd
-        .strip_prefix("bash ")
-        .and_then(|c| c.split_once("/shims/statusline.sh"))
-        .map(|(dir, _)| PathBuf::from(dir))
-        .filter(|_| status_cmd.contains("/buddy/"))
-    {
+    if let Some(buddy_dir) = buddy_dir_from_statusline(&status_cmd) {
         restore_adopted_hud(&mut settings, &buddy_dir);
-    } else if status_cmd.contains("/buddy/") || status_cmd.contains("squeez") {
+    } else if settings_json::is_buddy_cmd(&status_cmd) || status_cmd.contains("squeez") {
         settings.remove("statusLine");
     }
 

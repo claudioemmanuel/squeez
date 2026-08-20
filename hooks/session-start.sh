@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 # squeez SessionStart hook — runs squeez init, prints memory banner to session context
+
+# Resolve a working Python interpreter.
+#
+# Hardcoding python3 is not safe on Windows: python.org installs ship
+# python.exe with no python3.exe, so the name resolves to the Microsoft Store
+# App Execution Alias under %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is
+# on PATH and passes `command -v`, but exits non-zero when run — which left
+# every squeez hook silently dead (issue #209). Probe by EXECUTING each
+# candidate, not by locating it.
+SQUEEZ_PY=""
+for _c in python3 python py; do
+    if command -v "$_c" >/dev/null 2>&1 && "$_c" -c "" >/dev/null 2>&1; then
+        SQUEEZ_PY="$_c"
+        break
+    fi
+done
+# No interpreter, nothing this hook can parse — leave quietly rather than
+# failing the host's session-start under `set -e`.
+[ -z "$SQUEEZ_PY" ] && exit 0
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
@@ -12,7 +31,7 @@ fi
 # (e.g. by another tool like OMC that overwrites the file on setup).
 _settings="$HOME/.claude/settings.json"
 if [ -f "$_settings" ]; then
-    _has_squeez=$(python3 -c "
+    _has_squeez=$("$SQUEEZ_PY" -c "
 import json, sys
 HOOK_EVENTS = ('PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop')
 try:

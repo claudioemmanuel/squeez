@@ -3,6 +3,23 @@
 # content is redundant or oversized (Claude Code v2.1.119+ updatedToolOutput).
 # Bash compression is handled at PreToolUse via `squeez wrap`; this hook covers
 # Read / Grep / Glob whose output bypasses the wrap mechanism.
+
+# Resolve a working Python interpreter.
+#
+# Hardcoding python3 is not safe on Windows: python.org installs ship
+# python.exe with no python3.exe, so the name resolves to the Microsoft Store
+# App Execution Alias under %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is
+# on PATH and passes `command -v`, but exits non-zero when run — which left
+# every squeez hook silently dead (issue #209). Probe by EXECUTING each
+# candidate, not by locating it.
+SQUEEZ_PY=""
+for _c in python3 python py; do
+    if command -v "$_c" >/dev/null 2>&1 && "$_c" -c "" >/dev/null 2>&1; then
+        SQUEEZ_PY="$_c"
+        break
+    fi
+done
+[ -z "$SQUEEZ_PY" ] && exit 0
 SQUEEZ="${SQUEEZ_BIN:-$HOME/.claude/squeez/bin/squeez}"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
@@ -12,7 +29,7 @@ fi
 
 input=$(cat)
 
-tool=$(printf '%s' "$input" | python3 -c "
+tool=$(printf '%s' "$input" | "$SQUEEZ_PY" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -25,7 +42,7 @@ except Exception:
 # is kept as a fallback for other hosts / older payloads. Shapes handled:
 # plain string, {content: str}, {content: [{type:text,text:…}]}, and the Read
 # shape {type:text, file:{content: …}} — mirrors track_result.rs extract_content.
-size=$(printf '%s' "$input" | python3 -c "
+size=$(printf '%s' "$input" | "$SQUEEZ_PY" -c "
 import sys, json
 def text_len(c):
     if c is None:

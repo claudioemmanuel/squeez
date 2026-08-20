@@ -81,6 +81,41 @@ fn with_suffix(path: &Path, suffix: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(s)
 }
 
+/// Render a script path for use inside a hook `command` string.
+///
+/// Two separate things break on Windows without this, where every host runs
+/// its hook commands through git-bash (issue #209):
+///
+/// * `Path::display()` emits `\` separators and the command is handed to bash
+///   unquoted, so bash consumes each backslash as an escape —
+///   `bash C:\Users\Jesse\.claude\squeez\hooks\pretooluse.sh` reaches the
+///   shell as `C:UsersJesse.claudesqueezhookspretooluse.sh` and every hook
+///   event fails with `No such file or directory`.
+/// * The same backslashes defeat the `/buddy/` substring used to detect an
+///   already-registered shim, so `squeez setup` re-appends it on every run.
+///
+/// Forward slashes are accepted by every Windows API these paths reach, and
+/// quoting is inert on Unix apart from making paths with spaces work there
+/// too.
+pub fn shell_arg(path: &Path) -> String {
+    format!("\"{}\"", normalize_sep(&path.display().to_string()))
+}
+
+/// `\` → `/`, so a command string can be matched with one separator regardless
+/// of which platform wrote it.
+pub fn normalize_sep(s: &str) -> String {
+    s.replace('\\', "/")
+}
+
+/// True if `cmd` points into the vendored buddy directory.
+///
+/// Deliberately separator-agnostic: settings files written by squeez ≤ 1.46.0
+/// on Windows carry `\buddy\`, and those entries must still be recognised so
+/// they get upgraded rather than duplicated.
+pub fn is_buddy_cmd(cmd: &str) -> bool {
+    normalize_sep(cmd).contains("/buddy/")
+}
+
 /// True if any hook command inside this matcher entry satisfies `pred`.
 fn entry_cmd_any(entry: &JsonValue, pred: impl Fn(&str) -> bool) -> bool {
     entry
@@ -96,16 +131,14 @@ fn entry_cmd_any(entry: &JsonValue, pred: impl Fn(&str) -> bool) -> bool {
 /// Buddy commands live under `.../squeez/buddy/` and must NOT satisfy this —
 /// otherwise a lone buddy entry would suppress re-adding missing core hooks.
 pub fn has_squeez(entries: &[JsonValue]) -> bool {
-    entries.iter().any(|m| {
-        entry_cmd_any(m, |cmd| cmd.contains("squeez") && !cmd.contains("/buddy/"))
-    })
+    entries
+        .iter()
+        .any(|m| entry_cmd_any(m, |cmd| cmd.contains("squeez") && !is_buddy_cmd(cmd)))
 }
 
 /// True if the entry list already carries a buddy hook.
 pub fn has_buddy(entries: &[JsonValue]) -> bool {
-    entries
-        .iter()
-        .any(|m| entry_cmd_any(m, |cmd| cmd.contains("/buddy/")))
+    entries.iter().any(|m| entry_cmd_any(m, is_buddy_cmd))
 }
 
 /// A hook entry: `{"hooks":[{"type":"command","command":cmd}]}`, plus an
@@ -127,6 +160,94 @@ pub fn ensure_squeez_hook(hooks_root: &mut JsonValue, event: &str, entry: JsonVa
     let arr = hooks_root.ensure_arr(event);
     if !has_squeez(arr) {
         arr.push(entry);
+    }
+}
+
+/// Register squeez's hook for `event`, rewriting an existing registration of
+/// the same `script` in place instead of appending a second copy.
+///
+/// [`ensure_squeez_hook`] only asks "is *a* squeez hook here?", so once an
+/// install exists its command string is frozen forever. That is how the broken
+/// Windows registrations in issue #209 survived every `squeez update`: the
+/// mangled `bash C:\Users\…\pretooluse.sh` still contains `squeez`, so it was
+/// considered present and never corrected. Upgrading in place lets a broken
+/// install heal itself on the next `squeez setup`.
+pub fn upgrade_squeez_hook(
+    hooks_root: &mut JsonValue,
+    event: &str,
+    script: &str,
+    matcher: Option<&str>,
+    command: &str,
+) {
+    upgrade_hook(hooks_root, event, matcher, command, |cmd| {
+        is_core_script(cmd, script)
+    })
+}
+
+/// Register a buddy shim for `event`, rewriting an existing registration of the
+/// same shim in place.
+///
+/// Buddy needs this for the same reason the core hooks do. Making buddy
+/// detection separator-agnostic is what lets a Windows-written `\buddy\` entry
+/// be RECOGNISED — but recognising it under a presence-only check is precisely
+/// what would freeze it: `squeez setup` would see the shim as already present
+/// and leave the unrunnable command in place forever.
+pub fn upgrade_buddy_hook(
+    hooks_root: &mut JsonValue,
+    event: &str,
+    shim: &str,
+    matcher: Option<&str>,
+    command: &str,
+) {
+    upgrade_hook(hooks_root, event, matcher, command, |cmd| {
+        is_buddy_cmd(cmd) && normalize_sep(cmd).contains(shim)
+    })
+}
+
+/// True if `cmd` is squeez's own registration of core hook `script`.
+///
+/// Anchored on `/hooks/`, and buddy is excluded: the buddy SessionStart shim is
+/// also called `session-start.sh`, so an unanchored substring match would
+/// convert the buddy registration into a second copy of the core hook.
+fn is_core_script(cmd: &str, script: &str) -> bool {
+    let norm = normalize_sep(cmd);
+    cmd.contains("squeez") && !is_buddy_cmd(cmd) && norm.contains(&format!("/hooks/{script}"))
+}
+
+/// Shared body of the two upgraders: rewrite the hook that `matches`, or append.
+fn upgrade_hook(
+    hooks_root: &mut JsonValue,
+    event: &str,
+    matcher: Option<&str>,
+    command: &str,
+    matches: impl Fn(&str) -> bool,
+) {
+    let arr = hooks_root.ensure_arr(event);
+    let Some(entry) = arr.iter_mut().find(|m| entry_cmd_any(m, &matches)) else {
+        arr.push(hook_entry(matcher, command));
+        return;
+    };
+    let hooks = entry.get_mut("hooks").and_then(|h| h.as_arr_mut());
+    let Some(hooks) = hooks else { return };
+    // Rewrite the hook that actually matched — NOT hooks[0]. Another tool may
+    // have merged its own hook into this entry, and overwriting index 0 would
+    // delete it and leave squeez's hook registered twice.
+    let mut only_ours = true;
+    for hook in hooks.iter_mut() {
+        if !matches(hook.get_str("command")) {
+            only_ours = false;
+            continue;
+        }
+        if hook.get_str("command") != command {
+            hook.set("command", JsonValue::Str(command.to_string()));
+        }
+    }
+    // The matcher is a property of the whole entry. Widening it when a foreign
+    // hook shares the entry would silently change what that hook fires on.
+    if let Some(m) = matcher {
+        if only_ours && entry.get_str("matcher") != m {
+            entry.set("matcher", JsonValue::Str(m.to_string()));
+        }
     }
 }
 
@@ -158,7 +279,7 @@ pub fn strip_squeez(root: &mut JsonValue, event: &str) {
 
 /// Remove buddy hook entries for `event`, leaving squeez-core hooks in place.
 pub fn strip_buddy(root: &mut JsonValue, event: &str) {
-    strip_entries(root, event, |cmd| cmd.contains("/buddy/"));
+    strip_entries(root, event, is_buddy_cmd);
 }
 
 /// One hook registration for the simpler adapters (copilot / gemini / codex),
