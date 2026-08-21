@@ -19,14 +19,41 @@ pub fn is_agent_tool(tool_name: &str) -> bool {
 
 // ── Warning ───────────────────────────────────────────────────────────────────
 
+/// Estimated cost of one sub-agent spawn.
+///
+/// `agent_spawn_cost` is a flat compiled-in guess (350K). Measured against the
+/// 2026-08-21 burn it was ~138x low: six directly-dispatched agents were costed
+/// at 2.1M against a real ~290M, because each spawned its own descendants and
+/// each descendant re-sent a growing context every turn.
+///
+/// A hook cannot know a sub-agent's future turn count, so this stays an
+/// estimate — but it can stop ignoring what it does know. A sub-agent starts by
+/// inheriting roughly the parent's live context and pays it again on every
+/// turn, so the floor scales with the real window, not with a constant chosen
+/// before 1M-token windows existed. Uses the larger of the configured constant
+/// and the observed context, so this can only correct upward.
+pub fn spawn_cost(ctx: &SessionContext, cfg: &Config) -> u64 {
+    let observed = ctx.real_ctx_tokens.max(ctx.real_cache_read_tokens);
+    if observed == 0 {
+        return cfg.agent_spawn_cost;
+    }
+    // A sub-agent that does anything useful runs many turns, each re-sending
+    // its whole context. Even a conservative multiplier beats a flat constant.
+    observed.saturating_mul(4).max(cfg.agent_spawn_cost)
+}
+
 /// Returns a warning string when cumulative agent token cost exceeds
 /// `agent_warn_threshold_pct` of the context budget.
-/// Budget = compact_threshold_tokens * 5 / 4 (same as intensity.rs).
 pub fn agent_cost_warning(ctx: &SessionContext, cfg: &Config) -> Option<String> {
     if ctx.agent_spawns == 0 {
         return None;
     }
-    let budget = cfg.compact_threshold_tokens * 5 / 4;
+    // Must match intensity.rs, which honors a pinned `context_window_tokens`.
+    // This used to hardcode `compact_threshold_tokens * 5 / 4` while claiming
+    // in a comment to agree with intensity — so on a session with a pinned 1M
+    // window the two disagreed by ~9x: intensity never escalated while this tag
+    // fired from the very first spawn and could never escalate either.
+    let budget = crate::context::intensity::budget_for(cfg, ctx.real_ctx_window);
     let threshold = (budget as f64 * cfg.agent_warn_threshold_pct as f64) as u64;
     if ctx.agent_estimated_tokens >= threshold {
         Some(format!(
@@ -140,18 +167,20 @@ mod tests {
         let mut ctx = SessionContext::default();
         ctx.agent_spawns = 2;
         ctx.agent_estimated_tokens = 400_000;
-        ctx.agent_spawn_log.push(crate::context::cache::AgentSpawnEntry {
-            call_n: 5,
-            tool_name: "Agent".to_string(),
-            estimated_tokens: 200_000,
-            ts: 0,
-        });
-        ctx.agent_spawn_log.push(crate::context::cache::AgentSpawnEntry {
-            call_n: 10,
-            tool_name: "Task".to_string(),
-            estimated_tokens: 200_000,
-            ts: 0,
-        });
+        ctx.agent_spawn_log
+            .push(crate::context::cache::AgentSpawnEntry {
+                call_n: 5,
+                tool_name: "Agent".to_string(),
+                estimated_tokens: 200_000,
+                ts: 0,
+            });
+        ctx.agent_spawn_log
+            .push(crate::context::cache::AgentSpawnEntry {
+                call_n: 10,
+                tool_name: "Task".to_string(),
+                estimated_tokens: 200_000,
+                ts: 0,
+            });
         let out = format_agent_costs(&ctx);
         assert!(out.contains("2 calls"));
         assert!(out.contains("400K"));

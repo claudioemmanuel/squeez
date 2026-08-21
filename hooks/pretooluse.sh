@@ -94,8 +94,67 @@ if tool in ('Read', 'Grep', 'Glob'):
         pass  # budget enforcement is best-effort
     sys.exit(0)
 
-# ── Agent/Task: compress prompt ───────────────────────────────────────
+# ── Agent/Task: enforce the concurrent-spawn ceiling, then compress ───
+#
+# Why a DENY and not a warning: on 2026-08-21 a single unattended prompt fanned
+# out to 26 agents at depth 4, peaking at the platform's own 20-agent cap, and
+# burned ~302M tokens in 41 minutes of traffic. squeez detected the burst
+# correctly (16 spawns inside a 120s window against a threshold of 5) and said
+# nothing the model was obliged to obey, because every advisory it had was
+# prose. A ceiling that is not enforced is documentation.
+#
+# The ledger is one line per in-flight spawn, holding a unix timestamp. It is
+# self-healing on purpose: entries older than SPAWN_TTL are pruned on every
+# read, so a subagent that dies without firing SubagentStop can never wedge the
+# gate shut. Fails OPEN on any error — squeez must never be the reason a
+# session cannot dispatch work.
 if tool in ('Agent', 'Task'):
+    MAX_INFLIGHT = int(os.environ.get('SQUEEZ_MAX_INFLIGHT_AGENTS', '5'))
+    SPAWN_TTL = 3600  # seconds; a spawn older than this is presumed finished
+    if MAX_INFLIGHT > 0:
+        try:
+            import time
+            ledger = os.path.join(
+                os.path.expanduser('~'), '.claude', 'squeez', 'sessions', 'inflight_agents'
+            )
+            os.makedirs(os.path.dirname(ledger), exist_ok=True)
+            now = int(time.time())
+            try:
+                with open(ledger) as fh:
+                    stamps = [int(x) for x in fh.read().split() if x.strip().isdigit()]
+            except OSError:
+                stamps = []
+            stamps = [s for s in stamps if now - s < SPAWN_TTL]
+            if len(stamps) >= MAX_INFLIGHT:
+                print(json.dumps({'hookSpecificOutput': {
+                    'hookEventName': 'PreToolUse',
+                    'permissionDecision': 'deny',
+                    'permissionDecisionReason': (
+                        'squeez: %d sub-agents already in flight (ceiling %d). Refusing this spawn.\n'
+                        'Each sub-agent pays its own full context floor (~66K tokens) and re-sends its '
+                        'whole context every turn, so a wide fan-out costs multiples of the visible work. '
+                        'Wait for a running agent to finish, or do this step inline.\n'
+                        'Raise deliberately with SQUEEZ_MAX_INFLIGHT_AGENTS=<n>; 0 disables the ceiling.'
+                        % (len(stamps), MAX_INFLIGHT)
+                    ),
+                }}))
+                sys.exit(0)
+            stamps.append(now)
+            tmp = '%s.%d.tmp' % (ledger, os.getpid())
+            with open(tmp, 'w') as fh:
+                fh.write('\n'.join(str(s) for s in stamps))
+            os.replace(tmp, ledger)
+        except Exception:
+            pass  # fail open: never block dispatch on a bookkeeping error
+
+    # Record the spawn at DISPATCH. Counting it at PostToolUse (on return) left
+    # the burst guard reading zero for exactly as long as a fan-out was in
+    # flight — the only window in which it could have acted.
+    try:
+        subprocess.run([squeez, 'track-spawn', tool], timeout=2)
+    except Exception:
+        pass
+
     prompt = d.get('tool_input', {}).get('prompt')
     if isinstance(prompt, str) and prompt:
         try:

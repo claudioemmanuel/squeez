@@ -255,6 +255,10 @@ pub struct SessionContext {
     pub last_agent_tag: String,
     /// `call_n` at which `last_agent_tag` was last actually printed.
     pub last_agent_tag_call_n: u64,
+    /// Last emitted `[squeez: WORKFLOW BURST ...]` text, deduped like the tags
+    /// above so a standing burst is stated once, not on every tool result.
+    pub last_burst_tag: String,
+    pub last_burst_tag_call_n: u64,
     // ── Flag-forcing escape memo (E3) ────────────────────────────────────────
     /// Base command strings whose arg-tier flag-forced variant failed once
     /// (e.g. an injected `--json` the tool didn't recognize) -- session-long
@@ -321,6 +325,8 @@ impl Default for SessionContext {
             last_budget_tag_call_n: 0,
             last_agent_tag: String::new(),
             last_agent_tag_call_n: 0,
+            last_burst_tag: String::new(),
+            last_burst_tag_call_n: 0,
             flag_force_failed: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
@@ -341,6 +347,77 @@ pub struct SimilarMatch {
     /// different files can hold byte-identical content, and a marker that only
     /// says "#N" leaves the model unable to tell which one it saw.
     pub cmd_short: String,
+}
+
+// ── context.json lock ──────────────────────────────────────────────────────
+
+/// Longest a hook will wait for the context lock before giving up and
+/// proceeding unlocked. Hooks sit in the critical path of every tool call, so
+/// this is deliberately short.
+const LOCK_WAIT_MS: u64 = 250;
+
+/// A lock older than this is treated as abandoned. Hook processes are
+/// short-lived; anything holding the file for a full minute has died without
+/// cleaning up, and honoring it forever would wedge every future write.
+const LOCK_STALE_SECS: u64 = 60;
+
+/// Advisory lock over `context.json`, released on drop.
+///
+/// `create_new` is the atomic primitive — exactly one process can create a
+/// given path — which keeps this stdlib-only, per the zero-dependency rule.
+/// `flock(2)` would be nicer on Unix but has no Windows equivalent, and squeez
+/// ships MSVC builds.
+pub(crate) struct CtxLock {
+    path: std::path::PathBuf,
+    held: bool,
+}
+
+impl CtxLock {
+    pub(crate) fn acquire(sessions_dir: &Path) -> Self {
+        let _ = std::fs::create_dir_all(sessions_dir);
+        let path = sessions_dir.join("context.lock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(LOCK_WAIT_MS);
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(_) => return Self { path, held: true },
+                Err(_) => {
+                    if Self::is_stale(&path) {
+                        // Break it rather than inherit another process's crash.
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        // Fail open — see `update`.
+                        return Self { path, held: false };
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+        }
+    }
+
+    fn is_stale(path: &Path) -> bool {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .map(|t| {
+                t.elapsed()
+                    .map(|e| e.as_secs() >= LOCK_STALE_SECS)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+}
+
+impl Drop for CtxLock {
+    fn drop(&mut self) {
+        if self.held {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -368,10 +445,34 @@ impl SessionContext {
         self.similarity_threshold = cfg.similarity_threshold.clamp(0.0, 1.0);
     }
 
+    /// Read-modify-write `context.json` under an advisory lock.
+    ///
+    /// Every counter squeez owns (agent spawns, burn rate, dedup floor) is
+    /// updated by loading the file, mutating, and saving it back. With 26
+    /// sub-agent hook processes and a second concurrent session all doing that
+    /// against ONE global file, increments were silently lost — reproduced
+    /// 2026-08-21, where an emitted `[agents: 2 calls]` tag was followed by
+    /// `agent_spawns = 0` on disk while `call_counter` kept advancing. An
+    /// atomic rename makes each write whole; it does nothing about two readers
+    /// that both loaded the same stale copy first.
+    ///
+    /// Fails OPEN: if the lock cannot be taken within `LOCK_WAIT_MS`, the
+    /// update proceeds unlocked. A lost counter is a bad number; a hook that
+    /// blocks a tool call is a broken session, and that trade is never worth it.
+    pub fn update<F: FnOnce(&mut SessionContext)>(sessions_dir: &Path, f: F) {
+        let _guard = CtxLock::acquire(sessions_dir);
+        let mut ctx = SessionContext::load(sessions_dir);
+        f(&mut ctx);
+        ctx.save(sessions_dir);
+    }
+
     pub fn save(&self, sessions_dir: &Path) {
         let _ = std::fs::create_dir_all(sessions_dir);
         let path = sessions_dir.join("context.json");
-        let tmp = path.with_extension("json.tmp");
+        // Per-process temp name. A shared `context.json.tmp` is its own race:
+        // two writers truncate the same file and the second rename publishes a
+        // half-written mix of both.
+        let tmp = sessions_dir.join(format!("context.json.{}.tmp", std::process::id()));
         let json = self.to_json();
         #[cfg(unix)]
         {
@@ -391,7 +492,9 @@ impl SessionContext {
         {
             let _ = std::fs::write(&tmp, &json);
         }
-        let _ = std::fs::rename(&tmp, &path);
+        if std::fs::rename(&tmp, &path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 
     pub fn next_call_n(&mut self) -> u64 {
@@ -452,7 +555,8 @@ impl SessionContext {
             let prev = self.shot_url_ts[i];
             self.shot_url_ts[i] = now;
             let elapsed = now.saturating_sub(prev);
-            if window_secs > 0 && elapsed <= window_secs && self.mark_nudged(&format!("shot:{fp}")) {
+            if window_secs > 0 && elapsed <= window_secs && self.mark_nudged(&format!("shot:{fp}"))
+            {
                 return Some(elapsed);
             }
             None
@@ -492,13 +596,7 @@ impl SessionContext {
             .collect()
     }
 
-    pub fn record_call(
-        &mut self,
-        cmd: &str,
-        output_hash: u64,
-        output_len: usize,
-        call_n: u64,
-    ) {
+    pub fn record_call(&mut self, cmd: &str, output_hash: u64, output_len: usize, call_n: u64) {
         self.record_call_with_shingles(cmd, output_hash, output_len, call_n, Vec::new());
     }
 
@@ -554,11 +652,7 @@ impl SessionContext {
     /// - the query has no shingles (text too short for trigrams)
     /// - no candidate clears the threshold
     /// - shingles have not been recorded yet for the matching call (legacy load)
-    pub fn lookup_similar(
-        &self,
-        query_shingles: &[u64],
-        query_len: usize,
-    ) -> Option<SimilarMatch> {
+    pub fn lookup_similar(&self, query_shingles: &[u64], query_len: usize) -> Option<SimilarMatch> {
         if query_shingles.is_empty() {
             return None;
         }
@@ -697,7 +791,15 @@ impl SessionContext {
                 let snippet: String = e
                     .chars()
                     .take(128)
-                    .map(|c| if c == '[' { '(' } else if c == ']' { ')' } else { c })
+                    .map(|c| {
+                        if c == '[' {
+                            '('
+                        } else if c == ']' {
+                            ')'
+                        } else {
+                            c
+                        }
+                    })
                     .collect();
                 self.error_snippets.push((fp, snippet));
             }
@@ -882,15 +984,18 @@ impl SessionContext {
                     .iter()
                     .zip(self.subagent_file_map_paths.iter())
                     .any(|(id, joined)| {
-                        id != agent_id
-                            && joined.split(';').any(|f| f == p.as_str())
+                        id != agent_id && joined.split(';').any(|f| f == p.as_str())
                     })
             })
             .cloned()
             .collect();
 
         // Merge into existing entry or create a new one.
-        if let Some(idx) = self.subagent_file_map_ids.iter().position(|id| id == agent_id) {
+        if let Some(idx) = self
+            .subagent_file_map_ids
+            .iter()
+            .position(|id| id == agent_id)
+        {
             let existing = &mut self.subagent_file_map_paths[idx];
             for p in paths {
                 let already = existing.split(';').any(|f| f == p.as_str());
@@ -921,6 +1026,8 @@ impl SessionContext {
         self.last_budget_tag_call_n = 0;
         self.last_agent_tag.clear();
         self.last_agent_tag_call_n = 0;
+        self.last_burst_tag.clear();
+        self.last_burst_tag_call_n = 0;
     }
 }
 
@@ -1104,8 +1211,11 @@ impl SessionContext {
         }
 
         let sf_path: Vec<String> = self.seen_files.iter().map(|f| f.path.clone()).collect();
-        let sf_size: Vec<u64> =
-            self.seen_files.iter().map(|f| f.size_class as u64).collect();
+        let sf_size: Vec<u64> = self
+            .seen_files
+            .iter()
+            .map(|f| f.size_class as u64)
+            .collect();
         let sf_last: Vec<u64> = self.seen_files.iter().map(|f| f.last_seen_call).collect();
         // Phase 4: file access types as single-char strings.
         let sf_access: Vec<String> = self
@@ -1116,16 +1226,20 @@ impl SessionContext {
 
         // Phase 2: error snippets as parallel arrays.
         let es_fp: Vec<u64> = self.error_snippets.iter().map(|(fp, _)| *fp).collect();
-        let es_text: Vec<String> = self
-            .error_snippets
-            .iter()
-            .map(|(_, t)| t.clone())
-            .collect();
+        let es_text: Vec<String> = self.error_snippets.iter().map(|(_, t)| t.clone()).collect();
 
         // Phase 7: agent spawn log as parallel arrays.
         let as_call_n: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.call_n).collect();
-        let as_tool: Vec<String> = self.agent_spawn_log.iter().map(|e| e.tool_name.clone()).collect();
-        let as_tokens: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.estimated_tokens).collect();
+        let as_tool: Vec<String> = self
+            .agent_spawn_log
+            .iter()
+            .map(|e| e.tool_name.clone())
+            .collect();
+        let as_tokens: Vec<u64> = self
+            .agent_spawn_log
+            .iter()
+            .map(|e| e.estimated_tokens)
+            .collect();
         let as_ts: Vec<u64> = self.agent_spawn_log.iter().map(|e| e.ts).collect();
 
         // Phase 7: burn window as parallel arrays.
@@ -1268,8 +1382,10 @@ impl SessionContext {
             if raw.is_empty() {
                 c.call_log_shingles.push(Vec::new());
             } else {
-                let parsed: Vec<u64> =
-                    raw.split(';').filter_map(|t| t.parse::<u64>().ok()).collect();
+                let parsed: Vec<u64> = raw
+                    .split(';')
+                    .filter_map(|t| t.parse::<u64>().ok())
+                    .collect();
                 c.call_log_shingles.push(parsed);
             }
         }
@@ -1312,26 +1428,25 @@ impl SessionContext {
         c.reread_count = json_util::map_u64(&map, "reread_count").unwrap_or(0) as u32;
 
         // Phase 6: stat counters — optional for backward compat.
-        c.exact_dedup_hits =
-            json_util::map_u64(&map, "exact_dedup_hits").unwrap_or(0) as u32;
-        c.fuzzy_dedup_hits =
-            json_util::map_u64(&map, "fuzzy_dedup_hits").unwrap_or(0) as u32;
-        c.summarize_triggers =
-            json_util::map_u64(&map, "summarize_triggers").unwrap_or(0) as u32;
+        c.exact_dedup_hits = json_util::map_u64(&map, "exact_dedup_hits").unwrap_or(0) as u32;
+        c.fuzzy_dedup_hits = json_util::map_u64(&map, "fuzzy_dedup_hits").unwrap_or(0) as u32;
+        c.summarize_triggers = json_util::map_u64(&map, "summarize_triggers").unwrap_or(0) as u32;
         c.intensity_ultra_calls =
             json_util::map_u64(&map, "intensity_ultra_calls").unwrap_or(0) as u32;
 
         // Phase 7: token economy — optional for backward compat.
-        c.agent_spawns =
-            json_util::map_u64(&map, "agent_spawns").unwrap_or(0) as u32;
-        c.agent_estimated_tokens =
-            json_util::map_u64(&map, "agent_estimated_tokens").unwrap_or(0);
+        c.agent_spawns = json_util::map_u64(&map, "agent_spawns").unwrap_or(0) as u32;
+        c.agent_estimated_tokens = json_util::map_u64(&map, "agent_estimated_tokens").unwrap_or(0);
 
         let as_call_n = json_util::map_u64_array(&map, "agent_spawn_log_call_n");
         let as_tool = json_util::map_str_array(&map, "agent_spawn_log_tool");
         let as_tokens = json_util::map_u64_array(&map, "agent_spawn_log_tokens");
         let as_ts = json_util::map_u64_array(&map, "agent_spawn_log_ts");
-        let as_n = as_call_n.len().min(as_tool.len()).min(as_tokens.len()).min(as_ts.len());
+        let as_n = as_call_n
+            .len()
+            .min(as_tool.len())
+            .min(as_tokens.len())
+            .min(as_ts.len());
         for i in 0..as_n {
             c.agent_spawn_log.push(AgentSpawnEntry {
                 call_n: as_call_n[i],
@@ -1424,11 +1539,9 @@ impl SessionContext {
 
         // Header tag dedup memo (E1) — optional for backward compat.
         c.last_budget_tag = json_util::map_str(&map, "last_budget_tag").unwrap_or_default();
-        c.last_budget_tag_call_n =
-            json_util::map_u64(&map, "last_budget_tag_call_n").unwrap_or(0);
+        c.last_budget_tag_call_n = json_util::map_u64(&map, "last_budget_tag_call_n").unwrap_or(0);
         c.last_agent_tag = json_util::map_str(&map, "last_agent_tag").unwrap_or_default();
-        c.last_agent_tag_call_n =
-            json_util::map_u64(&map, "last_agent_tag_call_n").unwrap_or(0);
+        c.last_agent_tag_call_n = json_util::map_u64(&map, "last_agent_tag_call_n").unwrap_or(0);
 
         // Flag-force escape memo (E3) — optional for backward compat.
         c.flag_force_failed = json_util::map_str_array(&map, "flag_force_failed");
@@ -1466,14 +1579,29 @@ mod tests {
         let mut last = String::new();
         let mut last_n = 0u64;
         // First emission: empty → value is a change, must show.
-        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 1));
+        assert!(dedup_header_tag(
+            &mut last,
+            &mut last_n,
+            "[budget: ~10 calls left]",
+            1
+        ));
         assert_eq!(last, "[budget: ~10 calls left]");
         assert_eq!(last_n, 1);
         // Second call, unchanged value, within the refresh window: suppressed.
-        assert!(!dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 2));
+        assert!(!dedup_header_tag(
+            &mut last,
+            &mut last_n,
+            "[budget: ~10 calls left]",
+            2
+        ));
         assert_eq!(last_n, 1, "memo must not move on a suppressed call");
         // Value changed: reappears.
-        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~9 calls left]", 3));
+        assert!(dedup_header_tag(
+            &mut last,
+            &mut last_n,
+            "[budget: ~9 calls left]",
+            3
+        ));
         assert_eq!(last, "[budget: ~9 calls left]");
         assert_eq!(last_n, 3);
     }
@@ -1484,7 +1612,12 @@ mod tests {
         let mut last_n = 1u64;
         // Same value, but TAG_REFRESH_INTERVAL calls have elapsed — the
         // periodic refresher forces re-emission even though unchanged.
-        assert!(dedup_header_tag(&mut last, &mut last_n, "[budget: ~10 calls left]", 11));
+        assert!(dedup_header_tag(
+            &mut last,
+            &mut last_n,
+            "[budget: ~10 calls left]",
+            11
+        ));
         assert_eq!(last_n, 11);
     }
 
@@ -1734,7 +1867,10 @@ mod tests {
         assert_eq!(normalize_url_path("http://app.co/x"), "app.co/x");
         assert_eq!(normalize_url_path("https://www.app.co/x/"), "app.co/x");
         // Benign query/hash change compares equal.
-        assert_eq!(normalize_url_fp("https://app.co/x?a=1"), normalize_url_fp("http://app.co/x#top"));
+        assert_eq!(
+            normalize_url_fp("https://app.co/x?a=1"),
+            normalize_url_fp("http://app.co/x#top")
+        );
     }
 
     #[test]
@@ -1743,7 +1879,10 @@ mod tests {
         // First visit: no warning, just records.
         assert_eq!(c.record_screenshot("https://app.co/dash", 1000, 300), None);
         // Repeat within window → warn once, elapsed reported.
-        assert_eq!(c.record_screenshot("https://app.co/dash?x=1", 1100, 300), Some(100));
+        assert_eq!(
+            c.record_screenshot("https://app.co/dash?x=1", 1100, 300),
+            Some(100)
+        );
         // Second repeat: same URL, still within window, but already nudged → silent.
         assert_eq!(c.record_screenshot("https://app.co/dash", 1150, 300), None);
         // A different URL is independent.

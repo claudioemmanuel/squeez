@@ -10,6 +10,30 @@ pub fn run(tool: &str, bytes: &str) -> i32 {
     run_with_dir(tool, bytes, &session::sessions_dir())
 }
 
+/// `squeez track-spawn <tool>` — record a sub-agent spawn at DISPATCH time.
+///
+/// Called from the PreToolUse hook, before the agent runs. The old call site
+/// was PostToolUse, which meant the counter only moved once an agent came back:
+/// on 2026-08-21 sixteen agents were dispatched inside a 120s window against a
+/// threshold of five, and the burst guard saw zero the entire time because none
+/// of them had returned yet. A guard that can only fire after the spending is
+/// finished is a report, not a guard.
+pub fn run_spawn(tool: &str) -> i32 {
+    run_spawn_with_dir(tool, &session::sessions_dir())
+}
+
+pub fn run_spawn_with_dir(tool: &str, sessions_dir: &Path) -> i32 {
+    if !agent_tracker::is_agent_tool(tool) {
+        return 0;
+    }
+    let cfg = Config::load();
+    SessionContext::update(sessions_dir, |ctx| {
+        let cost = agent_tracker::spawn_cost(ctx, &cfg);
+        ctx.note_agent_spawn(tool, cost);
+    });
+    0
+}
+
 /// Testable version that accepts an explicit sessions directory.
 pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
     let tokens = bytes.parse::<u64>().unwrap_or(0) / 4;
@@ -30,27 +54,25 @@ pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
     session::append_event(sessions_dir, &current.session_file, &event);
 
     // ── Token economy: agent tracking + burn rate ─────────────────────
-    let cfg = Config::load();
-    let mut ctx = SessionContext::load(sessions_dir);
+    SessionContext::update(sessions_dir, |ctx| {
+        // Compaction drops earlier tool output from the model's context, but
+        // context.json survives it. Raise the dedup floor so nothing recorded
+        // before the compaction can be cited as "identical to #N" afterwards.
+        if tool == "PreCompact" {
+            ctx.dedup_floor_call = ctx.call_counter;
+        }
 
-    // Compaction drops earlier tool output from the model's context, but
-    // context.json survives it. Raise the dedup floor so nothing recorded
-    // before the compaction can be cited as "identical to #N" afterwards.
-    if tool == "PreCompact" {
-        ctx.dedup_floor_call = ctx.call_counter;
-    }
+        // Sub-agent spawns are NOT counted here. This runs at PostToolUse —
+        // after the agent returns — so a parallel fan-out read as zero spawns
+        // for exactly as long as it was in flight, which is the only window in
+        // which a burst guard could act. Counting moved to `track-spawn`,
+        // called from PreToolUse at dispatch. See agent_tracker.
 
-    // Sub-agent cost tracking
-    if agent_tracker::is_agent_tool(tool) {
-        ctx.note_agent_spawn(tool, cfg.agent_spawn_cost);
-    }
-
-    // Burn rate recording for non-Bash tools (Bash records via wrap.rs)
-    if tokens > 0 {
-        ctx.note_burn(tokens);
-        ctx.note_tool_tokens(tool, tokens);
-    }
-
-    ctx.save(sessions_dir);
+        // Burn rate recording for non-Bash tools (Bash records via wrap.rs)
+        if tokens > 0 {
+            ctx.note_burn(tokens);
+            ctx.note_tool_tokens(tool, tokens);
+        }
+    });
     0
 }

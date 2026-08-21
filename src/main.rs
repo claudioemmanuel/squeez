@@ -24,6 +24,11 @@ fn main() {
             let exit_code = squeez::commands::track::run(tool, bytes);
             std::process::exit(exit_code);
         }
+        Some("track-spawn") => {
+            let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
+            let exit_code = squeez::commands::track::run_spawn(tool);
+            std::process::exit(exit_code);
+        }
         Some("init") => {
             let flag = args.get(2).map(String::as_str);
             let exit_code = match flag {
@@ -125,7 +130,9 @@ fn main() {
             eprintln!("       squeez track-result <tool> (reads stdin)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
             eprintln!("       squeez benchmark [--json] [--showcase] [--output <file>] [--scenario <name>]");
-            eprintln!("       squeez config <get|set|list|reset|path> ... — inspect/change settings");
+            eprintln!(
+                "       squeez config <get|set|list|reset|path> ... — inspect/change settings"
+            );
             eprintln!("       squeez setup [--host=<slug>]");
             eprintln!("       squeez uninstall [--host=<slug>]");
             eprintln!("       squeez update [--check] [--insecure]");
@@ -137,7 +144,9 @@ fn main() {
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
             eprintln!("       squeez doctor                    — self-health check (hooks, config, tracking)");
             eprintln!("       squeez prune                     — clear expired stashed blobs + old session summaries");
-            eprintln!("       squeez budget-params <tool>        — output JSON budget patch for tool");
+            eprintln!(
+                "       squeez budget-params <tool>        — output JSON budget patch for tool"
+            );
             eprintln!("       squeez --version");
             std::process::exit(1);
         }
