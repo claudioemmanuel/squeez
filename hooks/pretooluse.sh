@@ -140,12 +140,20 @@ if tool in ('Agent', 'Task'):
                 }}))
                 sys.exit(0)
             stamps.append(now)
-            tmp = ledger + '.tmp'
+            tmp = '%s.%d.tmp' % (ledger, os.getpid())
             with open(tmp, 'w') as fh:
                 fh.write('\n'.join(str(s) for s in stamps))
             os.replace(tmp, ledger)
         except Exception:
             pass  # fail open: never block dispatch on a bookkeeping error
+
+    # Record the spawn at DISPATCH. Counting it at PostToolUse (on return) left
+    # the burst guard reading zero for exactly as long as a fan-out was in
+    # flight — the only window in which it could have acted.
+    try:
+        subprocess.run([squeez, 'track-spawn', tool], timeout=2)
+    except Exception:
+        pass
 
     prompt = d.get('tool_input', {}).get('prompt')
     if isinstance(prompt, str) and prompt:

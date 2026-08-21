@@ -38,16 +38,81 @@ pub fn run_with(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> i32
     // `additionalContext` — used to append a one-shot behavioral nudge steering
     // future sub-agents to return a small summary + file path instead of a wall
     // of text. Never touches the message itself.
-    if tool == "SubagentStop" {
-        if let Some(msg) = subagent_advisory(raw, cfg) {
-            println!("{}", render_additional_context("SubagentStop", &msg));
-        }
-        return 0;
-    }
-    if let Some(out) = compute_rewrite(raw, tool, sessions_dir, cfg) {
-        println!("{}", render_updated_output(raw, tool, &out));
+    let out = render_for_test(raw, tool, sessions_dir, cfg);
+    if !out.is_empty() {
+        println!("{}", out);
     }
     0
+}
+
+/// The full PostToolUse decision, returned rather than printed.
+///
+/// `run_with` is a thin printer over this so the emitted JSON can be asserted
+/// on directly; an empty string means "emit nothing and leave the tool result
+/// untouched".
+pub fn render_for_test(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config) -> String {
+    if tool == "SubagentStop" {
+        return match subagent_advisory(raw, cfg) {
+            Some(msg) => render_additional_context("SubagentStop", &msg),
+            None => String::new(),
+        };
+    }
+    let rewrite = compute_rewrite(raw, tool, sessions_dir, cfg);
+    // Economy warnings must not depend on a Bash command happening to run.
+    // `burst_warning`/`agent_cost_warning` were reachable ONLY from wrap.rs, so
+    // through the whole 2026-08-21 fan-out — which used Agent, WebFetch and
+    // WebSearch, never Bash — squeez had the right numbers and no way to say
+    // them. PostToolUse fires for every tool, so they ride here too.
+    let notices = economy_notices(sessions_dir, cfg);
+    match rewrite {
+        // One hookSpecificOutput per hook invocation: when output is being
+        // rewritten anyway, the notices ride inside it rather than as a second
+        // JSON object the host would ignore.
+        Some(out) => {
+            let body = if notices.is_empty() {
+                out
+            } else {
+                format!("{}\n{}", notices.join("\n"), out)
+            };
+            render_updated_output(raw, tool, &body)
+        }
+        None if !notices.is_empty() => {
+            render_additional_context("PostToolUse", &notices.join("\n"))
+        }
+        None => String::new(),
+    }
+}
+
+/// Pending economy warnings for this call, deduped so a standing condition is
+/// stated once rather than on every tool result.
+fn economy_notices(sessions_dir: &Path, cfg: &Config) -> Vec<String> {
+    use crate::context::cache::SessionContext;
+    use crate::economy::agent_tracker;
+    let mut out = Vec::new();
+    SessionContext::update(sessions_dir, |ctx| {
+        let call_n = ctx.call_counter;
+        if let Some(w) = agent_tracker::burst_warning(ctx, cfg) {
+            if crate::context::cache::dedup_header_tag(
+                &mut ctx.last_burst_tag,
+                &mut ctx.last_burst_tag_call_n,
+                &w,
+                call_n,
+            ) {
+                out.push(w);
+            }
+        }
+        if let Some(w) = agent_tracker::agent_cost_warning(ctx, cfg) {
+            if crate::context::cache::dedup_header_tag(
+                &mut ctx.last_agent_tag,
+                &mut ctx.last_agent_tag_call_n,
+                &w,
+                call_n,
+            ) {
+                out.push(w);
+            }
+        }
+    });
+    out
 }
 
 /// Behavioral advisory for an oversized sub-agent return. `None` unless the
@@ -196,8 +261,7 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     };
     if let Some((ref path, fp)) = read_dedup_key {
         if let Some(call_n) = ctx.read_dedup_lookup(path, fp) {
-            let note =
-                format!("[squeez: identical to Read #{call_n} of {path} — output omitted]");
+            let note = format!("[squeez: identical to Read #{call_n} of {path} — output omitted]");
             if marker_wins(&note, &content, cfg) {
                 ctx.exact_dedup_hits += 1;
                 ctx.save(sessions_dir);
@@ -256,16 +320,17 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
     // tail slice plus incidental keyword hits and drops the rest, which is
     // exactly the content needed to reason about or Edit the file.
     let is_structured_payload = is_mcp || tool == "Read";
-    let rewritten = if !is_structured_payload && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
-        let summary = context::summarize::apply(lines.clone(), tool);
-        if summary.len() < lines.len() {
-            Some(summary.join("\n"))
+    let rewritten =
+        if !is_structured_payload && context::summarize::should_apply_for_tool(&lines, cfg, tool) {
+            let summary = context::summarize::apply(lines.clone(), tool);
+            if summary.len() < lines.len() {
+                Some(summary.join("\n"))
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
     // Record content so future calls can dedup against it. The read store
     // reuses the call_n minted here, so one Read consumes one call number.
@@ -357,8 +422,8 @@ fn render_updated_output(raw: &str, tool: &str, content: &str) -> String {
         // file_path arrives JSON-escaped in tool_input; re-embed verbatim.
         let path = extract_string_field(raw, "file_path").unwrap_or_default();
         let num_lines = content.lines().count().max(1);
-        let total_lines = crate::json_util::extract_u64(raw, "totalLines")
-            .unwrap_or(num_lines as u64);
+        let total_lines =
+            crate::json_util::extract_u64(raw, "totalLines").unwrap_or(num_lines as u64);
         format!(
             r#"{{"hookSpecificOutput":{{"hookEventName":"PostToolUse","updatedToolOutput":{{"type":"text","file":{{"filePath":"{}","content":"{}","numLines":{},"startLine":1,"totalLines":{}}}}}}}}}"#,
             path, escaped, num_lines, total_lines
@@ -412,7 +477,11 @@ fn extract_content(raw: &str) -> Option<String> {
         }
         rest = &rest[idx + 7..];
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Whether replacing `original` with `marker` is worth doing.
@@ -516,7 +585,9 @@ mod tests {
     fn read_rewrite_is_object_shaped() {
         let raw = r#"{"tool_name":"Read","tool_input":{"file_path":"/tmp/a.rs"},"tool_response":{"type":"text","file":{"filePath":"/tmp/a.rs","content":"x","numLines":900,"startLine":1,"totalLines":900}}}"#;
         let out = render_updated_output(raw, "Read", "line1\nline2");
-        assert!(out.contains(r#""updatedToolOutput":{"type":"text","file":{"filePath":"/tmp/a.rs""#));
+        assert!(
+            out.contains(r#""updatedToolOutput":{"type":"text","file":{"filePath":"/tmp/a.rs""#)
+        );
         assert!(out.contains(r#""content":"line1\nline2""#));
         assert!(out.contains(r#""numLines":2"#));
         assert!(out.contains(r#""totalLines":900"#));
@@ -593,7 +664,10 @@ mod tests {
         let cfg = Config::default();
         let json = image_json('A');
         // First sight: recorded, passed through unchanged.
-        assert_eq!(compute_rewrite(&json, "mcp__chrome-devtools__take_screenshot", &dir, &cfg), None);
+        assert_eq!(
+            compute_rewrite(&json, "mcp__chrome-devtools__take_screenshot", &dir, &cfg),
+            None
+        );
         // Second identical payload: replaced with the dedup note.
         let rewrite = compute_rewrite(&json, "mcp__chrome-devtools__take_screenshot", &dir, &cfg);
         let note = rewrite.expect("identical image should dedup");
@@ -625,7 +699,9 @@ mod tests {
         let cfg = Config::default();
 
         // 40 lines of content, recorded as a prior Read.
-        let original: Vec<String> = (0..40).map(|i| format!("line {} alpha beta gamma", i)).collect();
+        let original: Vec<String> = (0..40)
+            .map(|i| format!("line {} alpha beta gamma", i))
+            .collect();
         let mut ctx = SessionContext::load(&dir);
         ctx.init_tunables_from_config(&cfg);
         crate::context::redundancy::record(&mut ctx, "Read", &original);
@@ -656,7 +732,9 @@ mod tests {
         let dir = tmp();
         let cfg = Config::default();
 
-        let original: Vec<String> = (0..40).map(|i| format!("line {} alpha beta gamma", i)).collect();
+        let original: Vec<String> = (0..40)
+            .map(|i| format!("line {} alpha beta gamma", i))
+            .collect();
         let mut ctx = SessionContext::load(&dir);
         ctx.init_tunables_from_config(&cfg);
         crate::context::redundancy::record(&mut ctx, "Read", &original);
@@ -672,7 +750,10 @@ mod tests {
         );
         let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
         assert!(
-            rewrite.as_deref().map(|r| r.contains("similar")).unwrap_or(false),
+            rewrite
+                .as_deref()
+                .map(|r| r.contains("similar"))
+                .unwrap_or(false),
             "fuzzy dedup should fire for unedited files: {:?}",
             rewrite
         );
@@ -709,7 +790,10 @@ mod tests {
         let content = "The file /a/b.rs has been updated successfully. Here's the result of running `cat -n` on a snippet of the edited file:\n     1\thello\n     2\tworld";
         let json = format!(
             r#"{{"tool_name":"Edit","tool_result":{{"content":"{}"}}}}"#,
-            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+            content
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
         );
         let rewrite = compute_rewrite(&json, "Edit", &dir, &cfg);
         assert!(rewrite.is_some(), "Edit preamble should be stripped");
@@ -741,7 +825,10 @@ mod tests {
         let content = "The file /a.rs has been updated successfully. Here's the result of running `cat -n` on a snippet of the edited file:\n     1\thi";
         let json = format!(
             r#"{{"tool_name":"Edit","tool_result":{{"content":"{}"}}}}"#,
-            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+            content
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
         );
         // With strip disabled: Edit returns None (no other compression for Edit).
         assert!(compute_rewrite(&json, "Edit", &dir, &cfg).is_none());
@@ -764,7 +851,10 @@ mod tests {
         let content = lines.join("\n");
         let json = format!(
             r#"{{"tool_name":"Read","tool_result":{{"content":"{}"}}}}"#,
-            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+            content
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
         );
         let rewrite = compute_rewrite(&json, "Read", &dir, &cfg);
         assert!(
@@ -788,7 +878,10 @@ mod tests {
         let content = lines.join("\n");
         let json = format!(
             r#"{{"tool_name":"Read","tool_result":{{"content":"{}"}}}}"#,
-            content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+            content
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
         );
         // 200 lines < 1000 global threshold → no rewrite.
         assert!(compute_rewrite(&json, "Read", &dir, &cfg).is_none());
@@ -804,7 +897,7 @@ mod tests {
     #[test]
     fn subagent_advisory_fires_above_threshold_only() {
         let cfg = Config::default(); // subagent_result_warn_tokens = 3000
-        // ~5K tokens (20K chars) > 3K → advisory.
+                                     // ~5K tokens (20K chars) > 3K → advisory.
         let big = "word ".repeat(4_000);
         let json = format!(
             r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
@@ -836,7 +929,10 @@ mod tests {
         // (replace) — the sub-agent message can't be rewritten.
         let big = "word ".repeat(4_000);
         let msg = subagent_advisory(
-            &format!(r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#, big.trim()),
+            &format!(
+                r#"{{"tool_name":"SubagentStop","tool_result":{{"content":"{}"}}}}"#,
+                big.trim()
+            ),
             &Config::default(),
         )
         .unwrap();
