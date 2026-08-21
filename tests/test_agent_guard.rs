@@ -203,3 +203,22 @@ fn no_notices_means_no_output_for_a_clean_call() {
     assert!(out.trim().is_empty(), "expected no output, got: {out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Serialization: a dedup marker that does not persist is not a dedup ──────
+
+#[test]
+fn burst_tag_survives_the_json_round_trip() {
+    // last_burst_tag was added to the struct, the Default and the reset path
+    // but not to to_json/from_json, so it silently reverted to empty on every
+    // load — meaning the burst warning would restate itself on EVERY tool call
+    // instead of once. Caught by live testing, not by the type system.
+    let dir = tmp_dir("burstjson");
+    SessionContext::update(&dir, |c| {
+        c.last_burst_tag = "[squeez: WORKFLOW BURST — 9 agents]".to_string();
+        c.last_burst_tag_call_n = 12;
+    });
+    let got = SessionContext::load(&dir);
+    assert_eq!(got.last_burst_tag, "[squeez: WORKFLOW BURST — 9 agents]");
+    assert_eq!(got.last_burst_tag_call_n, 12);
+    let _ = std::fs::remove_dir_all(&dir);
+}

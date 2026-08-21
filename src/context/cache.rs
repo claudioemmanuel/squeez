@@ -1276,7 +1276,7 @@ impl SessionContext {
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
-\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\
+\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\"last_burst_tag\":\"{}\",\"last_burst_tag_call_n\":{},\
 \"flag_force_failed\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
@@ -1342,6 +1342,8 @@ impl SessionContext {
             self.last_budget_tag_call_n,
             json_util::escape_str(&self.last_agent_tag),
             self.last_agent_tag_call_n,
+            json_util::escape_str(&self.last_burst_tag),
+            self.last_burst_tag_call_n,
             json_util::str_array(&self.flag_force_failed),
         )
     }
@@ -1542,6 +1544,10 @@ impl SessionContext {
         c.last_budget_tag_call_n = json_util::map_u64(&map, "last_budget_tag_call_n").unwrap_or(0);
         c.last_agent_tag = json_util::map_str(&map, "last_agent_tag").unwrap_or_default();
         c.last_agent_tag_call_n = json_util::map_u64(&map, "last_agent_tag_call_n").unwrap_or(0);
+        // Absent in context.json files written before the burst tag existed —
+        // defaults to empty, which just means the next burst states itself once.
+        c.last_burst_tag = json_util::map_str(&map, "last_burst_tag").unwrap_or_default();
+        c.last_burst_tag_call_n = json_util::map_u64(&map, "last_burst_tag_call_n").unwrap_or(0);
 
         // Flag-force escape memo (E3) — optional for backward compat.
         c.flag_force_failed = json_util::map_str_array(&map, "flag_force_failed");
