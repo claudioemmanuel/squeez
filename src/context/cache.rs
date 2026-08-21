@@ -259,6 +259,12 @@ pub struct SessionContext {
     /// above so a standing burst is stated once, not on every tool result.
     pub last_burst_tag: String,
     pub last_burst_tag_call_n: u64,
+    /// Tokens actually consumed by sub-agents that have FINISHED, summed from
+    /// their own transcripts. Truth, not estimate — see `note_agent_measured`.
+    pub agent_measured_tokens: u64,
+    /// How many spawns the above covers, so in-flight ones can be priced from
+    /// observed siblings rather than a compiled-in constant.
+    pub agent_measured_count: u64,
     // ── Flag-forcing escape memo (E3) ────────────────────────────────────────
     /// Base command strings whose arg-tier flag-forced variant failed once
     /// (e.g. an injected `--json` the tool didn't recognize) -- session-long
@@ -327,6 +333,8 @@ impl Default for SessionContext {
             last_agent_tag_call_n: 0,
             last_burst_tag: String::new(),
             last_burst_tag_call_n: 0,
+            agent_measured_tokens: 0,
+            agent_measured_count: 0,
             flag_force_failed: Vec::new(),
             max_call_log: DEFAULT_MAX_CALL_LOG,
             recent_window: DEFAULT_RECENT_WINDOW,
@@ -874,6 +882,37 @@ impl SessionContext {
         }
     }
 
+    /// Record what a FINISHED sub-agent actually cost, read from its own
+    /// transcript at SubagentStop.
+    ///
+    /// Dispatch-time numbers are necessarily estimates — a hook cannot know how
+    /// many turns an agent will take. Once it has stopped, the turns are on
+    /// disk and no estimate is needed. Measured on two research agents: 4.08M
+    /// and 5.35M billable tokens, against a dispatch estimate of 350K each and
+    /// a host-reported figure of ~100K. Both were wrong by more than an order
+    /// of magnitude, in the same direction.
+    pub fn note_agent_measured(&mut self, tokens: u64) {
+        self.agent_measured_tokens = self.agent_measured_tokens.saturating_add(tokens);
+        self.agent_measured_count = self.agent_measured_count.saturating_add(1);
+    }
+
+    /// Best available figure for total sub-agent cost this session.
+    ///
+    /// Prefers measurement and uses it to price what is still in flight: once
+    /// one sibling has finished, its real cost is a far better predictor for
+    /// the others than any constant. Falls back to the dispatch estimate only
+    /// while nothing has finished yet.
+    pub fn effective_agent_tokens(&self) -> u64 {
+        if self.agent_measured_count == 0 {
+            return self.agent_estimated_tokens;
+        }
+        let avg = self.agent_measured_tokens / self.agent_measured_count.max(1);
+        let in_flight =
+            (self.agent_spawns as u64).saturating_sub(self.agent_measured_count) as u64;
+        self.agent_measured_tokens
+            .saturating_add(in_flight.saturating_mul(avg))
+    }
+
     /// Record token consumption for burn rate prediction.
     pub fn note_burn(&mut self, tokens: u64) {
         self.burn_window.push(BurnEntry {
@@ -1276,7 +1315,7 @@ impl SessionContext {
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
-\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\"last_burst_tag\":\"{}\",\"last_burst_tag_call_n\":{},\
+\"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\"last_burst_tag\":\"{}\",\"last_burst_tag_call_n\":{},\"agent_measured_tokens\":{},\"agent_measured_count\":{},\
 \"flag_force_failed\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
@@ -1344,6 +1383,8 @@ impl SessionContext {
             self.last_agent_tag_call_n,
             json_util::escape_str(&self.last_burst_tag),
             self.last_burst_tag_call_n,
+            self.agent_measured_tokens,
+            self.agent_measured_count,
             json_util::str_array(&self.flag_force_failed),
         )
     }
@@ -1548,6 +1589,8 @@ impl SessionContext {
         // defaults to empty, which just means the next burst states itself once.
         c.last_burst_tag = json_util::map_str(&map, "last_burst_tag").unwrap_or_default();
         c.last_burst_tag_call_n = json_util::map_u64(&map, "last_burst_tag_call_n").unwrap_or(0);
+        c.agent_measured_tokens = json_util::map_u64(&map, "agent_measured_tokens").unwrap_or(0);
+        c.agent_measured_count = json_util::map_u64(&map, "agent_measured_count").unwrap_or(0);
 
         // Flag-force escape memo (E3) — optional for backward compat.
         c.flag_force_failed = json_util::map_str_array(&map, "flag_force_failed");

@@ -76,3 +76,58 @@ pub fn run_with_dir(tool: &str, bytes: &str, sessions_dir: &Path) -> i32 {
     });
     0
 }
+
+/// `squeez track-agent-cost` — read a SubagentStop payload from stdin and
+/// record what the finished sub-agent ACTUALLY cost, from its own transcript.
+///
+/// This is the point where estimation stops. `agent_spawn_cost` is a constant,
+/// and even scaling it by observed context is a guess about a turn count the
+/// hook cannot know. At SubagentStop the turns have already happened and the
+/// agent's transcript is on disk, so the number can simply be read.
+///
+/// Silent no-op whenever the transcript is absent or carries no usage — a
+/// missing measurement must leave the dispatch estimate standing, never zero it.
+pub fn run_agent_cost() -> i32 {
+    let mut buf = String::new();
+    if std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf).is_err() {
+        return 0;
+    }
+    run_agent_cost_with(&buf, &session::sessions_dir())
+}
+
+pub fn run_agent_cost_with(raw: &str, sessions_dir: &Path) -> i32 {
+    let path = match agent_transcript_path(raw) {
+        Some(p) => p,
+        None => return 0,
+    };
+    let usage = match crate::context::transcript::measure_agent_usage(std::path::Path::new(&path)) {
+        Some(u) => u,
+        None => return 0,
+    };
+    SessionContext::update(sessions_dir, |ctx| {
+        ctx.note_agent_measured(usage.total());
+    });
+    0
+}
+
+/// Locate the finished sub-agent's transcript.
+///
+/// Prefers the explicit `agent_transcript_path` the host provides. Falls back
+/// to deriving it from the parent's `transcript_path` plus `agent_id`, since
+/// Claude Code stores them at `<session>/subagents/agent-<id>.jsonl` — a
+/// fallback worth having because the derived layout is observable on disk even
+/// when the payload field is absent.
+fn agent_transcript_path(raw: &str) -> Option<String> {
+    if let Some(p) = crate::json_util::extract_str(raw, "agent_transcript_path") {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    let parent = crate::json_util::extract_str(raw, "transcript_path")?;
+    let agent_id = crate::json_util::extract_str(raw, "agent_id")?;
+    if agent_id.is_empty() {
+        return None;
+    }
+    let stem = parent.strip_suffix(".jsonl")?;
+    Some(format!("{}/subagents/agent-{}.jsonl", stem, agent_id))
+}

@@ -33,6 +33,11 @@ fi
 
 input=$(cat)
 
+# Measure what this sub-agent actually cost, from its own transcript. This is
+# where estimation stops: at dispatch the turn count is unknowable, but by now
+# the turns have happened and are on disk.
+printf '%s' "$input" | "$SQUEEZ" track-agent-cost 2>/dev/null || true
+
 # Release one slot from the in-flight spawn ledger written by pretooluse.sh.
 # Drops the OLDEST stamp rather than matching an id: the PreToolUse hook has no
 # agent id to record at dispatch time, and over-releasing is the safe direction

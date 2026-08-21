@@ -29,6 +29,9 @@ fn main() {
             let exit_code = squeez::commands::track::run_spawn(tool);
             std::process::exit(exit_code);
         }
+        Some("track-agent-cost") => {
+            std::process::exit(squeez::commands::track::run_agent_cost());
+        }
         Some("init") => {
             let flag = args.get(2).map(String::as_str);
             let exit_code = match flag {

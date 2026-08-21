@@ -76,6 +76,71 @@ pub fn last_context_tokens_in(text: &str) -> Option<u64> {
 }
 
 /// Scan transcript text for the most recent non-sidechain assistant record
+/// Everything a finished sub-agent actually cost, summed across every request
+/// in its own transcript.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct AgentUsage {
+    pub requests: u64,
+    pub input: u64,
+    pub cache_creation: u64,
+    pub cache_read: u64,
+    pub output: u64,
+}
+
+impl AgentUsage {
+    /// Every billable token the sub-agent consumed.
+    ///
+    /// Summed, not last-turn: a sub-agent's cost is the whole conversation it
+    /// held, and that is dominated by `cache_read` — it re-sends its entire
+    /// growing context on every one of its turns. Measured on two research
+    /// agents: 3.78M and 5.09M of cache_read against 40K and 44K of output.
+    /// Any accounting that skips cache_read understates a sub-agent by ~40x.
+    pub fn total(&self) -> u64 {
+        self.input
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.output)
+    }
+}
+
+/// Sum usage across every assistant record in a sub-agent transcript.
+///
+/// This is the measurement that replaces guessing. `agent_spawn_cost` was a
+/// flat compiled-in constant, and even scaling it by observed context is still
+/// an estimate — a hook cannot know how many turns an agent will take. Once the
+/// agent has STOPPED, it no longer has to: the turns already happened and are
+/// on disk. Returns `None` when the file is missing or carries no usage.
+pub fn measure_agent_usage(path: &Path) -> Option<AgentUsage> {
+    let text = std::fs::read_to_string(path).ok()?;
+    measure_agent_usage_in(&text)
+}
+
+pub fn measure_agent_usage_in(text: &str) -> Option<AgentUsage> {
+    let mut u = AgentUsage::default();
+    for line in text.lines() {
+        if !line.contains("\"usage\"") {
+            continue;
+        }
+        let input = extract_u64(line, "input_tokens").unwrap_or(0);
+        let cc = extract_u64(line, "cache_creation_input_tokens").unwrap_or(0);
+        let cr = extract_u64(line, "cache_read_input_tokens").unwrap_or(0);
+        let out = extract_u64(line, "output_tokens").unwrap_or(0);
+        if input == 0 && cc == 0 && cr == 0 && out == 0 {
+            continue;
+        }
+        u.requests = u.requests.saturating_add(1);
+        u.input = u.input.saturating_add(input);
+        u.cache_creation = u.cache_creation.saturating_add(cc);
+        u.cache_read = u.cache_read.saturating_add(cr);
+        u.output = u.output.saturating_add(out);
+    }
+    if u.requests == 0 {
+        None
+    } else {
+        Some(u)
+    }
+}
+
 /// and return `(cache_read_input_tokens, input_tokens + output_tokens)`.
 /// Returns `None` if no parsable record is found.
 pub fn last_cache_ratio_in(text: &str) -> Option<(u64, u64)> {

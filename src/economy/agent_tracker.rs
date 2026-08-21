@@ -55,11 +55,20 @@ pub fn agent_cost_warning(ctx: &SessionContext, cfg: &Config) -> Option<String> 
     // fired from the very first spawn and could never escalate either.
     let budget = crate::context::intensity::budget_for(cfg, ctx.real_ctx_window);
     let threshold = (budget as f64 * cfg.agent_warn_threshold_pct as f64) as u64;
-    if ctx.agent_estimated_tokens >= threshold {
+    // Prefer measurement: once any sub-agent has finished, its real transcript
+    // cost prices the rest far better than a constant. `~` is dropped from the
+    // label when every spawn has been measured, because it is then not an
+    // estimate at all.
+    let effective = ctx.effective_agent_tokens();
+    if effective >= threshold {
+        let exact = ctx.agent_measured_count > 0
+            && ctx.agent_measured_count >= ctx.agent_spawns as u64;
         Some(format!(
-            "[agents: {} calls, ~{}K est. tokens]",
+            "[agents: {} calls, {}{}K tokens{}]",
             ctx.agent_spawns,
-            ctx.agent_estimated_tokens / 1000,
+            if exact { "" } else { "~" },
+            effective / 1000,
+            if exact { " measured" } else { " est." },
         ))
     } else {
         None
