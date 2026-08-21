@@ -50,7 +50,9 @@ def text_len(c):
     if isinstance(c, str):
         return len(c)
     if isinstance(c, list):
-        return sum(len(b.get('text', '')) for b in c if isinstance(b, dict))
+        # Blocks are usually {type:text,text:…} but a list of plain strings or
+        # of nested shapes is just as valid — recurse instead of assuming.
+        return sum(text_len(b) for b in c)
     if isinstance(c, dict):
         if 'content' in c:
             return text_len(c['content'])
@@ -58,7 +60,19 @@ def text_len(c):
             return text_len(c['file'].get('content'))
         if 'text' in c:
             return text_len(c.get('text'))
-        return 0
+        # Binary blocks carry no text. Their cost is real but it is not
+        # measured here — image dedup runs off `image_fp` in compress-output —
+        # and summing a base64 payload as if it were prose would inflate every
+        # screenshot into a fake 100K result.
+        if c.get('type') in ('image', 'video', 'audio', 'document') or 'source' in c:
+            return 0
+        # UNKNOWN SHAPE. Returning 0 here is what made squeez blind to the
+        # tools that cost the most: WebFetch/WebSearch answer with neither
+        # `content` nor `text` at the top level, so every one of 797 calls in
+        # the 2026-08-21 burn was recorded as 0 tokens, and every guard built
+        # on those counters (intensity, budget, burn rate) was fed ~0. Measure
+        # the payload we cannot name rather than pretending it is empty.
+        return sum(text_len(v) for v in c.values())
     return len(str(c))
 try:
     d = json.load(sys.stdin)
@@ -81,7 +95,7 @@ except Exception:
 # from the PREVIOUS call (Write = edited since last seen); track-result for
 # the current Read would overwrite that flag before the guard could see it.
 case "$tool" in
-    Read|Grep|Glob|Monitor|Agent|Task|Edit|Write|Skill|mcp__*)
+    Read|Grep|Glob|Monitor|Agent|Task|Edit|Write|Skill|WebFetch|WebSearch|ToolSearch|TaskOutput|mcp__*)
         rewrite=$(printf '%s' "$input" | "$SQUEEZ" compress-output "$tool" 2>/dev/null || true)
         if [ -n "$rewrite" ]; then
             printf '%s\n' "$rewrite"

@@ -33,6 +33,27 @@ fi
 
 input=$(cat)
 
+# Release one slot from the in-flight spawn ledger written by pretooluse.sh.
+# Drops the OLDEST stamp rather than matching an id: the PreToolUse hook has no
+# agent id to record at dispatch time, and over-releasing is the safe direction
+# — a lost slot re-opens capacity, while a leaked one would throttle the session
+# until the TTL expires. Pruning by TTL there makes both errors self-correcting.
+"$SQUEEZ_PY" -c "
+import os, sys
+try:
+    p = os.path.join(os.path.expanduser('~'), '.claude', 'squeez', 'sessions', 'inflight_agents')
+    with open(p) as fh:
+        stamps = [x for x in fh.read().split() if x.strip().isdigit()]
+    if stamps:
+        stamps.pop(0)
+        tmp = p + '.tmp'
+        with open(tmp, 'w') as fh:
+            fh.write('\n'.join(stamps))
+        os.replace(tmp, p)
+except Exception:
+    pass
+" 2>/dev/null || true
+
 # Wrap last_assistant_message into a tool_result-compatible JSON so that
 # track-result's existing extract_content() logic picks it up correctly.
 wrapped=$(printf '%s' "$input" | "$SQUEEZ_PY" -c "
