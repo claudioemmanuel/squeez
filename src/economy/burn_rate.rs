@@ -13,21 +13,29 @@ const MIN_WINDOW_FOR_PREDICTION: usize = 3;
 /// entries (not enough data for a reliable estimate).
 ///
 /// Budget = compact_threshold_tokens * 5 / 4 (same as intensity.rs).
-pub fn calls_remaining(ctx: &SessionContext, cfg: &Config) -> Option<u64> {
+/// Median tokens per call over the burn window, or `None` when the window is
+/// too short to be meaningful.
+///
+/// Median rather than mean: a window mixing 0-token calls with one large output
+/// makes the mean swing wildly between invocations (transcript audit CF-2
+/// observed 688 → 2245 → 2807 within minutes). The median is stable against
+/// those outliers.
+pub fn median_call_tokens(ctx: &SessionContext) -> Option<u64> {
     if ctx.burn_window.len() < MIN_WINDOW_FOR_PREDICTION {
         return None;
     }
-    // Median per-call cost rather than mean: a window mixing 0-token calls
-    // with one large output makes the mean estimate swing wildly between
-    // invocations (transcript audit CF-2 observed 688 → 2245 → 2807 within
-    // minutes). The median is stable against those outliers.
     let mut sizes: Vec<u64> = ctx.burn_window.iter().map(|e| e.tokens).collect();
     sizes.sort_unstable();
     let per_call = sizes[sizes.len() / 2];
     if per_call == 0 {
-        // Mostly-empty window — no reliable estimate (mirrors the old avg==0 guard).
+        // Mostly-empty window — no reliable estimate.
         return None;
     }
+    Some(per_call)
+}
+
+pub fn calls_remaining(ctx: &SessionContext, cfg: &Config) -> Option<u64> {
+    let per_call = median_call_tokens(ctx)?;
     let budget = crate::context::intensity::budget_for(cfg, ctx.real_ctx_window);
     // Real measured context (when observed) is authoritative over squeez's own
     // byte counters: those are cumulative monotonic sums of all tool I/O, not

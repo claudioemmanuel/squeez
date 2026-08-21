@@ -40,7 +40,13 @@ pub fn pre_pass(
     } else {
         used_tokens
     };
-    let level = intensity::derive_with(effective_used, cfg, ctx.real_ctx_window);
+    // Two independent reasons to compress hard, firing at opposite ends of a
+    // session: survival (context nearly full) and amplification (this output
+    // will be re-read many more times). Take the stronger — they are not
+    // alternatives, and the old code implemented only the first.
+    let survival = intensity::derive_with(effective_used, cfg, ctx.real_ctx_window);
+    let amplified = intensity::amplification_level(&ctx, cfg);
+    let level = Intensity::strongest(survival, amplified);
     let scaled = intensity::scale(cfg, level);
     (ctx, level, scaled)
 }

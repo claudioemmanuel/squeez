@@ -646,7 +646,18 @@ pub fn run(cmd_str: &str) -> i32 {
     };
     if header_shown {
         let intensity_tag = if config.adaptive_intensity {
-            format!(" [adaptive: {}]", intensity.as_str())
+            // Name the reason when amplification is what escalated this call.
+            // An unexplained jump to Ultra reads as squeez malfunctioning; the
+            // re-read multiple is the whole argument, so it should be visible.
+            let amp = crate::context::intensity::amplification_level(&ctx, &config);
+            if amp == intensity && amp == crate::context::intensity::Intensity::Ultra {
+                match crate::context::intensity::amplification_estimate(&ctx, &config) {
+                    Some(n) => format!(" [adaptive: Ultra ×{} re-reads]", n),
+                    None => format!(" [adaptive: {}]", intensity.as_str()),
+                }
+            } else {
+                format!(" [adaptive: {}]", intensity.as_str())
+            }
         } else {
             String::new()
         };

@@ -42,6 +42,17 @@ pub struct Config {
     pub burn_rate_warn_calls: u64,
     /// Estimated tokens per sub-agent spawn (default 200_000).
     pub agent_spawn_cost: u64,
+
+    /// Escalate compression when this call's output will be re-read many times.
+    /// See `context::intensity::amplification_level` for why this is keyed on
+    /// demonstrated longevity + remaining headroom rather than on "early calls".
+    pub amplification_aware: bool,
+    /// Calls the session must already have run before amplification escalates.
+    pub amplification_min_calls: u64,
+    /// Headroom (predicted calls before compaction) required to escalate.
+    pub amplification_min_remaining: u64,
+    /// Median tokens/call below which amplification is not worth fidelity.
+    pub amplification_min_call_tokens: u64,
     /// Max lines injected into Read tool_input (0 = disabled, default 0).
     pub read_max_lines: usize,
     /// Max results injected into Grep tool_input (0 = disabled, default 0).
@@ -292,6 +303,10 @@ impl Default for Config {
             agent_warn_threshold_pct: 0.50,
             burn_rate_warn_calls: 30,
             agent_spawn_cost: 350_000,
+            amplification_aware: true,
+            amplification_min_calls: 20,
+            amplification_min_remaining: 8,
+            amplification_min_call_tokens: 400,
             read_max_lines: 300,
             grep_max_results: 100,
             max_call_log: 32,
@@ -531,6 +546,18 @@ impl Config {
                     }
                     "tokenizer_scale" => {
                         c.tokenizer_scale = v.parse().unwrap_or(c.tokenizer_scale)
+                    }
+                    "amplification_aware" => c.amplification_aware = v == "true",
+                    "amplification_min_calls" => {
+                        c.amplification_min_calls = v.parse().unwrap_or(c.amplification_min_calls)
+                    }
+                    "amplification_min_remaining" => {
+                        c.amplification_min_remaining =
+                            v.parse().unwrap_or(c.amplification_min_remaining)
+                    }
+                    "amplification_min_call_tokens" => {
+                        c.amplification_min_call_tokens =
+                            v.parse().unwrap_or(c.amplification_min_call_tokens)
                     }
                     "subagent_result_warn_tokens" => {
                         c.subagent_result_warn_tokens =

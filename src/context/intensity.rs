@@ -123,6 +123,109 @@ pub fn derive_with(used: u64, cfg: &Config, real_ctx_window: u64) -> Intensity {
     }
 }
 
+impl Intensity {
+    /// Ordering for combining independent pressure signals. Higher = more
+    /// aggressive compression.
+    pub fn rank(self) -> u8 {
+        match self {
+            Intensity::Lite => 0,
+            Intensity::Full => 1,
+            Intensity::Ultra => 2,
+        }
+    }
+
+    pub fn strongest(a: Intensity, b: Intensity) -> Intensity {
+        if a.rank() >= b.rank() {
+            a
+        } else {
+            b
+        }
+    }
+}
+
+/// Amplification pressure: how much future re-reading this call's output will
+/// be subjected to.
+///
+/// ## Why this exists
+///
+/// A tool result is not paid for once. It sits in the prefix and is re-sent as
+/// cache_read on every subsequent request until compaction drops it, so a
+/// result inserted now costs `size × (1 + future turns)`. Measured on the
+/// 2026-08-21 session: ~1.1M tokens of unique tool output produced 290.1M
+/// tokens of cache_read — a **27x** re-read multiple. Compression applied at
+/// insertion is therefore worth ~27x its face value there, while squeez treated
+/// every call identically.
+///
+/// ## Why it is NOT keyed on "early calls"
+///
+/// The naive reading is "compress hardest at call #1, since it is re-read
+/// most". True in hindsight, useless in the moment: at call #1 a 5-call session
+/// and a 500-call session are indistinguishable, and compressing the short one
+/// costs fidelity to save nothing. Earliness is a poor estimator of future
+/// turns. Two things that are actually observable estimate it far better:
+///
+/// * **Demonstrated longevity** — a session that has already run N calls is
+///   likely to run more (session lengths are heavy-tailed). Past turns are a
+///   measurement, not a guess.
+/// * **Remaining headroom** — content only earns re-reads until compaction. If
+///   the budget is nearly spent, whatever is added now is carried a few turns
+///   and then dropped, so aggression buys little.
+///
+/// The headroom floor is deliberately LOW (8 calls, not 25). Replaying the
+/// measured incident showed a floor of 25 excluding the very case this exists
+/// for: the research sub-agents had ~22 calls of headroom left, and 22 re-reads
+/// of a 5K result is ~55K tokens per agent. "Only 22 more turns" is still an
+/// enormous multiplier; the floor exists solely to skip the case where
+/// compaction is about to discard the content anyway.
+///
+/// Both must hold. That keeps this quiet on short sessions (nothing to amortise)
+/// and quiet when compaction is imminent (nothing to amortise over), and lets
+/// it fire on exactly the shape that caused the incident: a long session with
+/// room to keep running.
+///
+/// A materiality gate (`amplification_min_call_tokens`) suppresses the whole
+/// mechanism when typical output is trivially small — 27x of nearly nothing is
+/// still nothing, and fidelity should not be spent for it.
+pub fn amplification_level(ctx: &crate::context::cache::SessionContext, cfg: &Config) -> Intensity {
+    if !cfg.amplification_aware {
+        return Intensity::Lite;
+    }
+    // Materiality: is there enough output per call for compression to matter?
+    let per_call = match crate::economy::burn_rate::median_call_tokens(ctx) {
+        Some(v) => v,
+        None => return Intensity::Lite, // burn window too short to judge
+    };
+    if per_call < cfg.amplification_min_call_tokens {
+        return Intensity::Lite;
+    }
+    // Demonstrated longevity.
+    if ctx.call_counter < cfg.amplification_min_calls {
+        return Intensity::Lite;
+    }
+    // Remaining headroom before compaction drops the prefix anyway.
+    let remaining = match crate::economy::burn_rate::calls_remaining(ctx, cfg) {
+        Some(r) => r,
+        None => return Intensity::Lite,
+    };
+    if remaining < cfg.amplification_min_remaining {
+        return Intensity::Lite;
+    }
+    Intensity::Ultra
+}
+
+/// Estimated re-read multiple for content inserted now — the number of future
+/// requests expected to carry it. Reported in the header so the escalation can
+/// be audited rather than taken on faith.
+pub fn amplification_estimate(
+    ctx: &crate::context::cache::SessionContext,
+    cfg: &Config,
+) -> Option<u64> {
+    let remaining = crate::economy::burn_rate::calls_remaining(ctx, cfg)?;
+    // Lindy: expect roughly as many turns ahead as have already happened,
+    // bounded by the headroom that actually exists before compaction.
+    Some(remaining.min(ctx.call_counter))
+}
+
 /// Return a clone of `cfg` with line/dedup limits scaled by `level`.
 /// Floors enforced so we never reduce to zero.
 pub fn scale(cfg: &Config, level: Intensity) -> Config {
