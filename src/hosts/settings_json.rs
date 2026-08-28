@@ -251,6 +251,35 @@ fn upgrade_hook(
     }
 }
 
+/// [`patch_events`]'s upgrader: same shape as [`upgrade_hook`], but replaces
+/// the whole matching hook object (not just `command`) so a stale `name` or
+/// `timeout` from an older squeez version is corrected too — fields
+/// `upgrade_hook` doesn't know about because Claude Code's specs never carry
+/// them.
+fn upgrade_hook_spec(hooks_root: &mut JsonValue, spec: &HookSpec) {
+    let arr = hooks_root.ensure_arr(spec.event);
+    let matches = |cmd: &str| is_core_script(cmd, spec.script);
+    let Some(entry) = arr.iter_mut().find(|m| entry_cmd_any(m, &matches)) else {
+        arr.push(spec.to_entry());
+        return;
+    };
+    let hooks = entry.get_mut("hooks").and_then(|h| h.as_arr_mut());
+    let Some(hooks) = hooks else { return };
+    let mut only_ours = true;
+    for hook in hooks.iter_mut() {
+        if !matches(hook.get_str("command")) {
+            only_ours = false;
+            continue;
+        }
+        *hook = spec.to_hook();
+    }
+    if let Some(m) = spec.matcher {
+        if only_ours && entry.get_str("matcher") != m {
+            entry.set("matcher", JsonValue::Str(m.to_string()));
+        }
+    }
+}
+
 /// Append `entry` under `event` unless a buddy hook is already there.
 pub fn ensure_buddy_hook(hooks_root: &mut JsonValue, event: &str, entry: JsonValue) {
     let arr = hooks_root.ensure_arr(event);
@@ -293,10 +322,19 @@ pub struct HookSpec {
     pub name: Option<String>,
     /// Gemini and Codex carry a per-hook timeout; copilot does not.
     pub timeout_ms: Option<u64>,
+    /// Bare script filename (e.g. `codex-pretooluse.sh`), used by
+    /// [`patch_events`] to find and upgrade a prior registration of this hook
+    /// in place — see [`upgrade_squeez_hook`] for why presence-only checks
+    /// freeze a broken command string forever.
+    pub script: &'static str,
 }
 
 impl HookSpec {
-    fn to_entry(&self) -> JsonValue {
+    /// The `{"type":"command","command":..}` object, plus `name`/`timeout`
+    /// when the host uses them. This is the part [`upgrade_events`] replaces
+    /// wholesale on upgrade, so a stale `name`/`timeout` from an older
+    /// squeez version can't survive alongside a corrected `command`.
+    fn to_hook(&self) -> JsonValue {
         let mut hook = Vec::new();
         if let Some(n) = &self.name {
             hook.push(("name".to_string(), JsonValue::Str(n.clone())));
@@ -306,13 +344,17 @@ impl HookSpec {
         if let Some(t) = self.timeout_ms {
             hook.push(("timeout".to_string(), JsonValue::Num(t as f64)));
         }
+        JsonValue::Obj(hook)
+    }
+
+    fn to_entry(&self) -> JsonValue {
         let mut entry = Vec::new();
         if let Some(m) = self.matcher {
             entry.push(("matcher".to_string(), JsonValue::Str(m.to_string())));
         }
         entry.push((
             "hooks".to_string(),
-            JsonValue::Arr(vec![JsonValue::Obj(hook)]),
+            JsonValue::Arr(vec![self.to_hook()]),
         ));
         JsonValue::Obj(entry)
     }
@@ -327,7 +369,11 @@ pub enum EventRoot {
 }
 
 /// Register `specs`, appending each only when no squeez hook is present for
-/// that event. Idempotent, and never disturbs foreign entries.
+/// that event, upgrading a matching prior registration in place instead of
+/// freezing it — the same self-heal `upgrade_squeez_hook` gives Claude Code
+/// (issue #209: a broken command string still contains "squeez", so a
+/// presence-only check never corrects it on later `squeez setup` runs).
+/// Idempotent, and never disturbs foreign entries.
 pub fn patch_events(
     path: &Path,
     root_kind: EventRoot,
@@ -342,13 +388,13 @@ pub fn patch_events(
     match root_kind {
         EventRoot::TopLevel => {
             for spec in specs {
-                ensure_squeez_hook(&mut settings, spec.event, spec.to_entry());
+                upgrade_hook_spec(&mut settings, spec);
             }
         }
         EventRoot::Nested => {
             let root = settings.ensure_obj("hooks");
             for spec in specs {
-                ensure_squeez_hook(root, spec.event, spec.to_entry());
+                upgrade_hook_spec(root, spec);
             }
         }
     }

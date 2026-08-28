@@ -28,6 +28,7 @@ fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
             command: cmd("copilot-pretooluse.sh"),
             name: None,
             timeout_ms: None,
+            script: "copilot-pretooluse.sh",
         },
         settings_json::HookSpec {
             event: "SessionStart",
@@ -35,6 +36,7 @@ fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
             command: cmd("copilot-session-start.sh"),
             name: None,
             timeout_ms: None,
+            script: "copilot-session-start.sh",
         },
         settings_json::HookSpec {
             event: "PostToolUse",
@@ -42,6 +44,7 @@ fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
             command: cmd("copilot-posttooluse.sh"),
             name: None,
             timeout_ms: None,
+            script: "copilot-posttooluse.sh",
         },
     ]
 }

@@ -173,6 +173,57 @@ fn codex_install_idempotent_no_dup_entries() {
     });
 }
 
+// A bare script path with no interpreter has nothing to run it on Windows —
+// Codex spawns `command` directly rather than handing it to a shell, so the
+// hook dies immediately with exit code 1. See codex.rs's `hook_specs` doc.
+#[test]
+fn codex_install_registers_bash_prefixed_command() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        let a = CodexCliAdapter;
+        a.install(&PathBuf::from("/usr/local/bin/squeez")).unwrap();
+        let body = std::fs::read_to_string(home.join(".codex/hooks.json")).unwrap();
+        assert!(
+            body.contains("bash ") && body.contains("codex-session-start.sh"),
+            "SessionStart command must be bash-prefixed, got: {body}"
+        );
+    });
+}
+
+// A pre-fix install froze a bare, unrunnable path in hooks.json forever (the
+// presence-only check only asked "is *a* squeez hook here?"). Re-running
+// install must now upgrade that command in place instead of leaving it dead.
+#[test]
+fn codex_install_heals_prior_bare_path_command() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        let hooks_dir = home.join(".codex/squeez/hooks");
+        let broken = hooks_dir.join("codex-session-start.sh");
+        let broken_cmd = broken.display().to_string().replace('\\', "/");
+        std::fs::write(
+            home.join(".codex/hooks.json"),
+            format!(
+                r#"{{"hooks":{{"SessionStart":[{{"matcher":".*","hooks":[{{"type":"command","command":"{broken_cmd}"}}]}}]}}}}"#
+            ),
+        )
+        .unwrap();
+        CodexCliAdapter
+            .install(&PathBuf::from("/usr/local/bin/squeez"))
+            .unwrap();
+        let body = std::fs::read_to_string(home.join(".codex/hooks.json")).unwrap();
+        assert_eq!(body.matches("codex-session-start.sh").count(), 1);
+        assert!(
+            body.contains("bash "),
+            "stale bare-path command must be upgraded to bash-prefixed, got: {body}"
+        );
+    });
+}
+
 /// Create a fake executable `squeez` under <home>/.claude/squeez/bin so the
 /// hook scripts resolve `$SQUEEZ` to a real path. PreToolUse never executes it
 /// (it only string-builds the rewritten command), so a stub is enough.
