@@ -53,10 +53,17 @@ fn shell_choice(
 /// enabled with no distro installed. It also normally precedes git-bash on
 /// PATH, so picking the first `bash.exe` found would reintroduce exactly the
 /// silent-wrong-output class this change exists to remove.
+///
+/// `%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe` is the same failure mode
+/// under a different name: an App Execution Alias stub the WSL Windows
+/// feature installs, which also forwards to the default WSL distro's
+/// `/bin/bash`. It commonly precedes git-bash on PATH too (issue #214).
 #[cfg_attr(not(windows), allow(dead_code))] // reached via resolve_shell_program on Windows; tested everywhere
 fn is_wsl_launcher(path: &str) -> bool {
     let p = path.replace('\\', "/").to_ascii_lowercase();
-    p.ends_with("/system32/bash.exe") || p.ends_with("/sysnative/bash.exe")
+    p.ends_with("/system32/bash.exe")
+        || p.ends_with("/sysnative/bash.exe")
+        || p.ends_with("/microsoft/windowsapps/bash.exe")
 }
 
 /// First directory in `dirs` holding an executable `program`, as an absolute
@@ -1223,10 +1230,38 @@ mod tests {
         assert!(!is_wsl_launcher("C:/msys64/usr/bin/bash.exe"));
     }
 
+    /// `%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe` is the App Execution
+    /// Alias stub the WSL Windows feature installs — same failure mode as the
+    /// System32 launcher, different path, and it also normally precedes
+    /// git-bash on PATH (issue #214).
+    #[test]
+    fn wsl_app_execution_alias_stub_is_recognised() {
+        assert!(is_wsl_launcher(
+            r"C:\Users\dev\AppData\Local\Microsoft\WindowsApps\bash.exe"
+        ));
+        assert!(is_wsl_launcher(
+            "C:/Users/dev/AppData/Local/Microsoft/WindowsApps/bash.exe"
+        ));
+        assert!(is_wsl_launcher(
+            r"C:\USERS\DEV\APPDATA\LOCAL\MICROSOFT\WINDOWSAPPS\BASH.EXE"
+        ));
+        assert!(!is_wsl_launcher(r"C:\Program Files\Git\bin\bash.exe"));
+    }
+
     #[test]
     fn path_scan_skips_the_wsl_launcher_and_takes_git_bash() {
         let dirs = [
             PathBuf::from("C:/Windows/System32"),
+            PathBuf::from("C:/Program Files/Git/bin"),
+        ];
+        let found = pick_program(dirs.into_iter(), "bash.exe", |_| true);
+        assert_eq!(found, Some("C:/Program Files/Git/bin/bash.exe".to_string()));
+    }
+
+    #[test]
+    fn path_scan_skips_the_windows_apps_alias_and_takes_git_bash() {
+        let dirs = [
+            PathBuf::from(r"C:\Users\dev\AppData\Local\Microsoft\WindowsApps"),
             PathBuf::from("C:/Program Files/Git/bin"),
         ];
         let found = pick_program(dirs.into_iter(), "bash.exe", |_| true);
