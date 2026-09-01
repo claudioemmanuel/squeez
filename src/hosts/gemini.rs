@@ -43,15 +43,20 @@ const AFTER_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-after-tool.sh")
 /// Events squeez registers under `settings["hooks"]` in the Gemini CLI.
 const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "BeforeTool", "AfterTool"];
 
-/// Gemini nests its event map under `hooks`, labels each entry, takes a bare
-/// script path (no `bash` prefix) and a per-hook timeout.
+/// Gemini nests its event map under `hooks`, labels each entry, and takes a
+/// per-hook timeout.
+///
+/// Command must be `bash <path>`, not a bare script path — same Windows
+/// failure mode as Codex (#209-class): Gemini spawns the command directly,
+/// so a bare `.sh` path has no interpreter to run it there.
 fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
-    let spec = |event: &'static str, script: &str, timeout_ms: u64| settings_json::HookSpec {
+    let spec = |event: &'static str, script: &'static str, timeout_ms: u64| settings_json::HookSpec {
         event,
         matcher: Some(".*"),
-        command: hooks_dir.join(script).display().to_string(),
+        command: format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script))),
         name: Some(format!("squeez-{}", event.to_lowercase())),
         timeout_ms: Some(timeout_ms),
+        script,
     };
     vec![
         spec("SessionStart", "gemini-session-start.sh", 5000),

@@ -45,15 +45,21 @@ const POST_TOOL_USE_SCRIPT: &str = include_str!("../../hooks/codex-posttooluse.s
 /// Events squeez registers under `hooks` in the Codex CLI hooks.json.
 const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "PreToolUse", "PostToolUse"];
 
-/// Codex nests its event map under `hooks` and takes a bare script path plus a
-/// per-hook timeout, but no entry name.
+/// Codex nests its event map under `hooks` and takes a per-hook timeout but no
+/// entry name.
+///
+/// Command must be `bash <path>`, not a bare script path: Codex spawns the
+/// command directly rather than handing it to a shell, so on Windows a bare
+/// `.sh` path has no interpreter to run it and the hook dies immediately with
+/// exit code 1 (every squeez Codex hook, starting with SessionStart).
 fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
-    let spec = |event: &'static str, script: &str, timeout_ms: u64| settings_json::HookSpec {
+    let spec = |event: &'static str, script: &'static str, timeout_ms: u64| settings_json::HookSpec {
         event,
         matcher: Some(".*"),
-        command: hooks_dir.join(script).display().to_string(),
+        command: format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script))),
         name: None,
         timeout_ms: Some(timeout_ms),
+        script,
     };
     vec![
         spec("SessionStart", "codex-session-start.sh", 5000),
