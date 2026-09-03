@@ -229,13 +229,24 @@ pub fn run_with_dirs_for(
     // 4. Print banner to stdout (SessionStart hook captures this as context)
     // Window-aware budget (transcript audit CF-2): the audited session showed
     // "~112K tokens" while running on a 1M-window model that reached 286K —
-    // when the user configures the real window, report it instead of the
-    // legacy compact-threshold formula.
-    let budget_k = crate::context::intensity::budget(&config) / 1000;
-    let budget_label = if config.context_window_tokens > 0 {
-        "Context window"
-    } else {
+    // when the real window is known, report it instead of the legacy
+    // compact-threshold formula.
+    //
+    // `budget()` is `budget_for(cfg, 0)`: it sees only a pinned
+    // `context_window_tokens` and throws away the window detected from the
+    // transcript. Every other consumer (burn rate, intensity, the pressure
+    // warnings) passes `real_ctx_window`, so the banner alone announced
+    // "~200K" on a session whose own warnings were already measuring against
+    // 1M. Read the same detected window they do.
+    let real_window = crate::context::cache::SessionContext::load(sessions_dir).real_ctx_window;
+    let budget_k = crate::context::intensity::budget_for(config, real_window) / 1000;
+    // "window" is a claim of fact, so make it only when the window is one:
+    // pinned, or detected above the 200K standard. An unproven fallback stays
+    // "budget" rather than asserting a number squeez is guessing at.
+    let budget_label = if crate::context::intensity::window_is_assumed(config, real_window) {
         "Context budget"
+    } else {
+        "Context window"
     };
     // focus=adhd reorders the banner action-first and shows one prior session
     // instead of three (working memory is small; stats are not an action).
