@@ -23,6 +23,11 @@ use std::path::Path;
 /// contains the latest turn's usage.
 const TAIL_BYTES: u64 = 512 * 1024;
 
+/// How much of the transcript head to read when hunting for the session's
+/// model-identity record. Claude Code writes that record among the first few
+/// entries, so 256 KB covers it even with a large system prompt attached.
+const HEAD_BYTES: u64 = 256 * 1024;
+
 /// Effective context tokens of the most recent API turn recorded in the
 /// transcript at `path`: input + cache_read + cache_creation of the last
 /// assistant record with a usage block. Returns `None` when the file is
@@ -45,6 +50,13 @@ fn tail_read(path: &Path) -> Option<String> {
     f.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::with_capacity((len - start) as usize);
     f.read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn head_read(path: &Path) -> Option<String> {
+    let f = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::new();
+    f.take(HEAD_BYTES).read_to_end(&mut buf).ok()?;
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -169,13 +181,52 @@ pub fn last_cache_ratio_in(text: &str) -> Option<(u64, u64)> {
 /// expose 1M. squeez keys budget/pressure math to this so it never warns
 /// against the wrong window (e.g. flagging 17%-of-1M as "critical" because it
 /// assumed 200K). Unknown ids fall back to the conservative 200K standard.
+///
+/// `model` may be an id (`claude-sonnet-5[1m]`), a marketing name
+/// (`Sonnet 5 (1M context)`), or the two joined — the marketing name is the
+/// only channel that carries the tier on some hosts (#219), and it spells the
+/// marker as `(1M context)` rather than a `[1m]` suffix.
 pub fn window_for_model(model: &str) -> u64 {
     let m = model.to_ascii_lowercase();
-    if m.contains("[1m]") || m.contains("-1m") || m.contains(" 1m") {
+    if m.contains("[1m]") || m.contains("-1m") || m.contains(" 1m") || m.contains("(1m") {
         1_000_000
     } else {
         200_000
     }
+}
+
+/// Window implied by the session's model-identity record, when the transcript
+/// carries one.
+///
+/// Claude Code writes an `"type":"attachment"` record holding
+/// `identity.modelId` + `identity.marketingName`. Unlike the per-message
+/// `message.model` field — which records the bare `claude-sonnet-5` even on a
+/// 1M session (#199, #219) — that record keeps the `[1m]` suffix and the
+/// `(1M context)` marketing name, so it proves the tier below 200K of observed
+/// context, where the two tiers are otherwise indistinguishable.
+///
+/// Scanned in reverse: a mid-session model switch writes a fresh record, and
+/// the newest one is the session's current model.
+pub fn window_from_identity_in(text: &str) -> Option<u64> {
+    for line in text.lines().rev() {
+        // Anchor on the attachment record itself. A tool result that merely
+        // quotes transcript JSON (a `grep` over `~/.claude/projects`, say) is
+        // a `"type":"user"` line and must not be read as this session's model.
+        if !line.contains("\"type\":\"attachment\"") || !line.contains("\"identity\":{") {
+            continue;
+        }
+        if line.contains("\"isSidechain\":true") {
+            continue;
+        }
+        let id = extract_str(line, "modelId");
+        let name = extract_str(line, "marketingName");
+        if id.is_none() && name.is_none() {
+            continue;
+        }
+        let joined = format!("{} {}", id.unwrap_or_default(), name.unwrap_or_default());
+        return Some(window_for_model(&joined));
+    }
+    None
 }
 
 /// The standard Claude context window. The only larger tier is 1M, so any
@@ -219,10 +270,27 @@ pub fn detect_window_in(text: &str) -> Option<u64> {
     None
 }
 
-/// File wrapper for [`detect_window_in`]: tail-read the transcript and detect
-/// the window from its last assistant record.
+/// Detect the host's context window from the transcript at `path`.
+///
+/// The model-identity record is authoritative and is checked first: in the
+/// tail (a mid-session model switch appends a new one), then — only for a
+/// transcript longer than the tail window — in the head, where the record the
+/// session opened with lives. Falls back to the per-message `model` field,
+/// which cannot distinguish the tiers on its own (#219).
 pub fn detect_window(path: &Path) -> Option<u64> {
-    tail_read(path).and_then(|t| detect_window_in(&t))
+    let tail = tail_read(path)?;
+    if let Some(w) = window_from_identity_in(&tail) {
+        return Some(w);
+    }
+    let longer_than_tail = std::fs::metadata(path)
+        .map(|m| m.len() > TAIL_BYTES)
+        .unwrap_or(false);
+    if longer_than_tail {
+        if let Some(w) = head_read(path).as_deref().and_then(window_from_identity_in) {
+            return Some(w);
+        }
+    }
+    detect_window_in(&tail)
 }
 
 /// Extract the first `"key":"<value>"` string occurrence from `line`.
@@ -318,6 +386,46 @@ mod tests {
         assert_eq!(window_for_model("claude-opus-4-8[1m]"), 1_000_000);
         assert_eq!(window_for_model("claude-sonnet-5"), 200_000);
         assert_eq!(window_for_model("claude-opus-4-8"), 200_000);
+    }
+
+    #[test]
+    fn window_for_model_reads_marketing_name_marker() {
+        // #219: the marketing name is the only 1M signal on some hosts.
+        assert_eq!(window_for_model("Sonnet 5 (1M context)"), 1_000_000);
+        assert_eq!(window_for_model("Opus 5 (1M context)"), 1_000_000);
+        assert_eq!(window_for_model("claude-sonnet-5 Sonnet 5"), 200_000);
+    }
+
+    const IDENTITY_1M: &str = r#"{"isSidechain":false,"attachment":{"type":"model","identity":{"modelId":"claude-sonnet-5[1m]","marketingName":"Sonnet 5 (1M context)","knowledgeCutoff":"May 2026"}},"type":"attachment"}"#;
+    const IDENTITY_STD: &str = r#"{"isSidechain":false,"attachment":{"type":"model","identity":{"modelId":"claude-sonnet-5","marketingName":"Sonnet 5","knowledgeCutoff":"May 2026"}},"type":"attachment"}"#;
+
+    #[test]
+    fn identity_record_proves_1m_where_message_model_cannot() {
+        // The per-message model field of the same session says plain
+        // `claude-sonnet-5` — 200K — while the identity record says 1M.
+        let msg = r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1}}}"#;
+        assert_eq!(detect_window_in(msg), Some(200_000));
+        assert_eq!(
+            window_from_identity_in(&format!("{}\n{}", IDENTITY_1M, msg)),
+            Some(1_000_000)
+        );
+        assert_eq!(window_from_identity_in(IDENTITY_STD), Some(200_000));
+    }
+
+    #[test]
+    fn identity_scan_takes_the_newest_record() {
+        // A mid-session switch off the 1M tier must win over the opening record.
+        let text = format!("{}\n{}", IDENTITY_1M, IDENTITY_STD);
+        assert_eq!(window_from_identity_in(&text), Some(200_000));
+    }
+
+    #[test]
+    fn identity_scan_ignores_quoted_transcript_json() {
+        // A tool result that greps other transcripts embeds the same keys in a
+        // `"type":"user"` record; it is not this session's model.
+        let quoted = r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"\"identity\":{\"modelId\":\"claude-opus-5[1m]\""}]}}"#;
+        assert_eq!(window_from_identity_in(quoted), None);
+        assert_eq!(window_from_identity_in(""), None);
     }
 
     #[test]
