@@ -14,9 +14,14 @@ pub fn run() -> i32 {
     let mem = session::memory_dir();
     let _ = std::fs::create_dir_all(&sessions);
     let _ = std::fs::create_dir_all(&mem);
-    let code = run_with_dirs(&sessions, &mem, &cfg);
+    let adapter = crate::hosts::find("claude-code");
+    let in_memory_file = adapter
+        .as_ref()
+        .map(|a| a.injects_persona(&cfg))
+        .unwrap_or(false);
+    let code = run_with_dirs_for(&sessions, &mem, &cfg, in_memory_file);
     // Delegate host-specific memory injection (CLAUDE.md) to the adapter.
-    if let Some(adapter) = crate::hosts::find("claude-code") {
+    if let Some(adapter) = adapter {
         let _ = adapter.inject_memory(&cfg, &[]);
     }
     // Auto-compress known memory files + skill bodies (idempotent — backups are
@@ -47,11 +52,16 @@ pub fn run_copilot() -> i32 {
     // Load config from the copilot squeez dir
     let cfg = load_config_from(&base);
 
-    let code = run_with_dirs(&sessions, &mem, &cfg);
+    let adapter = crate::hosts::find("copilot");
+    let in_memory_file = adapter
+        .as_ref()
+        .map(|a| a.injects_persona(&cfg))
+        .unwrap_or(false);
+    let code = run_with_dirs_for(&sessions, &mem, &cfg, in_memory_file);
 
     // Delegate memory injection to the Copilot CLI adapter.
     let summaries = memory::read_last_n(&mem, 3);
-    if let Some(adapter) = crate::hosts::find("copilot") {
+    if let Some(adapter) = adapter {
         let _ = adapter.inject_memory(&cfg, &summaries);
     }
     // Suppress unused-variable warning when copilot adapter is absent at compile time.
@@ -93,7 +103,7 @@ pub fn run_for_host(host_name: &str) -> i32 {
     let _ = std::fs::create_dir_all(&mem);
     let cfg = load_config_from(&data_dir.to_string_lossy());
 
-    let code = run_with_dirs(&sessions, &mem, &cfg);
+    let code = run_with_dirs_for(&sessions, &mem, &cfg, adapter.injects_persona(&cfg));
 
     let summaries = memory::read_last_n(&mem, 3);
     let _ = adapter.inject_memory(&cfg, &summaries);
@@ -152,8 +162,21 @@ pub fn banner_body(
     out
 }
 
-/// Testable version with explicit directories.
+/// Testable version with explicit directories. Prints the persona/focus text
+/// in the banner — the no-host path, where nothing else carries it.
 pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) -> i32 {
+    run_with_dirs_for(sessions_dir, memory_dir, config, false)
+}
+
+/// As [`run_with_dirs`], but told whether the host adapter will write the
+/// persona/focus text into a file it auto-loads. When it will, the banner
+/// leaves that text out instead of teaching it a second time (#218).
+pub fn run_with_dirs_for(
+    sessions_dir: &Path,
+    memory_dir: &Path,
+    config: &Config,
+    persona_in_memory_file: bool,
+) -> i32 {
     // 1. Finalise previous session → memory (best-effort)
     if let Some(prev) = CurrentSession::load(sessions_dir) {
         finalize(&prev, sessions_dir, memory_dir, config);
@@ -238,15 +261,21 @@ pub fn run_with_dirs(sessions_dir: &Path, memory_dir: &Path, config: &Config) ->
     for l in banner_body(config, &summaries, stats_line, degraded) {
         println!("{}", l);
     }
-    let persona_text = persona::text(config.persona);
-    if !persona_text.is_empty() {
-        println!();
-        print!("{}", persona_text);
-    }
-    let focus_text = focus::text_with_lang(config.focus, &config.lang);
-    if !focus_text.is_empty() {
-        println!();
-        print!("{}", focus_text);
+    // The persona/focus text is normally injected into the host's auto-loaded
+    // instructions file (CLAUDE.md and friends). Repeating it here would teach
+    // it twice per session (#218), so the banner carries it only for a host
+    // that has no such file to write to.
+    if !persona_in_memory_file {
+        let persona_text = persona::text_with_lang(config.persona, &config.lang);
+        if !persona_text.is_empty() {
+            println!();
+            print!("{}", persona_text);
+        }
+        let focus_text = focus::text_with_lang(config.focus, &config.lang);
+        if !focus_text.is_empty() {
+            println!();
+            print!("{}", focus_text);
+        }
     }
     // Enterprise-mode hint: when running through Bedrock/Vertex/OTEL,
     // every saved token converts directly to USD on the workspace bill.

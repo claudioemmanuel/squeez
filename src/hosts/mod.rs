@@ -90,6 +90,23 @@ pub trait HostAdapter {
     /// Write the squeez memory block into the host's auto-loaded instructions
     /// file (CLAUDE.md / copilot-instructions.md / GEMINI.md / AGENTS.md).
     fn inject_memory(&self, cfg: &Config, summaries: &[Summary]) -> std::io::Result<()>;
+
+    /// Whether [`Self::inject_memory`] puts the persona/focus text into a file
+    /// this host auto-loads at every session start.
+    ///
+    /// When true, `squeez init` leaves that text out of its session banner:
+    /// otherwise both channels reach the model and the persona is taught twice
+    /// per session — ~145 tokens paid twice, in a tool whose whole point is not
+    /// paying them (#218). The instructions file is the copy worth keeping: it
+    /// is language-aware and the host re-loads it after a compaction, while the
+    /// banner carries the genuinely per-session lines the file cannot.
+    ///
+    /// The default holds for every adapter that unconditionally writes an
+    /// instructions file; a host that may skip injection overrides it.
+    fn injects_persona(&self, cfg: &Config) -> bool {
+        !crate::commands::persona::text_with_lang(cfg.persona, &cfg.lang).is_empty()
+            || !crate::commands::focus::text_with_lang(cfg.focus, &cfg.lang).is_empty()
+    }
 }
 
 // ── Registry ───────────────────────────────────────────────────────────────
@@ -138,5 +155,32 @@ mod tests {
     fn find_returns_hermes() {
         let a = find("hermes").expect("adapter");
         assert_eq!(a.name(), "hermes");
+    }
+
+    #[test]
+    fn hosts_with_an_instructions_file_own_the_persona_channel() {
+        // #218: every adapter but Hermes writes an auto-loaded instructions
+        // file unconditionally, so `squeez init` must not repeat the text.
+        let mut cfg = Config::default();
+        cfg.persona = crate::commands::persona::Persona::Ultra;
+        for h in all_hosts() {
+            if h.name() == "hermes" {
+                continue; // conditional on SOUL.md existing on this machine
+            }
+            assert!(
+                h.injects_persona(&cfg),
+                "{} should own the persona channel",
+                h.name()
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_to_inject_leaves_the_channel_free() {
+        let mut cfg = Config::default();
+        cfg.persona = crate::commands::persona::Persona::Off;
+        cfg.focus = crate::commands::focus::Focus::Off;
+        let a = find("claude-code").expect("adapter");
+        assert!(!a.injects_persona(&cfg));
     }
 }
