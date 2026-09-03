@@ -168,6 +168,15 @@ impl HostAdapter for HermesAdapter {
         Ok(())
     }
 
+    /// Hermes is the one host whose injection is conditional: without SOUL.md
+    /// there is no auto-loaded file to write to, so the session banner stays
+    /// the only channel that reaches the model.
+    fn injects_persona(&self, cfg: &Config) -> bool {
+        Self::soul_md_path().exists()
+            && (!persona::text_with_lang(cfg.persona, &cfg.lang).is_empty()
+                || !focus::text_with_lang(cfg.focus, &cfg.lang).is_empty())
+    }
+
     fn inject_memory(&self, cfg: &Config, summaries: &[Summary]) -> std::io::Result<()> {
         let soul = Self::soul_md_path();
         if !soul.exists() {
