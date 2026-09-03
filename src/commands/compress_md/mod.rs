@@ -287,7 +287,14 @@ enum State {
     Text,
     FencedCode,
     Table,
+    /// Inside a `<!-- squeez:start -->` … `<!-- squeez:end -->` block.
+    Managed,
 }
+
+/// Opening marker of a squeez-managed region in a host instructions file.
+pub const MANAGED_START: &str = "<!-- squeez:start -->";
+/// Closing marker of a squeez-managed region.
+pub const MANAGED_END: &str = "<!-- squeez:end -->";
 
 pub fn compress_text(input: &str, mode: Mode) -> CompressResult {
     compress_text_with_locale(input, mode, Locale::from_code("en"))
@@ -347,8 +354,28 @@ pub fn compress_text_with_locale(
                     // reprocess this line as Text without advancing i
                 }
             }
+            State::Managed => {
+                out.push_str(line);
+                out.push('\n');
+                if line.contains(MANAGED_END) {
+                    state = State::Text;
+                }
+                i += 1;
+            }
             State::Text => {
-                if line.trim_start().starts_with("```") {
+                // A `<!-- squeez:start -->` block is written by squeez itself
+                // (host adapters' inject_memory). Rewriting it would let the
+                // shipped text and the injected text drift apart, and the
+                // prose pass has mangled punctuation inside squeez's own rules
+                // — including the rule about leaving inline code alone (#218).
+                if line.contains(MANAGED_START) {
+                    out.push_str(line);
+                    out.push('\n');
+                    if !line.contains(MANAGED_END) {
+                        state = State::Managed;
+                    }
+                    i += 1;
+                } else if line.trim_start().starts_with("```") {
                     out.push_str(line);
                     out.push('\n');
                     state = State::FencedCode;
@@ -920,6 +947,32 @@ fn replace_word_boundary(s: String, needle: &str, repl: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_block_survives_compression_verbatim() {
+        // The real regression from #218: the injected rule lost the colon that
+        // separates the term from the rule, and "what actually saves" was
+        // shortened inside squeez's own instructions.
+        let managed = "<!-- squeez:start -->\n\
+             ## squeez — always-on compression\n\n\
+             - Inline `code`: unchanged\n\
+             Full words. Article/filler drop is what actually saves tokens.\n\
+             <!-- squeez:end -->\n";
+        let input = format!("{}\nThe user is going to be able to run the thing.\n", managed);
+        let out = compress_text(&input, Mode::Ultra).output;
+        assert!(out.contains(managed), "managed block was rewritten:\n{}", out);
+        // Prose outside the markers is still compressed.
+        assert!(!out.contains("The user is going to be able to run the thing."));
+    }
+
+    #[test]
+    fn text_after_managed_block_is_compressed_again() {
+        let input = "<!-- squeez:start -->\nkeep this exactly as it is\n<!-- squeez:end -->\n\
+             The user is going to be able to run the thing.\n";
+        let out = compress_text(input, Mode::Ultra).output;
+        assert!(out.contains("keep this exactly as it is"));
+        assert!(!out.contains("The user is going to be able to run the thing."));
+    }
 
     #[test]
     fn count_code_blocks_pairs_fences() {
