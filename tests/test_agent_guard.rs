@@ -113,9 +113,32 @@ fn update_is_not_wedged_by_an_abandoned_lock() {
 }
 
 #[test]
+fn sequential_updates_are_counted_exactly() {
+    // The uncontended path has no fail-open escape, so it is exact. This is
+    // where "every update lands, none double-counts" is pinned down; the
+    // concurrent test below can then assert only what contention allows.
+    let dir = tmp_dir("sequential");
+    for _ in 0..40 {
+        SessionContext::update(&dir, |c| c.note_agent_spawn("Agent", 10));
+    }
+    let got = SessionContext::load(&dir);
+    assert_eq!(got.agent_spawns, 40, "uncontended updates must be exact");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn concurrent_updates_do_not_lose_every_increment() {
     // Threads stand in for the parallel hook processes. Without serialization
     // this collapses toward 1; the point is that it does not.
+    //
+    // Deliberately NOT asserting all 40. `CtxLock::acquire` fails open after
+    // LOCK_WAIT_MS so a hook can never block a tool call, which means a
+    // heavily loaded machine may legitimately drop an increment — observed in
+    // CI as 39/40. Demanding exactness asserts a guarantee the lock does not
+    // make and turns a documented trade-off into a flake. The floor still
+    // separates working serialization from none by a wide margin: measured on
+    // this same workload, the identical read-modify-write with the lock removed
+    // lands 5-8 of 40, while the locked path lands 39-40.
     let dir = tmp_dir("concurrent");
     let handles: Vec<_> = (0..8)
         .map(|_| {
@@ -131,9 +154,14 @@ fn concurrent_updates_do_not_lose_every_increment() {
         h.join().unwrap();
     }
     let got = SessionContext::load(&dir);
-    assert_eq!(
-        got.agent_spawns, 40,
-        "40 serialized increments expected, got {}",
+    assert!(
+        got.agent_spawns >= 32,
+        "serialization lost too many increments: got {} of 40, floor is 32",
+        got.agent_spawns
+    );
+    assert!(
+        got.agent_spawns <= 40,
+        "counted more increments than were issued: got {} of 40",
         got.agent_spawns
     );
     let _ = std::fs::remove_dir_all(&dir);
