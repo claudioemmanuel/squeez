@@ -96,6 +96,9 @@ function contextTokens(transcriptPath) {
 }
 
 const LONG_CONTEXT_RE = /\[1m\]|-1m\b|context-1m|\b1m\s+context\b/i;
+// Fable / Mythos têm 1M nativo — id e display_name vêm crus (`claude-fable-5-1`,
+// "Fable 5.1"), sem marcador nenhum.
+const NATIVE_1M_RE = /fable|mythos/i;
 
 /**
  * Janela de contexto do host. Precedência:
@@ -115,6 +118,7 @@ function contextWindow(model, pinnedTokens) {
     typeof model === 'string'
       ? model
       : `${(model && model.id) || ''} ${(model && model.display_name) || ''}`;
+  if (NATIVE_1M_RE.test(probe)) return 1_000_000;
   return LONG_CONTEXT_RE.test(probe) ? 1_000_000 : 200_000;
 }
 

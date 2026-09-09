@@ -70,6 +70,9 @@ test('janela de contexto: sufixo [1m] vale 1M, resto 200k', () => {
   assert.strictEqual(contextWindow('claude-opus-4-8[1m]'), 1_000_000);
   assert.strictEqual(contextWindow('claude-sonnet-5'), 200_000);
   assert.strictEqual(contextWindow(undefined), 200_000);
+  // Fable / Mythos: 1M nativo, sem marcador no id nem no display_name.
+  assert.strictEqual(contextWindow('claude-fable-5-1'), 1_000_000);
+  assert.strictEqual(contextWindow({ id: 'claude-fable-5-1', display_name: 'Fable 5.1' }), 1_000_000);
 });
 
 test('janela de contexto: display_name decide quando o id não carrega marcador', () => {
