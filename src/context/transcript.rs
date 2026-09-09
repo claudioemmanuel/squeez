@@ -188,6 +188,11 @@ pub fn last_cache_ratio_in(text: &str) -> Option<(u64, u64)> {
 /// marker as `(1M context)` rather than a `[1m]` suffix.
 pub fn window_for_model(model: &str) -> u64 {
     let m = model.to_ascii_lowercase();
+    // Fable / Mythos ship 1M natively — no `[1m]` marker in the id or the
+    // marketing name (`claude-fable-5-1` / `Fable 5.1`).
+    if m.contains("fable") || m.contains("mythos") {
+        return 1_000_000;
+    }
     if m.contains("[1m]") || m.contains("-1m") || m.contains(" 1m") || m.contains("(1m") {
         1_000_000
     } else {
@@ -386,6 +391,15 @@ mod tests {
         assert_eq!(window_for_model("claude-opus-4-8[1m]"), 1_000_000);
         assert_eq!(window_for_model("claude-sonnet-5"), 200_000);
         assert_eq!(window_for_model("claude-opus-4-8"), 200_000);
+    }
+
+    #[test]
+    fn window_for_model_treats_fable_family_as_native_1m() {
+        // Fable / Mythos carry no `[1m]` marker anywhere: id and marketing
+        // name are bare, yet the window is 1M.
+        assert_eq!(window_for_model("claude-fable-5-1"), 1_000_000);
+        assert_eq!(window_for_model("claude-fable-5-1 Fable 5.1"), 1_000_000);
+        assert_eq!(window_for_model("Mythos 5.1"), 1_000_000);
     }
 
     #[test]
