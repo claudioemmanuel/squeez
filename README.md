@@ -128,7 +128,7 @@ squeez update --insecure  # skip checksum (not recommended)
 | **`git status` porcelain** | `git status` is re-run as `git status --porcelain=v1 -b` and rendered as a working-tree summary (branch, ahead/behind, staged/unstaged/untracked/conflicted). Exact paths are preserved, never collapsed to counts, and raw porcelain codes never reach the model. In-progress rebase/merge/bisect/cherry-pick — which porcelain omits — is read from `.git/` markers rather than a second `git status` run. Yields to any output flag you passed yourself; degrades to raw output on an unrecognized shape. |
 | **Preservation guard** | On calls that reduce by ≥90%, the surviving fraction of navigation anchors (file paths, `file:line` refs, error markers, test verdicts) is scored at wrap time. Below `preservation_floor` (0.70) the verbatim original is stashed even outside the usual size gates and the header carries `[anchors: N%]` — so over-compression costs a marker, not a re-investigation. |
 | **Config CLI + `/squeez`** | `squeez config get/set/list/reset/path` reads and writes `config.ini` safely (schema validation, comment-preserving writes). `squeez setup` installs a `/squeez` slash command that drives it in natural language from inside the session. |
-| **Post-compact re-injection** | After `/compact`, the `PostCompact` hook re-injects squeez's tracked session state (recent files, error snippets, git refs, retrievable blob ids) as `additionalContext` — so concrete state survives compaction instead of being re-discovered. |
+| **Post-compact re-injection** | After `/compact`, the `SessionStart` hook (`source: compact`) re-injects squeez's tracked session state (recent files, error snippets, git refs, retrievable blob ids), capped at 4000 chars — so concrete state survives compaction instead of being re-discovered. |
 | **Bash-wrap safety** | Risky commands (`rm -rf`, `git push --force`, `npm publish`, … — configurable `bash_risk_patterns`) and bypassed commands run **unwrapped**, so the host's native permission rules evaluate the original command. `wrap_bash = false` disables wrapping entirely. See [SECURITY.md](SECURITY.md). |
 | **Token estimate** | Compression-timing decisions use a content-class calibrated estimate: output is classified Dense/Prose/Mixed and counted at chars/2.0, chars/3.7, or the code- and CJK-aware char-class estimator — dense tool output really runs ~1.9 chars/token in production, not chars/4. Flat legacy path stays available via `class_density = false`. |
 | **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
@@ -174,7 +174,7 @@ squeez optimizes what it can reach — the surfaces exposed by each host's hook 
 | **Read / Grep / Glob / Monitor output rewrite** | `PostToolUse` runs `squeez compress-output` and returns `updatedToolOutput` when content is redundant or oversized | Claude Code v2.1.119+ | Claude Code |
 | **Agent / Task prompt** | `PreToolUse` compresses `tool_input.prompt` (markdown-aware, via `compress-prompt`) | When prompt > `agent_prompt_max_tokens` | Claude Code (post–v1.8.0) |
 | **Sub-agent output** | `SubagentStop` hook feeds `last_assistant_message` into SessionContext for cross-call dedup | On every sub-agent completion | Claude Code |
-| **Compaction lifecycle** | `PreCompact` logs the event; `PostCompact` re-injects tracked session state (files, errors, git refs, retrievable blob ids) as `additionalContext` so it survives compaction | On context compaction | Claude Code |
+| **Compaction lifecycle** | `PreCompact` / `PostCompact` log the event; `SessionStart` (`source: compact`) re-injects tracked session state (files, errors, git refs, retrievable blob ids) so it survives compaction | On context compaction | Claude Code |
 | **Session memory** | `SessionStart` injects prior session summary + file-access cache | Once per session start | all 5 |
 | **Markdown viewing** | Bash handler routes `.md` reads through `compress-md` when `auto_compress_md=true` | Viewer commands on .md paths | all 5 |
 
@@ -324,7 +324,7 @@ squeez update [--check] [--insecure]     # self-update
 squeez init [--copilot]                  # session-start hook (called by hook, not manually)
 squeez calibrate                         # auto-tune config from benchmarks
 squeez budget-params <tool>              # output JSON budget patch for tool
-squeez compact-summary                   # PostCompact hook: re-inject session state (called by hook)
+squeez compact-summary [--session-start] # re-inject session state after /compact (called by SessionStart hook)
 squeez --version
 ```
 
@@ -590,7 +590,7 @@ Six hooks work together automatically after install on Claude Code (three on Cop
 - **`PostToolUse`** — tracks every tool result; rewrites Read/Grep/Glob/Monitor output via `updatedToolOutput` when content is redundant or oversized (Claude Code v2.1.119+)
 - **`SubagentStop`** *(Claude Code only)* — feeds `last_assistant_message` into SessionContext so the parent agent can dedup against what the sub-agent saw
 - **`PreCompact`** *(Claude Code only)* — logs compaction events for session efficiency metrics; allows compaction to proceed
-- **`PostCompact`** *(Claude Code only)* — re-injects tracked session state (files, errors, git refs, retrievable blob ids) as `additionalContext` so it survives compaction (`squeez compact-summary`)
+- **`PostCompact`** *(Claude Code only)* — logs the compaction. Session state (files, errors, git refs, retrievable blob ids) is re-injected by `SessionStart` with `source: compact` (`squeez compact-summary --session-start`), since Claude Code does not deliver PostCompact output to the model
 
 ### Cross-call redundancy
 

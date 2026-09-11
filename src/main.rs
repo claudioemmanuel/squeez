@@ -44,9 +44,14 @@ fn main() {
             std::process::exit(exit_code);
         }
         Some("compact-summary") => {
-            // PostCompact hook: emit dense session state as additionalContext
-            // so it survives /compact. See commands/compact.rs.
-            std::process::exit(squeez::commands::compact::run());
+            // Dense session state that survives /compact, delivered from the
+            // SessionStart hook (source=compact). See commands/compact.rs.
+            let code = if args.get(2).map(String::as_str) == Some("--session-start") {
+                squeez::commands::compact::run_session_start()
+            } else {
+                squeez::commands::compact::run()
+            };
+            std::process::exit(code);
         }
         Some("should-wrap") => {
             // PreToolUse hook gate (#150): exit 0 → safe to rewrite to
@@ -143,7 +148,7 @@ fn main() {
             eprintln!("       squeez protocol                  — print the auto-teach payload");
             eprintln!("       squeez discover                  — rank commands worth a custom filter-DSL rule");
             eprintln!("       squeez filter-test                — run inline tests from .squeez/filters.ini");
-            eprintln!("       squeez compact-summary           — PostCompact hook: re-inject session state");
+            eprintln!("       squeez compact-summary [--session-start] — re-inject session state after /compact");
             eprintln!("       squeez calibrate                 — auto-tune config from benchmarks");
             eprintln!("       squeez doctor                    — self-health check (hooks, config, tracking)");
             eprintln!("       squeez prune                     — clear expired stashed blobs + old session summaries");

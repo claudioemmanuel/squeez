@@ -26,7 +26,7 @@ No Makefile — tooling is Cargo-native.
 
 Hook-based bash-output compressor for seven CLI agent hosts (Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes). Intercepts tool invocations and compresses output before the model sees it.
 
-Claude Code hooks: PreToolUse → wrap / budget / prompt-compress / **agent-spawn ceiling**; SessionStart → init; PostToolUse → track-result + `updatedToolOutput` rewrite; SubagentStop → feed sub-agent output into SessionContext + release a spawn slot; PreCompact / PostCompact → log + re-arm.
+Claude Code hooks: PreToolUse → wrap / budget / prompt-compress / **agent-spawn ceiling**; SessionStart → init (+ post-compact state restore on `source: compact`); PostToolUse → track-result + `updatedToolOutput` rewrite; SubagentStop → feed sub-agent output into SessionContext + release a spawn slot; PreCompact / PostCompact → log + re-arm.
 
 **Pipeline** (per invocation): `smart_filter` (ANSI/progress/spinners/timestamps) → `dedup` (repeats → `[×N]`) → `grouping` (≥5 siblings → `dir/  N modified`) → `truncation` (head/tail by handler).
 
