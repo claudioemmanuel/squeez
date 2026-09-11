@@ -428,6 +428,36 @@ impl Drop for CtxLock {
     }
 }
 
+/// Collapse absurd backslash runs left in `context.json` by the pre-#229
+/// escape-doubling bug, so already-corrupted state self-heals on load instead
+/// of staying multi-MB until the rolling reset. Operates on raw JSON: a run of
+/// 32+ backslashes (16+ decoded — no real path or command carries that) becomes
+/// one escaped backslash, keeping the run's parity so an odd run still escapes
+/// the character that follows it.
+fn heal_backslash_runs(raw: &str) -> std::borrow::Cow<'_, str> {
+    const MIN_RUN: usize = 32;
+    if !raw.contains(&"\\".repeat(MIN_RUN / 2)) {
+        return std::borrow::Cow::Borrowed(raw);
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut run = 0usize;
+    let flush = |out: &mut String, run: usize| match run {
+        n if n >= MIN_RUN => out.push_str(if n % 2 == 0 { "\\\\" } else { "\\\\\\" }),
+        n => (0..n).for_each(|_| out.push('\\')),
+    };
+    for ch in raw.chars() {
+        if ch == '\\' {
+            run += 1;
+            continue;
+        }
+        flush(&mut out, run);
+        run = 0;
+        out.push(ch);
+    }
+    flush(&mut out, run);
+    std::borrow::Cow::Owned(out)
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 impl SessionContext {
@@ -441,7 +471,7 @@ impl SessionContext {
             Ok(s) => s,
             Err(_) => return Self::default(),
         };
-        Self::from_json(&content)
+        Self::from_json(&heal_backslash_runs(&content))
     }
 
     /// Copy tunable values from Config into this context so all methods use
@@ -1933,6 +1963,21 @@ mod tests {
         assert_eq!(r.error_snippets[0].1, c.error_snippets[0].1);
         assert_eq!(r.seen_git_refs, c.seen_git_refs);
         assert_eq!(r.last_budget_tag, c.last_budget_tag);
+    }
+
+    #[test]
+    fn corrupted_backslash_runs_heal_on_load() {
+        // State written before the #229 fix: each separator 2^k backslashes.
+        let mut c = SessionContext::default();
+        c.note_file(r"C:\Users\You", FileAccess::Read);
+        c.session_file = r"a\b".to_string();
+        let raw = c.to_json().replace(r"\\", &"\\".repeat(1 << 12));
+        let healed = SessionContext::from_json(&heal_backslash_runs(&raw));
+        assert_eq!(healed.seen_files[0].path, r"C:\Users\You");
+        assert_eq!(healed.session_file, r"a\b");
+        // Ordinary escaping is left alone.
+        let fine = r#"{"session_file":"\\\\server\\share"}"#;
+        assert!(matches!(heal_backslash_runs(fine), std::borrow::Cow::Borrowed(_)));
     }
 
     #[test]
