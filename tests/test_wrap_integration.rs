@@ -360,3 +360,36 @@ fn test_extract_git_events_non_ascii_safe() {
     let events = squeez::commands::wrap::extract_git_events_pub("git log", text);
     assert!(!events.is_empty(), "should extract git events with non-ASCII, got: {:?}", events);
 }
+
+// ── Sensitive-content guard must fail open (#226) ──────────────────────────
+
+#[test]
+fn refused_stash_ships_original_uncompressed_with_notice() {
+    // The reporter's repro: 400 lines carrying a credential-shaped header.
+    // The guard rightly refuses to persist it, and with no stash there is no
+    // recovery path — so compressing would silently destroy the output.
+    let dir = tmp_squeez_dir("sensitive_fail_open");
+    let cmd = "yes 'Authorization: Bearer TESTTOKEN012345678901234567890123456789' | head -n 400";
+    let out = Command::new(bin())
+        .args(["wrap", cmd])
+        .env("SQUEEZ_DIR", &dir)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let body_lines = stdout
+        .lines()
+        .filter(|l| l.starts_with("Authorization: Bearer TESTTOKEN"))
+        .count();
+    assert_eq!(body_lines, 400, "original must ship whole, got:\n{stdout}");
+    assert!(
+        stdout.contains("original not stashed (bearer-token)"),
+        "refusal must be named, got:\n{stdout}"
+    );
+    assert!(!stdout.contains("squeez_retrieve"), "no marker without a blob:\n{stdout}");
+    let blobs = dir.join("blobs");
+    let stored = std::fs::read_dir(&blobs).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(stored, 0, "credential must never reach disk");
+    assert_eq!(out.status.code(), Some(0));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
