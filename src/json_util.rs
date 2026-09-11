@@ -11,8 +11,14 @@ pub fn extract_str(json: &str, key: &str) -> Option<String> {
         return None;
     }
     pos += 1;
-    let end = json[pos..].find('"')?;
-    Some(json[pos..pos + end].to_string())
+    let start = pos;
+    while pos < bytes.len() && bytes[pos] != b'"' {
+        pos += if bytes[pos] == b'\\' { 2 } else { 1 };
+    }
+    if pos >= bytes.len() {
+        return None;
+    }
+    Some(unescape_str(&json[start..pos]))
 }
 
 /// Extract a u64 value from a flat JSON object: {"key":123,...}
@@ -83,17 +89,46 @@ pub fn extract_str_array(json: &str, key: &str) -> Vec<String> {
     if arr.trim().is_empty() {
         return Vec::new();
     }
-    split_json_array_items(arr)
+    decode_str_items(arr)
+}
+
+/// Decode each quoted item of a JSON string-array interior, dropping empties.
+fn decode_str_items(inner: &str) -> Vec<String> {
+    split_json_array_items(inner)
         .iter()
         .filter_map(|s| {
-            let s = s.trim().trim_matches('"');
+            let s = s.trim();
+            let s = s.strip_prefix('"').unwrap_or(s);
+            let s = s.strip_suffix('"').unwrap_or(s);
             if s.is_empty() {
                 None
             } else {
-                Some(s.to_string())
+                Some(unescape_str(s))
             }
         })
         .collect()
+}
+
+/// Decode the contents of a JSON string literal (quotes already stripped).
+///
+/// Every extractor above must return *decoded* text. They used to hand back
+/// the raw escaped slice, and every writer escapes again on save — so each
+/// load/save cycle doubled every backslash. A tracked Windows path grew 4× per
+/// wrapped command until `context.json` reached tens of MB (issue #229).
+/// Malformed input is returned unchanged rather than dropped.
+pub fn unescape_str(raw: &str) -> String {
+    if !raw.contains('\\') {
+        return raw.to_string();
+    }
+    let mut chars: Vec<char> = Vec::with_capacity(raw.len() + 2);
+    chars.push('"');
+    chars.extend(raw.chars());
+    chars.push('"');
+    let mut pos = 0;
+    match parse_str(&chars, &mut pos) {
+        Some(s) if pos == chars.len() => s,
+        _ => raw.to_string(),
+    }
 }
 
 /// Escape a string for inclusion in a JSON string value (not quoted).
@@ -301,7 +336,7 @@ pub fn extract_all(json: &str) -> HashMap<&str, &str> {
 }
 
 pub fn map_str(map: &HashMap<&str, &str>, key: &str) -> Option<String> {
-    map.get(key).map(|v| v.to_string())
+    map.get(key).map(|v| unescape_str(v))
 }
 
 pub fn map_u64(map: &HashMap<&str, &str>, key: &str) -> Option<u64> {
@@ -325,17 +360,7 @@ pub fn map_str_array(map: &HashMap<&str, &str>, key: &str) -> Vec<String> {
     if inner.trim().is_empty() {
         return Vec::new();
     }
-    split_json_array_items(inner)
-        .iter()
-        .filter_map(|s| {
-            let s = s.trim().trim_matches('"');
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.to_string())
-            }
-        })
-        .collect()
+    decode_str_items(inner)
 }
 
 pub fn map_u64_array(map: &HashMap<&str, &str>, key: &str) -> Vec<u64> {
