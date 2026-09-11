@@ -40,11 +40,9 @@ pub fn store(content: &str) -> Option<String> {
 /// the matched class name (e.g. `"dotenv-bulk-secrets"`). On success `Ok(id)`
 /// carries the retrieval id, same as `store`.
 ///
-/// `store()` collapses this into `Option<String>` because its call site
-/// (wrap.rs) already treats `None` as "no marker" regardless of cause. This
-/// function exists so a future caller — e.g. an orchestrator warning that
-/// wants to tell the model "a secret was found and not stashed" — can get the
-/// reason without changing that call site's contract today.
+/// wrap.rs uses this rather than `store()`: a refused stash leaves no
+/// recovery path, so it must ship the original uncompressed and name the
+/// reason instead of compressing lossily (#226).
 pub fn store_guarded(content: &str) -> Result<String, &'static str> {
     store_guarded_in(&blobs_dir(), content)
 }

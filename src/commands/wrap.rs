@@ -580,13 +580,23 @@ pub fn run(cmd_str: &str) -> i32 {
     // stashes regardless of line count -- a collapsed `ok git push (...)` on
     // a 6-line output still needs a recovery path, the usual size gates exist
     // to bound the (very different) compression-worth-it decision.
-    let retrieve_marker = if stash_eligible && !net_win_gate {
+    let (retrieve_marker, stash_refused) = if stash_eligible && !net_win_gate {
         context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
-        context::retrieve::store(&combined)
-            .map(|id| retrieve_marker_text(orig_line_count, &id))
+        match context::retrieve::store_guarded(&combined) {
+            Ok(id) => (Some(retrieve_marker_text(orig_line_count, &id)), None),
+            Err(reason) => (None, Some(reason)),
+        }
     } else {
-        None
+        (None, None)
     };
+    // No stash means no recovery path, so compressing would silently destroy
+    // the dropped lines — the sensitive-content guard refused to persist a
+    // credential-shaped output, or the write failed. Fail open: ship the
+    // verbatim original, as a gated passthrough does, and say why (#226).
+    let net_win_gate = net_win_gate || stash_refused.is_some();
+    let stash_refused_notice = stash_refused.map(|reason| {
+        format!("[squeez: original not stashed ({reason}) — shown uncompressed so nothing is lost]")
+    });
 
     // Session accounting records what is actually emitted — zero savings on
     // a gated passthrough, and the marker counts against the win when it
@@ -800,6 +810,10 @@ pub fn run(cmd_str: &str) -> i32 {
         overhead_lines.push(marker.clone());
     }
     if let Some(ref w) = sensitive_path_warning {
+        println!("{}", w);
+        overhead_lines.push(w.clone());
+    }
+    if let Some(ref w) = stash_refused_notice {
         println!("{}", w);
         overhead_lines.push(w.clone());
     }
