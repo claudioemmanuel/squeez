@@ -255,9 +255,18 @@ fn upgrade_hook(
 ///
 /// squeez only ever registers scripts under `…/squeez/hooks/` (core) and
 /// `…/squeez/buddy/`. A wrapper the user maintains — e.g.
-/// `~/.codex/user-hooks/squeez-pretooluse.sh` (#230) — is neither.
+/// `~/.codex/user-hooks/squeez-pretooluse.sh` (#230) — is neither. It must
+/// *name* squeez: an argument whose file name contains "squeez" (the script or
+/// the binary). A mere directory match like `~/src/squeez-notes/log.sh` is an
+/// unrelated hook and must not stop squeez from registering its own.
 pub fn is_user_squeez_cmd(cmd: &str) -> bool {
-    cmd.contains("squeez") && !is_buddy_cmd(cmd) && !normalize_sep(cmd).contains("/squeez/hooks/")
+    let norm = normalize_sep(cmd);
+    !is_buddy_cmd(cmd)
+        && !norm.contains("/squeez/hooks/")
+        && norm.split_whitespace().any(|arg| {
+            let arg = arg.trim_matches(|c| c == '"' || c == '\'');
+            arg.rsplit('/').next().is_some_and(|name| name.contains("squeez"))
+        })
 }
 
 /// Every hook `command` string under `event`, in registration order.
@@ -639,6 +648,21 @@ mod tests {
         assert_eq!(upgrade_hook_spec(&mut root, &post), None);
         assert_eq!(event_commands(&root, "PreToolUse").len(), 1, "no second chain");
         assert_eq!(event_commands(&root, "PostToolUse"), vec![post.command.as_str()]);
+    }
+
+    #[test]
+    fn only_a_command_naming_squeez_counts_as_a_user_squeez_hook() {
+        assert!(is_user_squeez_cmd("bash /h/.codex/user-hooks/squeez-pretooluse.sh"));
+        assert!(is_user_squeez_cmd(r#"bash "C:\Users\x\hooks\squeez-pre.sh""#));
+        assert!(is_user_squeez_cmd("/home/u/.claude/squeez/bin/squeez track PostToolUse 0"));
+        assert!(!is_user_squeez_cmd("bash /h/src/squeez-notes/log.sh"), "directory match only");
+        assert!(!is_user_squeez_cmd("bash \"/h/.codex/squeez/hooks/codex-pretooluse.sh\""), "managed");
+        assert!(!is_user_squeez_cmd("bash /h/.claude/squeez/buddy/shims/stop.sh"), "buddy");
+        // …so an unrelated hook never suppresses squeez's own registration.
+        let mut root = obj(r#"{"PreToolUse":[{"hooks":[{"command":"bash /h/src/squeez-notes/log.sh"}]}]}"#);
+        let pre = codex_spec("PreToolUse", "codex-pretooluse.sh");
+        assert_eq!(upgrade_hook_spec(&mut root, &pre), None);
+        assert_eq!(event_commands(&root, "PreToolUse").len(), 2);
     }
 
     /// Our own registration is still upgraded in place when a user hook sits

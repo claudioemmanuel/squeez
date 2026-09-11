@@ -191,21 +191,22 @@ fn check_hooks_runnable(settings_path: &Path) -> CheckLine {
 /// The Claude checks above only read `~/.claude/settings.json`, so a missing,
 /// broken or duplicated Codex/Gemini/Copilot registration was invisible —
 /// including a second chain that ran the pipeline twice per tool call (#230).
-/// `set_up` is whether squeez was ever installed for this host; a host it was
-/// never set up for yields no line at all rather than a false FAIL.
-fn check_host_registration(host: &str, reg: &HookRegistration, set_up: bool) -> Option<CheckLine> {
+///
+/// A host with no squeez registration at all yields no line: it was never set
+/// up, or `squeez uninstall --host=…` removed it on purpose (uninstall keeps
+/// squeez's data dir, so that is no signal), and telling the user to run
+/// `squeez setup` would re-register a host they just removed. A *partial*
+/// registration is what setup can fix, and that FAILs.
+fn check_host_registration(host: &str, reg: &HookRegistration) -> Option<CheckLine> {
     let path = reg.path.display();
     let settings = match settings_json::load(&reg.path) {
         Ok(Existing::Object(v)) => v,
-        Ok(Existing::Missing) if !set_up => return None,
-        Ok(Existing::Missing) => {
-            return Some(fail(format!("registration: {host} — {path} missing — run `squeez setup`")))
-        }
+        Ok(Existing::Missing) => return None,
         Err(_) => return Some(warn(format!("registration: {host} — {path} unreadable — skipped"))),
     };
     let audits = settings_json::audit_events(&settings, reg.root, &reg.specs);
     let runs = |a: &settings_json::EventAudit| a.managed.len() + a.user.len();
-    if !set_up && audits.iter().all(|a| runs(a) == 0) {
+    if audits.iter().all(|a| runs(a) == 0) {
         return None;
     }
     let missing: Vec<&str> = audits.iter().filter(|a| runs(a) == 0).map(|a| a.event).collect();
@@ -255,7 +256,7 @@ fn host_registration_checks() -> Vec<CheckLine> {
         .filter(|h| h.is_installed())
         .filter_map(|h| {
             let reg = h.hook_registration()?;
-            check_host_registration(h.name(), &reg, h.data_dir().exists())
+            check_host_registration(h.name(), &reg)
         })
         .collect()
 }
@@ -632,7 +633,7 @@ mod tests {
                  "PreToolUse":[{"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}],
                  "PostToolUse":[{"hooks":[{"command":"bash \"$H/codex-posttooluse.sh\""}]}]}}"#),
         );
-        let line = check_host_registration("codex", &reg, true).unwrap();
+        let line = check_host_registration("codex", &reg).unwrap();
         assert!(!line.fail && line.line.starts_with("[ok]") && line.line.contains("codex ok (2 hooks"), "{}", line.line);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -648,7 +649,7 @@ mod tests {
                                {"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}],
                  "PostToolUse":[{"hooks":[{"command":"bash \"$H/codex-posttooluse.sh\""}]}]}}"#),
         );
-        let line = check_host_registration("codex", &reg, true).unwrap();
+        let line = check_host_registration("codex", &reg).unwrap();
         assert!(line.line.starts_with("[WARN]"), "{}", line.line);
         assert!(line.line.contains("PreToolUse ×2"), "{}", line.line);
         assert!(line.line.contains("user-hooks/squeez-pretooluse.sh"), "{}", line.line);
@@ -661,19 +662,21 @@ mod tests {
             "lost",
             Some(r#"{"hooks":{"PreToolUse":[{"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}]}}"#),
         );
-        let line = check_host_registration("codex", &reg, true).unwrap();
+        let line = check_host_registration("codex", &reg).unwrap();
         assert!(line.fail && line.line.contains("PostToolUse not registered"), "{}", line.line);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A host squeez was never set up for is not a failure — the user may
-    /// simply not want that integration.
+    /// A host with no squeez registration is not a failure — never set up, or
+    /// deliberately uninstalled (uninstall keeps the data dir, so "set up"
+    /// cannot be read from it). Unrelated hooks that merely sit under a
+    /// `squeez-*` directory are not squeez registrations either.
     #[test]
     fn host_never_set_up_yields_no_line() {
         let (dir, reg) = host_fixture("none", None);
-        assert!(check_host_registration("codex", &reg, false).is_none());
-        let (dir2, reg2) = host_fixture("foreign", Some(r#"{"hooks":{"PreToolUse":[{"hooks":[{"command":"x"}]}]}}"#));
-        assert!(check_host_registration("codex", &reg2, false).is_none());
+        assert!(check_host_registration("codex", &reg).is_none());
+        let (dir2, reg2) = host_fixture("foreign", Some(r#"{"hooks":{"PreToolUse":[{"hooks":[{"command":"bash /h/src/squeez-notes/log.sh"}]}]}}"#));
+        assert!(check_host_registration("codex", &reg2).is_none());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir2);
     }
