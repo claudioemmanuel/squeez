@@ -87,6 +87,13 @@ pub trait HostAdapter {
     /// else intact. Idempotent.
     fn uninstall(&self) -> std::io::Result<()>;
 
+    /// Where this host's squeez hooks are registered, so `squeez doctor` can
+    /// audit them (#230). `None` for hosts doctor checks another way (Claude
+    /// Code) or that load squeez as a plugin rather than a hook file.
+    fn hook_registration(&self) -> Option<settings_json::HookRegistration> {
+        None
+    }
+
     /// Write the squeez memory block into the host's auto-loaded instructions
     /// file (CLAUDE.md / copilot-instructions.md / GEMINI.md / AGENTS.md).
     fn inject_memory(&self, cfg: &Config, summaries: &[Summary]) -> std::io::Result<()>;

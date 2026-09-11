@@ -7,6 +7,7 @@
 
 use crate::config::Config;
 use crate::hosts::claude_code::hooks_manifest;
+use crate::hosts::settings_json::{self, Existing, HookRegistration};
 use crate::json_util::JsonValue;
 use crate::session;
 use std::path::Path;
@@ -184,6 +185,81 @@ fn check_hooks_runnable(settings_path: &Path) -> CheckLine {
     ))
 }
 
+/// Registration check for a hook-file host other than Claude Code: every
+/// squeez event registered exactly once, with a runnable command.
+///
+/// The Claude checks above only read `~/.claude/settings.json`, so a missing,
+/// broken or duplicated Codex/Gemini/Copilot registration was invisible —
+/// including a second chain that ran the pipeline twice per tool call (#230).
+/// `set_up` is whether squeez was ever installed for this host; a host it was
+/// never set up for yields no line at all rather than a false FAIL.
+fn check_host_registration(host: &str, reg: &HookRegistration, set_up: bool) -> Option<CheckLine> {
+    let path = reg.path.display();
+    let settings = match settings_json::load(&reg.path) {
+        Ok(Existing::Object(v)) => v,
+        Ok(Existing::Missing) if !set_up => return None,
+        Ok(Existing::Missing) => {
+            return Some(fail(format!("registration: {host} — {path} missing — run `squeez setup`")))
+        }
+        Err(_) => return Some(warn(format!("registration: {host} — {path} unreadable — skipped"))),
+    };
+    let audits = settings_json::audit_events(&settings, reg.root, &reg.specs);
+    let runs = |a: &settings_json::EventAudit| a.managed.len() + a.user.len();
+    if !set_up && audits.iter().all(|a| runs(a) == 0) {
+        return None;
+    }
+    let missing: Vec<&str> = audits.iter().filter(|a| runs(a) == 0).map(|a| a.event).collect();
+    if !missing.is_empty() {
+        return Some(fail(format!(
+            "registration: {host} — {} not registered in {path} — run `squeez setup`",
+            missing.join(", ")
+        )));
+    }
+    // Only squeez's own commands are judged: `squeez setup` cannot fix a
+    // script the user maintains.
+    let broken: Vec<String> = audits
+        .iter()
+        .flat_map(|a| &a.managed)
+        .filter_map(|c| hook_command_problem(c, |p| p.exists()).map(|why| format!("{c} — {why}")))
+        .collect();
+    if !broken.is_empty() {
+        return Some(fail(format!(
+            "registration: {host} — {} hook command(s) cannot execute — run `squeez setup`\n         {}",
+            broken.len(),
+            broken.join("\n         ")
+        )));
+    }
+    let doubled: Vec<&settings_json::EventAudit> = audits.iter().filter(|a| runs(a) > 1).collect();
+    if !doubled.is_empty() {
+        let events: Vec<String> = doubled.iter().map(|a| format!("{} ×{}", a.event, runs(a))).collect();
+        let cmds: Vec<&String> = doubled.iter().flat_map(|a| a.managed.iter().chain(&a.user)).collect();
+        return Some(warn(format!(
+            "registration: {host} — squeez runs more than once per call ({}) — keep one entry per event in {path}\n         {}",
+            events.join(", "),
+            cmds.iter().map(|c| c.as_str()).collect::<Vec<_>>().join("\n         ")
+        )));
+    }
+    let user: Vec<&str> = audits.iter().filter(|a| !a.user.is_empty()).map(|a| a.event).collect();
+    let total: usize = audits.iter().map(runs).sum();
+    Some(ok(if user.is_empty() {
+        format!("registration: {host} ok ({total} hooks in {path})")
+    } else {
+        format!("registration: {host} ok ({total} hooks in {path}; your own hook on {})", user.join(", "))
+    }))
+}
+
+/// One registration line per installed hook-file host.
+fn host_registration_checks() -> Vec<CheckLine> {
+    crate::hosts::all_hosts()
+        .iter()
+        .filter(|h| h.is_installed())
+        .filter_map(|h| {
+            let reg = h.hook_registration()?;
+            check_host_registration(h.name(), &reg, h.data_dir().exists())
+        })
+        .collect()
+}
+
 /// The hooks drive their JSON handling through Python, so a missing or broken
 /// interpreter makes them no-ops. Probe by EXECUTING each candidate: on Windows
 /// `python3` is usually the Microsoft Store alias stub, which is on PATH and
@@ -330,15 +406,27 @@ fn check_blob_store(squeez_dir: &Path) -> CheckLine {
 
 /// Full doctor report. Returns the printable lines and whether any check FAILed.
 pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<String>, bool) {
-    let checks = [
+    run_with_hosts(squeez_dir, settings_path, cfg, Vec::new())
+}
+
+fn run_with_hosts(
+    squeez_dir: &Path,
+    settings_path: &Path,
+    cfg: &Config,
+    host_checks: Vec<CheckLine>,
+) -> (Vec<String>, bool) {
+    let mut checks = vec![
         check_hooks_drift(squeez_dir),
         check_hooks_registered(settings_path),
         check_hooks_runnable(settings_path),
+    ];
+    checks.extend(host_checks);
+    checks.extend([
         check_interpreter(),
         check_config(cfg),
         check_freshness(squeez_dir, cfg),
         check_blob_store(squeez_dir),
-    ];
+    ]);
     let has_fail = checks.iter().any(|c| c.fail);
     let mut lines: Vec<String> = vec![format!(
         "squeez doctor — v{} @ {}",
@@ -392,7 +480,12 @@ fn default_settings_path() -> std::path::PathBuf {
 /// CLI entry point: print the report, exit 1 on any FAIL.
 pub fn run() -> i32 {
     let cfg = Config::load();
-    let (lines, has_fail) = run_with(&session::squeez_dir(), &default_settings_path(), &cfg);
+    let (lines, has_fail) = run_with_hosts(
+        &session::squeez_dir(),
+        &default_settings_path(),
+        &cfg,
+        host_registration_checks(),
+    );
     for l in lines {
         println!("{}", l);
     }
@@ -503,5 +596,85 @@ mod tests {
         assert_eq!(cmds.len(), 4, "foreign hook excluded, squeez ones kept: {cmds:?}");
         assert!(cmds.iter().all(|c| c.contains("squeez")));
         assert!(cmds.iter().any(|c| c.contains("statusline.sh")));
+    }
+
+    fn host_fixture(label: &str, hooks_json: Option<&str>) -> (std::path::PathBuf, HookRegistration) {
+        let dir = std::env::temp_dir().join(format!(
+            "squeez_doctor_host_{label}_{}",
+            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let hooks = dir.join("squeez").join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let mut specs = Vec::new();
+        for (event, script) in [("PreToolUse", "codex-pretooluse.sh"), ("PostToolUse", "codex-posttooluse.sh")] {
+            std::fs::write(hooks.join(script), "#!/bin/sh\n").unwrap();
+            specs.push(settings_json::HookSpec {
+                event,
+                matcher: Some(".*"),
+                command: format!("bash {}", settings_json::shell_arg(&hooks.join(script))),
+                name: None,
+                timeout_ms: None,
+                script,
+            });
+        }
+        let path = dir.join("hooks.json");
+        if let Some(body) = hooks_json {
+            std::fs::write(&path, body.replace("$H", &hooks.display().to_string())).unwrap();
+        }
+        (dir, HookRegistration { path, root: settings_json::EventRoot::Nested, specs })
+    }
+
+    #[test]
+    fn healthy_host_registration_is_ok() {
+        let (dir, reg) = host_fixture(
+            "ok",
+            Some(r#"{"hooks":{
+                 "PreToolUse":[{"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}],
+                 "PostToolUse":[{"hooks":[{"command":"bash \"$H/codex-posttooluse.sh\""}]}]}}"#),
+        );
+        let line = check_host_registration("codex", &reg, true).unwrap();
+        assert!(!line.fail && line.line.starts_with("[ok]") && line.line.contains("codex ok (2 hooks"), "{}", line.line);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #230: a second chain ran the pipeline twice per Codex tool call while
+    /// doctor stayed green, because it only ever read the Claude settings.
+    #[test]
+    fn duplicate_chain_on_another_host_is_reported() {
+        let (dir, reg) = host_fixture(
+            "dup",
+            Some(r#"{"hooks":{
+                 "PreToolUse":[{"hooks":[{"command":"bash /h/.codex/user-hooks/squeez-pretooluse.sh"}]},
+                               {"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}],
+                 "PostToolUse":[{"hooks":[{"command":"bash \"$H/codex-posttooluse.sh\""}]}]}}"#),
+        );
+        let line = check_host_registration("codex", &reg, true).unwrap();
+        assert!(line.line.starts_with("[WARN]"), "{}", line.line);
+        assert!(line.line.contains("PreToolUse ×2"), "{}", line.line);
+        assert!(line.line.contains("user-hooks/squeez-pretooluse.sh"), "{}", line.line);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lost_registration_on_a_set_up_host_fails() {
+        let (dir, reg) = host_fixture(
+            "lost",
+            Some(r#"{"hooks":{"PreToolUse":[{"hooks":[{"command":"bash \"$H/codex-pretooluse.sh\""}]}]}}"#),
+        );
+        let line = check_host_registration("codex", &reg, true).unwrap();
+        assert!(line.fail && line.line.contains("PostToolUse not registered"), "{}", line.line);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A host squeez was never set up for is not a failure — the user may
+    /// simply not want that integration.
+    #[test]
+    fn host_never_set_up_yields_no_line() {
+        let (dir, reg) = host_fixture("none", None);
+        assert!(check_host_registration("codex", &reg, false).is_none());
+        let (dir2, reg2) = host_fixture("foreign", Some(r#"{"hooks":{"PreToolUse":[{"hooks":[{"command":"x"}]}]}}"#));
+        assert!(check_host_registration("codex", &reg2, false).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
     }
 }

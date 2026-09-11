@@ -58,6 +58,13 @@ impl CopilotCliAdapter {
     fn settings_path() -> PathBuf {
         Self::copilot_dir().join("settings.json")
     }
+    fn registration(&self) -> settings_json::HookRegistration {
+        settings_json::HookRegistration {
+            path: Self::settings_path(),
+            root: settings_json::EventRoot::TopLevel,
+            specs: hook_specs(&self.data_dir().join("hooks")),
+        }
+    }
     fn instructions_path() -> PathBuf {
         Self::copilot_dir().join("copilot-instructions.md")
     }
@@ -105,12 +112,11 @@ impl HostAdapter for CopilotCliAdapter {
         write_hook(&hooks, "copilot-session-start.sh", SESSION_START_SCRIPT)?;
         write_hook(&hooks, "copilot-posttooluse.sh", POSTTOOLUSE_SCRIPT)?;
 
-        settings_json::patch_events(
-            &Self::settings_path(),
-            settings_json::EventRoot::TopLevel,
-            &hook_specs(&hooks),
-        )?;
-        Ok(())
+        settings_json::install_registration(&self.registration())
+    }
+
+    fn hook_registration(&self) -> Option<settings_json::HookRegistration> {
+        Some(self.registration())
     }
 
     fn uninstall(&self) -> std::io::Result<()> {
