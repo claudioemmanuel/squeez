@@ -37,6 +37,7 @@ export default function (pi: any) {
     spawnSync(sq, ["init", "--host=pi"], {
       env: { ...process.env, SQUEEZ_DIR },
       timeout: 5000,
+      windowsHide: true,
     });
   });
 
@@ -65,6 +66,7 @@ export default function (pi: any) {
       encoding: "utf8",
       env: { ...process.env, SQUEEZ_DIR },
       timeout: 3000,
+      windowsHide: true,
     });
     if (result.status === 0 && result.stdout) {
       return { content: [{ type: "text", text: result.stdout as string }] };
@@ -76,6 +78,7 @@ export default function (pi: any) {
     spawnSync(sq, ["track", "PreCompact", "0"], {
       env: { ...process.env, SQUEEZ_DIR },
       timeout: 3000,
+      windowsHide: true,
     });
   });
 }

@@ -149,7 +149,7 @@ fn is_git_tracked(path: &Path) -> bool {
         (Some(d), Some(f)) if !d.as_os_str().is_empty() => (d, f),
         _ => return false,
     };
-    std::process::Command::new("git")
+    crate::spawn::helper("git")
         .arg("-C")
         .arg(dir)
         .args(["ls-files", "--error-unmatch", "--"])

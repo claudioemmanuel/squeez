@@ -190,7 +190,7 @@ fn check_hooks_runnable(settings_path: &Path) -> CheckLine {
 /// passes `command -v` but exits non-zero when run (#209).
 fn check_interpreter() -> CheckLine {
     for candidate in ["python3", "python", "py"] {
-        let runs = std::process::Command::new(candidate)
+        let runs = crate::spawn::helper(candidate)
             .args(["-c", ""])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

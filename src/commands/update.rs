@@ -2,7 +2,6 @@
 // `sha256sum` / `shasum -a 256` (both already required by install.sh).
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::json_util;
 use crate::session::home_dir;
@@ -226,7 +225,7 @@ fn fetch_latest_tag() -> Result<String, String> {
 }
 
 pub fn curl(url: &str) -> Result<Vec<u8>, String> {
-    let out = Command::new("curl")
+    let out = crate::spawn::helper("curl")
         .args(["-fsSL", "-A", "squeez-update", url])
         .output()
         .map_err(|e| format!("curl spawn: {}", e))?;
@@ -282,7 +281,7 @@ fn compute_sha256(bytes: &[u8]) -> Option<String> {
 
 fn run_hasher(cmd: &str, args: &[&str], input: &[u8]) -> Option<String> {
     use std::io::Write;
-    let mut child = Command::new(cmd)
+    let mut child = crate::spawn::helper(cmd)
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -355,16 +354,13 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<bool, String> {
 
         // Rename dance failed (target locked) — spawn a detached cmd.exe that
         // moves the staged file into place after this process exits.
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let cmd_str = format!(
             "ping -n 2 127.0.0.1 > nul && move /Y \"{}\" \"{}\"",
             staging.display(),
             target.display()
         );
-        let spawned = std::process::Command::new("cmd")
+        let spawned = crate::spawn::helper("cmd")
             .args(["/c", &cmd_str])
-            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .is_ok();
         if spawned {
