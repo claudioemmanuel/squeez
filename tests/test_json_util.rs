@@ -118,3 +118,31 @@ fn test_escaped_control_chars_reparse_as_json() {
     let parsed = squeez::json_util::parse_value(&doc).expect("escaped payload must parse");
     assert_eq!(parsed.get_str("text"), raw);
 }
+
+// Issue #229: extractors must return decoded text, or every load/save cycle
+// re-escapes the backslashes it failed to decode.
+#[test]
+fn test_extractors_decode_escapes() {
+    use squeez::json_util::{escape_str, extract_all, extract_str, extract_str_array, map_str, map_str_array, str_array};
+    let path = r#"C:\Users\You\"quoted".txt"#;
+    let obj = format!(
+        "{{\"p\":\"{}\",\"a\":{},\"n\":1}}",
+        escape_str(path),
+        str_array(&[path.to_string(), "plain".to_string()])
+    );
+    assert_eq!(extract_str(&obj, "p").as_deref(), Some(path));
+    assert_eq!(extract_str_array(&obj, "a"), vec![path.to_string(), "plain".to_string()]);
+    let map = extract_all(&obj);
+    assert_eq!(map_str(&map, "p").as_deref(), Some(path));
+    assert_eq!(map_str_array(&map, "a"), vec![path.to_string(), "plain".to_string()]);
+}
+
+#[test]
+fn test_escape_then_extract_is_a_fixed_point() {
+    use squeez::json_util::{escape_str, extract_str};
+    let mut v = r"C:\a\b".to_string();
+    for _ in 0..6 {
+        v = extract_str(&format!("{{\"k\":\"{}\"}}", escape_str(&v)), "k").unwrap();
+    }
+    assert_eq!(v, r"C:\a\b");
+}

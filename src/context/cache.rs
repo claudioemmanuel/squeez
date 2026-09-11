@@ -1911,6 +1911,31 @@ mod tests {
     }
 
     #[test]
+    fn windows_paths_survive_repeated_round_trips_unchanged() {
+        // Issue #229: each load/save re-escaped every backslash, so a tracked
+        // Windows path doubled its backslashes per cycle.
+        let path = r"C:\Users\You\test\path.txt";
+        let mut c = SessionContext::default();
+        c.session_file = r"C:\sessions\a.jsonl".to_string();
+        c.note_file(path, FileAccess::Read);
+        c.error_snippets.push((1, r#"error: "C:\x" not found"#.to_string()));
+        c.seen_git_refs.push(r"refs\heads\main".to_string());
+        c.last_budget_tag = r"[a\b]".to_string();
+
+        let mut json = c.to_json();
+        for _ in 0..8 {
+            json = SessionContext::from_json(&json).to_json();
+        }
+        let r = SessionContext::from_json(&json);
+        assert_eq!(json.len(), c.to_json().len(), "serialized size must not grow");
+        assert_eq!(r.seen_files[0].path, path);
+        assert_eq!(r.session_file, c.session_file);
+        assert_eq!(r.error_snippets[0].1, c.error_snippets[0].1);
+        assert_eq!(r.seen_git_refs, c.seen_git_refs);
+        assert_eq!(r.last_budget_tag, c.last_budget_tag);
+    }
+
+    #[test]
     fn normalize_url_path_strips_scheme_query_and_www() {
         assert_eq!(normalize_url_path("https://app.co/x?t=1#a"), "app.co/x");
         assert_eq!(normalize_url_path("http://app.co/x"), "app.co/x");

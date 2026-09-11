@@ -35,7 +35,7 @@ pub fn build_summary() -> Option<String> {
         let listed: Vec<String> = files
             .iter()
             .take(8)
-            .map(|f| format!("{}({})", f.path, f.access.as_char()))
+            .map(|f| format!("{}({})", cap_chars(&f.path, 160), f.access.as_char()))
             .collect();
         parts.push(format!("files: {}", listed.join(", ")));
     }
@@ -92,20 +92,28 @@ pub fn build_summary() -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    Some(format!(
+    let text = format!(
         "[squeez session state — restored after compaction] {}",
         parts.join("; ")
-    ))
+    );
+    // Hard ceiling: this lands in the context right after compaction reclaimed
+    // it, and a state summary never legitimately needs more. Any future
+    // escaping regression (#229) then costs a few KB, not millions of tokens.
+    Some(cap_chars(&text, MAX_SUMMARY_CHARS))
 }
 
+/// Upper bound on the re-injected summary, in chars.
+const MAX_SUMMARY_CHARS: usize = 4000;
+
 fn trim_snippet(s: &str) -> String {
-    let one_line = s.replace('\n', " ");
-    let t = one_line.trim();
-    const MAX: usize = 80;
-    if t.chars().count() <= MAX {
-        t.to_string()
+    cap_chars(s.replace('\n', " ").trim(), 80)
+}
+
+fn cap_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
     } else {
-        let cut: String = t.chars().take(MAX).collect();
+        let cut: String = s.chars().take(max).collect();
         format!("{cut}…")
     }
 }
@@ -121,6 +129,14 @@ mod tests {
         let out = trim_snippet(&long);
         assert!(out.ends_with('…'));
         assert!(out.chars().count() <= 81);
+    }
+
+    #[test]
+    fn cap_chars_bounds_oversized_text() {
+        let huge = "\\".repeat(1 << 20);
+        let out = cap_chars(&huge, MAX_SUMMARY_CHARS);
+        assert_eq!(out.chars().count(), MAX_SUMMARY_CHARS + 1);
+        assert_eq!(cap_chars("short", MAX_SUMMARY_CHARS), "short");
     }
 }
 
