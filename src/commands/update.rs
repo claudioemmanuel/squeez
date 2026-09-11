@@ -103,12 +103,10 @@ pub fn run(args: &[String]) -> i32 {
 
     if immediate {
         println!("squeez update: installed {} → {}", current, latest_clean);
-        // Re-register hooks in settings.json (path may have changed, or first-time setup)
-        if let Err(e) = crate::commands::setup::register_claude_settings() {
-            eprintln!("squeez update: warning: could not update settings.json: {}", e);
-        }
+        report_refresh(refresh_hooks(&target_path));
     } else {
         println!("squeez update: {} → {} queued — restart to apply", current, latest_clean);
+        println!("squeez update: then run `squeez setup --host=claude-code` to install its hooks");
     }
 
     0
@@ -181,9 +179,7 @@ fn update_via_cargo(version: &str) -> i32 {
     match status {
         Ok(s) if s.success() => {
             println!("squeez update: installed {} via cargo", version);
-            if let Err(e) = crate::commands::setup::register_claude_settings() {
-                eprintln!("squeez update: warning: could not update settings.json: {}", e);
-            }
+            report_refresh(refresh_hooks(&install_target_path()));
             0
         }
         Ok(s) => {
@@ -193,6 +189,40 @@ fn update_via_cargo(version: &str) -> i32 {
         Err(e) => {
             eprintln!("squeez update: could not run cargo: {}", e);
             1
+        }
+    }
+}
+
+/// Re-register the Claude Code hooks by running the binary just installed at
+/// `installed`, and return what its `setup` printed.
+///
+/// This process is the outgoing version: registering in-process wrote the hook
+/// scripts embedded in the *old* binary, so every hook change a release
+/// shipped stayed inert until the user ran `squeez setup` by hand (#237).
+pub fn refresh_hooks(installed: &Path) -> Result<String, String> {
+    let out = crate::spawn::helper(installed)
+        .args(["setup", "--host=claude-code"])
+        .output()
+        .map_err(|e| format!("could not run {}: {e}", installed.display()))?;
+    if !out.status.success() {
+        return Err(format!(
+            "{} setup exited {}: {}",
+            installed.display(),
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Relay a hook refresh to the user. On failure nothing is re-registered —
+/// falling back to this process would reinstall the old scripts.
+fn report_refresh(result: Result<String, String>) {
+    match result {
+        Ok(stdout) => print!("{stdout}"),
+        Err(e) => {
+            eprintln!("squeez update: warning: hooks not refreshed ({e})");
+            eprintln!("squeez update: run `squeez setup --host=claude-code` to finish");
         }
     }
 }
