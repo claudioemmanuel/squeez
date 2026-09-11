@@ -103,10 +103,11 @@ pub fn run(args: &[String]) -> i32 {
 
     if immediate {
         println!("squeez update: installed {} → {}", current, latest_clean);
-        report_refresh(refresh_hooks(&target_path));
+        refresh_after_install(&target_path);
     } else {
+        // The deferred move re-registers the hooks itself once the new binary
+        // is in place (see `install_atomic`).
         println!("squeez update: {} → {} queued — restart to apply", current, latest_clean);
-        println!("squeez update: then run `squeez setup --host=claude-code` to install its hooks");
     }
 
     0
@@ -173,13 +174,16 @@ fn is_cargo_managed() -> bool {
 
 fn update_via_cargo(version: &str) -> i32 {
     println!("squeez update: cargo install detected — running cargo install squeez@{}...", version);
+    // Resolve the path while this binary still exists: once cargo renames the
+    // new one over it, Linux reports `current_exe` as `… (deleted)`.
+    let installed = install_target_path();
     let status = std::process::Command::new("cargo")
         .args(["install", "squeez", "--version", version])
         .status();
     match status {
         Ok(s) if s.success() => {
             println!("squeez update: installed {} via cargo", version);
-            report_refresh(refresh_hooks(&install_target_path()));
+            refresh_after_install(&installed);
             0
         }
         Ok(s) => {
@@ -213,6 +217,15 @@ pub fn refresh_hooks(installed: &Path) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Refresh the Claude Code hooks after an install, when Claude Code is present.
+/// A user of another host only has no Claude hooks to refresh, and `setup`
+/// would fail with "host not detected".
+fn refresh_after_install(installed: &Path) {
+    if crate::hosts::find("claude-code").is_some_and(|a| a.is_installed()) {
+        report_refresh(refresh_hooks(installed));
+    }
 }
 
 /// Relay a hook refresh to the user. On failure nothing is re-registered —
@@ -383,14 +396,20 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<bool, String> {
         }
 
         // Rename dance failed (target locked) — spawn a detached cmd.exe that
-        // moves the staged file into place after this process exits.
+        // moves the staged file into place after this process exits, then has
+        // the new binary re-register its own hooks (#237; `setup` skips the
+        // host quietly when Claude Code is absent).
         let cmd_str = format!(
-            "ping -n 2 127.0.0.1 > nul && move /Y \"{}\" \"{}\"",
+            "ping -n 2 127.0.0.1 > nul && move /Y \"{0}\" \"{1}\" && \"{1}\" setup --host=claude-code > nul 2>&1",
             staging.display(),
             target.display()
         );
+        // raw_arg, not arg: std quotes arguments by the MSVC convention (`\"`),
+        // which cmd.exe does not understand, so the quoted paths would break.
+        use std::os::windows::process::CommandExt;
         let spawned = crate::spawn::helper("cmd")
-            .args(["/c", &cmd_str])
+            .arg("/c")
+            .raw_arg(&cmd_str)
             .spawn()
             .is_ok();
         if spawned {
@@ -398,6 +417,7 @@ pub fn install_atomic(bytes: &[u8], target: &Path) -> Result<bool, String> {
         } else {
             eprintln!("squeez update: wrote {} — run to complete:", staging.display());
             eprintln!("  move /Y \"{}\" \"{}\"", staging.display(), target.display());
+            eprintln!("  squeez setup --host=claude-code");
         }
         return Ok(false);
     }
