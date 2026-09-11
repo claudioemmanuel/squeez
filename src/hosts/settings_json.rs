@@ -11,7 +11,7 @@
 //! interpreter dependency at all.
 
 use crate::json_util::{self, JsonValue};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Outcome of reading a settings file that squeez is about to rewrite.
 pub enum Existing {
@@ -251,20 +251,67 @@ fn upgrade_hook(
     }
 }
 
+/// True for a hook command that runs squeez but that squeez did not install.
+///
+/// squeez only ever registers scripts under `…/squeez/hooks/` (core) and
+/// `…/squeez/buddy/`. A wrapper the user maintains — e.g.
+/// `~/.codex/user-hooks/squeez-pretooluse.sh` (#230) — is neither. It must
+/// *name* squeez: an argument whose file name contains "squeez" (the script or
+/// the binary). A mere directory match like `~/src/squeez-notes/log.sh` is an
+/// unrelated hook and must not stop squeez from registering its own.
+pub fn is_user_squeez_cmd(cmd: &str) -> bool {
+    let norm = normalize_sep(cmd);
+    !is_buddy_cmd(cmd)
+        && !norm.contains("/squeez/hooks/")
+        && norm.split_whitespace().any(|arg| {
+            let arg = arg.trim_matches(|c| c == '"' || c == '\'');
+            arg.rsplit('/').next().is_some_and(|name| name.contains("squeez"))
+        })
+}
+
+/// Every hook `command` string under `event`, in registration order.
+fn event_commands<'a>(hooks_root: &'a JsonValue, event: &str) -> Vec<&'a str> {
+    hooks_root
+        .get(event)
+        .map(|v| v.as_arr())
+        .unwrap_or(&[])
+        .iter()
+        .flat_map(|entry| entry.get("hooks").map(|h| h.as_arr()).unwrap_or(&[]))
+        .map(|hook| hook.get_str("command"))
+        .collect()
+}
+
 /// [`patch_events`]'s upgrader: same shape as [`upgrade_hook`], but replaces
 /// the whole matching hook object (not just `command`) so a stale `name` or
 /// `timeout` from an older squeez version is corrected too — fields
 /// `upgrade_hook` doesn't know about because Claude Code's specs never carry
 /// them.
-fn upgrade_hook_spec(hooks_root: &mut JsonValue, spec: &HookSpec) {
-    let arr = hooks_root.ensure_arr(spec.event);
+///
+/// Returns a note, and registers nothing, when the event carries no squeez
+/// hook of ours but already runs one the user maintains: appending ours ran
+/// the whole pipeline twice per tool call (#230).
+fn upgrade_hook_spec(hooks_root: &mut JsonValue, spec: &HookSpec) -> Option<String> {
     let matches = |cmd: &str| is_core_script(cmd, spec.script);
+    let has_ours = event_commands(hooks_root, spec.event).into_iter().any(matches);
+    if !has_ours {
+        if let Some(user) = event_commands(hooks_root, spec.event)
+            .into_iter()
+            .find(|c| is_user_squeez_cmd(c))
+        {
+            return Some(format!(
+                "{} already runs squeez via your own hook ({user}) — not adding a second one; \
+                 remove that entry and re-run setup to use squeez's managed hook",
+                spec.event
+            ));
+        }
+    }
+    let arr = hooks_root.ensure_arr(spec.event);
     let Some(entry) = arr.iter_mut().find(|m| entry_cmd_any(m, &matches)) else {
         arr.push(spec.to_entry());
-        return;
+        return None;
     };
     let hooks = entry.get_mut("hooks").and_then(|h| h.as_arr_mut());
-    let Some(hooks) = hooks else { return };
+    let Some(hooks) = hooks else { return None };
     let mut only_ours = true;
     for hook in hooks.iter_mut() {
         if !matches(hook.get_str("command")) {
@@ -278,6 +325,7 @@ fn upgrade_hook_spec(hooks_root: &mut JsonValue, spec: &HookSpec) {
             entry.set("matcher", JsonValue::Str(m.to_string()));
         }
     }
+    None
 }
 
 /// Append `entry` under `event` unless a buddy hook is already there.
@@ -373,32 +421,79 @@ pub enum EventRoot {
 /// freezing it — the same self-heal `upgrade_squeez_hook` gives Claude Code
 /// (issue #209: a broken command string still contains "squeez", so a
 /// presence-only check never corrects it on later `squeez setup` runs).
-/// Idempotent, and never disturbs foreign entries.
+/// Idempotent, and never disturbs foreign entries. Returns one note per event
+/// left to a squeez hook the user maintains (see [`upgrade_hook_spec`]).
 pub fn patch_events(
     path: &Path,
     root_kind: EventRoot,
     specs: &[HookSpec],
-) -> std::io::Result<()> {
+) -> std::io::Result<Vec<String>> {
     let mut settings = match load(path) {
         Ok(Existing::Object(v)) => v,
         Ok(Existing::Missing) => JsonValue::Obj(Vec::new()),
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
     };
 
-    match root_kind {
-        EventRoot::TopLevel => {
-            for spec in specs {
-                upgrade_hook_spec(&mut settings, spec);
-            }
-        }
-        EventRoot::Nested => {
-            let root = settings.ensure_obj("hooks");
-            for spec in specs {
-                upgrade_hook_spec(root, spec);
-            }
-        }
+    let root = match root_kind {
+        EventRoot::TopLevel => &mut settings,
+        EventRoot::Nested => settings.ensure_obj("hooks"),
+    };
+    let notes: Vec<String> = specs.iter().filter_map(|spec| upgrade_hook_spec(root, spec)).collect();
+    write_atomic(path, &settings)?;
+    Ok(notes)
+}
+
+/// Where a host registers squeez's hooks. [`install_registration`] writes it
+/// and `squeez doctor` audits it, so the two read the same definition.
+pub struct HookRegistration {
+    pub path: PathBuf,
+    pub root: EventRoot,
+    pub specs: Vec<HookSpec>,
+}
+
+/// `patch_events` for a host's registration, printing any notes for the user.
+pub fn install_registration(reg: &HookRegistration) -> std::io::Result<()> {
+    for note in patch_events(&reg.path, reg.root, &reg.specs)? {
+        eprintln!("squeez setup: {}: {note}", reg.path.display());
     }
-    write_atomic(path, &settings)
+    Ok(())
+}
+
+/// What actually runs for one registered event, for `squeez doctor`.
+pub struct EventAudit {
+    pub event: &'static str,
+    /// Hook commands squeez installed for this event.
+    pub managed: Vec<String>,
+    /// Hook commands that run squeez but that the user maintains.
+    pub user: Vec<String>,
+}
+
+/// Audit each spec's event in `settings` without modifying anything.
+pub fn audit_events(settings: &JsonValue, root_kind: EventRoot, specs: &[HookSpec]) -> Vec<EventAudit> {
+    let empty = JsonValue::Obj(Vec::new());
+    let root = match root_kind {
+        EventRoot::TopLevel => settings,
+        EventRoot::Nested => settings.get("hooks").unwrap_or(&empty),
+    };
+    specs
+        .iter()
+        .map(|spec| {
+            let cmds = event_commands(root, spec.event);
+            EventAudit {
+                event: spec.event,
+                managed: cmds
+                    .iter()
+                    .filter(|c| is_core_script(c, spec.script))
+                    .map(|c| c.to_string())
+                    .collect(),
+                user: cmds
+                    .iter()
+                    .filter(|c| !is_core_script(c, spec.script) && is_user_squeez_cmd(c))
+                    .map(|c| c.to_string())
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 /// Reverse [`patch_events`]: drop squeez entries for each event, then drop an
@@ -526,5 +621,83 @@ mod tests {
         let bak = std::fs::read_to_string(dir.join("settings.json.bak")).unwrap();
         assert!(bak.contains("old"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn codex_spec(event: &'static str, script: &'static str) -> HookSpec {
+        HookSpec {
+            event,
+            matcher: Some(".*"),
+            command: format!("bash \"/h/.codex/squeez/hooks/{script}\""),
+            name: None,
+            timeout_ms: Some(5000),
+            script,
+        }
+    }
+
+    /// #230: a hand-maintained chain already runs squeez on PreToolUse; setup
+    /// must not append its own and run the pipeline twice per tool call.
+    #[test]
+    fn user_maintained_squeez_hook_is_not_doubled() {
+        let mut root = obj(
+            r#"{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"bash /h/.codex/user-hooks/squeez-pretooluse.sh"}]}]}"#,
+        );
+        let pre = codex_spec("PreToolUse", "codex-pretooluse.sh");
+        let post = codex_spec("PostToolUse", "codex-posttooluse.sh");
+        let note = upgrade_hook_spec(&mut root, &pre).expect("must explain the skip");
+        assert!(note.contains("user-hooks/squeez-pretooluse.sh"), "{note}");
+        assert_eq!(upgrade_hook_spec(&mut root, &post), None);
+        assert_eq!(event_commands(&root, "PreToolUse").len(), 1, "no second chain");
+        assert_eq!(event_commands(&root, "PostToolUse"), vec![post.command.as_str()]);
+    }
+
+    #[test]
+    fn only_a_command_naming_squeez_counts_as_a_user_squeez_hook() {
+        assert!(is_user_squeez_cmd("bash /h/.codex/user-hooks/squeez-pretooluse.sh"));
+        assert!(is_user_squeez_cmd(r#"bash "C:\Users\x\hooks\squeez-pre.sh""#));
+        assert!(is_user_squeez_cmd("/home/u/.claude/squeez/bin/squeez track PostToolUse 0"));
+        assert!(!is_user_squeez_cmd("bash /h/src/squeez-notes/log.sh"), "directory match only");
+        assert!(!is_user_squeez_cmd("bash \"/h/.codex/squeez/hooks/codex-pretooluse.sh\""), "managed");
+        assert!(!is_user_squeez_cmd("bash /h/.claude/squeez/buddy/shims/stop.sh"), "buddy");
+        // …so an unrelated hook never suppresses squeez's own registration.
+        let mut root = obj(r#"{"PreToolUse":[{"hooks":[{"command":"bash /h/src/squeez-notes/log.sh"}]}]}"#);
+        let pre = codex_spec("PreToolUse", "codex-pretooluse.sh");
+        assert_eq!(upgrade_hook_spec(&mut root, &pre), None);
+        assert_eq!(event_commands(&root, "PreToolUse").len(), 2);
+    }
+
+    /// Our own registration is still upgraded in place when a user hook sits
+    /// beside it — only the append is suppressed.
+    #[test]
+    fn managed_hook_still_upgrades_beside_a_user_hook() {
+        let mut root = obj(
+            r#"{"PreToolUse":[
+                 {"hooks":[{"command":"bash /h/.codex/user-hooks/squeez-pretooluse.sh"}]},
+                 {"hooks":[{"command":"bash C:\\old\\.codex\\squeez\\hooks\\codex-pretooluse.sh"}]}
+               ]}"#,
+        );
+        let pre = codex_spec("PreToolUse", "codex-pretooluse.sh");
+        assert_eq!(upgrade_hook_spec(&mut root, &pre), None);
+        let cmds = event_commands(&root, "PreToolUse");
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds[1], pre.command);
+    }
+
+    #[test]
+    fn audit_separates_managed_user_and_foreign_hooks() {
+        let settings = obj(
+            r#"{"hooks":{"PreToolUse":[
+                 {"hooks":[{"command":"bash \"/h/.codex/squeez/hooks/codex-pretooluse.sh\""}]},
+                 {"hooks":[{"command":"bash /h/.codex/user-hooks/squeez-pretooluse.sh"}]},
+                 {"hooks":[{"command":"bash /opt/other/hook.sh"}]}
+               ]}}"#,
+        );
+        let specs = [
+            codex_spec("PreToolUse", "codex-pretooluse.sh"),
+            codex_spec("SessionStart", "codex-session-start.sh"),
+        ];
+        let audits = audit_events(&settings, EventRoot::Nested, &specs);
+        assert_eq!(audits[0].managed.len(), 1);
+        assert_eq!(audits[0].user, vec!["bash /h/.codex/user-hooks/squeez-pretooluse.sh"]);
+        assert!(audits[1].managed.is_empty() && audits[1].user.is_empty());
     }
 }

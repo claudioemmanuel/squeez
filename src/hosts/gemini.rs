@@ -81,6 +81,14 @@ impl GeminiCliAdapter {
         Self::gemini_dir().join("GEMINI.md")
     }
 
+    fn registration(&self) -> settings_json::HookRegistration {
+        settings_json::HookRegistration {
+            path: Self::settings_path(),
+            root: settings_json::EventRoot::Nested,
+            specs: hook_specs(&Self::hooks_dir()),
+        }
+    }
+
     fn write_hook_scripts(hooks_dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(hooks_dir)?;
         for (name, body) in [
@@ -121,15 +129,12 @@ impl HostAdapter for GeminiCliAdapter {
     }
 
     fn install(&self, _bin_path: &Path) -> std::io::Result<()> {
-        let hooks_dir = Self::hooks_dir();
-        Self::write_hook_scripts(&hooks_dir)?;
-        let settings = Self::settings_path();
-        settings_json::patch_events(
-            &settings,
-            settings_json::EventRoot::Nested,
-            &hook_specs(&hooks_dir),
-        )?;
-        Ok(())
+        Self::write_hook_scripts(&Self::hooks_dir())?;
+        settings_json::install_registration(&self.registration())
+    }
+
+    fn hook_registration(&self) -> Option<settings_json::HookRegistration> {
+        Some(self.registration())
     }
 
     fn uninstall(&self) -> std::io::Result<()> {
