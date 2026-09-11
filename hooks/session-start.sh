@@ -25,6 +25,11 @@ if [ ! -x "$SQUEEZ" ]; then
     [ -n "$_sq" ] && SQUEEZ="$_sq"
 fi
 [ ! -x "$SQUEEZ" ] && exit 0
+# After /compact (source=compact on the stdin payload), restore squeez's
+# session state first: it must read the pre-compaction session before init
+# rolls it over, and SessionStart stdout is what reaches the model — PostCompact
+# output does not (#225). Consumes stdin; prints nothing on any other start.
+"$SQUEEZ" compact-summary --session-start 2>/dev/null || true
 "$SQUEEZ" init
 
 # Hook health check — warn if squeez hooks were removed from settings.json

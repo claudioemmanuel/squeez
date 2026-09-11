@@ -6,21 +6,22 @@
 //! recent git refs — and re-discovers it with fresh tool calls.
 //!
 //! A PreCompact hook can't steer the built-in summarizer (researched: no
-//! custom-instructions / transcript-rewrite API; it can only block). But a
-//! **PostCompact** hook can return `additionalContext` that survives into the
-//! freshly-compacted context. So squeez re-injects its own accumulated session
-//! state — which it already tracks in `SessionContext` — as a dense block,
-//! plus pointers to any `squeez_retrieve` blobs holding outputs that
-//! compaction dropped.
+//! custom-instructions / transcript-rewrite API; it can only block). So squeez
+//! re-injects its own accumulated session state — which it already tracks in
+//! `SessionContext` — as a dense block, plus pointers to any `squeez_retrieve`
+//! blobs holding outputs that compaction dropped.
 //!
-//! Output is the Claude Code PostCompact hook JSON shape; the hook script
-//! prints it on stdout.
+//! Delivery goes through **SessionStart** (`source: "compact"`), which fires
+//! right after the compaction summary is written and whose stdout becomes
+//! context. PostCompact cannot inject anything: Claude Code rejects
+//! `hookSpecificOutput` for it and shows its stdout only as a UI notice
+//! (#225). Output is therefore plain text, never hook JSON.
 
 use crate::context::cache::SessionContext;
 use crate::context::retrieve;
 use crate::session;
 
-/// Build the post-compact `additionalContext` text from current session state.
+/// Build the post-compact context text from current session state.
 /// Returns `None` when there's nothing worth re-injecting.
 pub fn build_summary() -> Option<String> {
     let ctx = SessionContext::load(&session::sessions_dir());
@@ -138,16 +139,46 @@ mod tests {
         assert_eq!(out.chars().count(), MAX_SUMMARY_CHARS + 1);
         assert_eq!(cap_chars("short", MAX_SUMMARY_CHARS), "short");
     }
+
+    #[test]
+    fn only_the_compact_source_counts_as_a_compact_start() {
+        assert!(is_compact_start(r#"{"session_id":"s","source":"compact"}"#));
+        assert!(is_compact_start(r#"{"source": "compact"}"#));
+        for other in ["startup", "resume", "clear"] {
+            assert!(!is_compact_start(&format!(r#"{{"source":"{other}"}}"#)));
+        }
+        assert!(!is_compact_start(""));
+    }
 }
 
-/// Emit the PostCompact hook JSON on stdout. Always exits 0 — re-injection is
-/// best-effort and must never disrupt the host.
+/// Whether a SessionStart hook payload is the restart that follows `/compact`.
+pub fn is_compact_start(payload: &str) -> bool {
+    crate::json_util::extract_str(payload, "source").as_deref() == Some("compact")
+}
+
+/// `squeez compact-summary --session-start`: the SessionStart hook entry.
+/// Reads the hook payload from stdin and restores state only when this start
+/// follows a compaction; every other start prints nothing.
+pub fn run_session_start() -> i32 {
+    use std::io::{IsTerminal, Read};
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        return 0;
+    }
+    let mut payload = String::new();
+    let _ = stdin.read_to_string(&mut payload);
+    if is_compact_start(&payload) {
+        run()
+    } else {
+        0
+    }
+}
+
+/// Print the session-state summary as plain text on stdout. Always exits 0 —
+/// re-injection is best-effort and must never disrupt the host.
 pub fn run() -> i32 {
     if let Some(text) = build_summary() {
-        println!(
-            "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PostCompact\",\"additionalContext\":\"{}\"}}}}",
-            crate::json_util::escape_str(&text)
-        );
+        println!("{text}");
     }
     // The header tag-dedup memo (E1) tracks what the model has already seen;
     // compaction rebuilds the model's context from scratch, so the memo must
