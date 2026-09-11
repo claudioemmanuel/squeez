@@ -21,6 +21,10 @@
 
 import { execSync, spawn } from "child_process";
 
+// Every child below passes `windowsHide: true`. On Windows, execSync goes
+// through cmd.exe and a detached spawn gets its own console, so without it
+// each tool call flashed a console window (squeez issue #231).
+
 const HOME = process.env.HOME || process.env.USERPROFILE || "";
 const SQUEEZ_BIN = `${HOME}/.claude/squeez/bin/squeez`;
 
@@ -33,7 +37,7 @@ const BUDGET_TOOL_SLUG = {
 
 function squeezExists() {
   try {
-    execSync(`test -x "${SQUEEZ_BIN}"`, { timeout: 500 });
+    execSync(`test -x "${SQUEEZ_BIN}"`, { timeout: 500, windowsHide: true });
     return true;
   } catch {
     return false;
@@ -42,7 +46,10 @@ function squeezExists() {
 
 function runInit() {
   try {
-    execSync(`"${SQUEEZ_BIN}" init --host=opencode`, { timeout: 5000 });
+    execSync(`"${SQUEEZ_BIN}" init --host=opencode`, {
+      timeout: 5000,
+      windowsHide: true,
+    });
   } catch {
     // best-effort — don't break the session if squeez init fails
   }
@@ -55,6 +62,7 @@ function budgetPatch(tool) {
     const out = execSync(`"${SQUEEZ_BIN}" budget-params ${slug}`, {
       timeout: 2000,
       encoding: "utf8",
+      windowsHide: true,
     }).trim();
     if (!out) return null;
     return JSON.parse(out);
@@ -69,6 +77,7 @@ function trackResult(tool) {
     spawn(SQUEEZ_BIN, ["track-result", tool], {
       stdio: "ignore",
       detached: true,
+      windowsHide: true,
     }).unref();
   } catch {
     // best-effort

@@ -9,7 +9,7 @@ use std::path::Path;
 /// Returns a squeez lang code: "pt-BR", "en", etc.
 pub fn detect_lang() -> String {
     // macOS: `defaults read -g AppleLanguages` → ("pt-BR", "en-US", ...)
-    if let Ok(out) = std::process::Command::new("defaults")
+    if let Ok(out) = crate::spawn::helper("defaults")
         .args(["read", "-g", "AppleLanguages"])
         .output()
     {

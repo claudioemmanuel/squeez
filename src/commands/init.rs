@@ -525,7 +525,7 @@ fn check_claude_md_size() {
 }
 
 fn git(args: &[&str]) -> String {
-    std::process::Command::new("git")
+    crate::spawn::helper("git")
         .args(args)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
