@@ -177,13 +177,3 @@ fn print_help() {
     println!("Supported hosts: claude-code, copilot, opencode, gemini, codex");
 }
 
-/// Legacy helper preserved for callers (e.g. `squeez update`) that still
-/// expect a Claude Code-specific registration entry point. Now delegates
-/// to the adapter.
-pub fn register_claude_settings() -> Result<(), String> {
-    let adapter = find("claude-code").ok_or("claude-code adapter missing")?;
-    let bin = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("squeez"));
-    adapter
-        .install(&bin)
-        .map_err(|e| format!("claude-code install: {e}"))
-}
