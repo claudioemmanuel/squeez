@@ -103,17 +103,22 @@ const NATIVE_1M_RE = /fable|mythos/i;
 /**
  * Janela de contexto do host. Precedência:
  *   1. `context_window_tokens` do config.ini — o usuário pinou, é autoritativo;
- *   2. marcador de 1M no `id` OU no `display_name`;
- *   3. 200k.
+ *   2. `context_window.context_window_size` do payload da status line — o host
+ *      diz o tamanho real. Opus 5.5 com 1M chega como "claude-opus-5-5" /
+ *      "Opus 5.5", sem marcador nenhum, e o sniff abaixo caía em 200k;
+ *   3. marcador de 1M no `id` OU no `display_name` (host sem o campo);
+ *   4. 200k.
  *
  * O `id` sozinho não serve (#199): numa sessão 1M o Claude Code grava
  * `claude-opus-5` cru, sem `[1m]` — verificado em 70/70 registros assistant de
  * uma sessão 1M real. Quem carrega o sinal é `display_name`, "Opus 5 (1M context)".
  * Aceita string (só o id) por compatibilidade com quem já chamava assim.
  */
-function contextWindow(model, pinnedTokens) {
+function contextWindow(model, pinnedTokens, hostWindowSize) {
   const pinned = Number(pinnedTokens);
   if (Number.isFinite(pinned) && pinned > 0) return pinned;
+  const reported = Number(hostWindowSize);
+  if (Number.isFinite(reported) && reported > 0) return reported;
   const probe =
     typeof model === 'string'
       ? model
@@ -207,7 +212,11 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
     .join(' ');
 
   const used = contextTokens(input.transcript_path);
-  const window = contextWindow(input.model, configuredContextWindow());
+  const window = contextWindow(
+    input.model,
+    configuredContextWindow(),
+    input.context_window && input.context_window.context_window_size
+  );
   const ctxPct = used == null ? null : Math.min(100, Math.round((used / window) * 100));
   const ctxSuffix = used == null ? '' : `${compactTokens(used)}/${compactTokens(window)}`;
 
