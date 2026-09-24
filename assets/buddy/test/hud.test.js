@@ -98,6 +98,44 @@ test('janela de contexto: context_window_tokens pinado vence qualquer sniff', ()
   assert.strictEqual(contextWindow({ id: 'claude-opus-5' }, undefined), 200_000);
 });
 
+test('janela de contexto: context_window_size do host vence o sniff pelo nome', () => {
+  // Opus 5.5 com 1M: o payload da status line traz id e display_name crus
+  // ("claude-opus-5-5", "Opus 5.5") e o tamanho real em context_window.
+  const opus55 = { id: 'claude-opus-5-5', display_name: 'Opus 5.5' };
+  assert.strictEqual(contextWindow(opus55, undefined, 1_000_000), 1_000_000);
+  // O host também diz quando a janela é 200k, mesmo com marcador no nome.
+  assert.strictEqual(contextWindow({ id: 'claude-opus-5[1m]' }, undefined, 200_000), 200_000);
+  // Pinado pelo usuário continua autoritativo.
+  assert.strictEqual(contextWindow(opus55, 200_000, 1_000_000), 200_000);
+  // Host sem o campo (versão antiga) ou com lixo cai no sniff de antes.
+  assert.strictEqual(contextWindow(opus55, undefined, undefined), 200_000);
+  assert.strictEqual(contextWindow(opus55, undefined, 0), 200_000);
+  assert.strictEqual(contextWindow({ id: 'claude-fable-5-1' }, undefined, 'x'), 1_000_000);
+});
+
+test('buildHudLines mede o contexto contra a janela que o host informou', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'squeez-hud-'));
+  const transcript = path.join(dir, 't.jsonl');
+  const usage = { input_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 299_998, output_tokens: 10 };
+  fs.writeFileSync(transcript, `${JSON.stringify({ type: 'assistant', message: { usage } })}\n`);
+  const lines = buildHudLines({
+    input: {
+      cwd: dir,
+      transcript_path: transcript,
+      model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' },
+      context_window: { context_window_size: 1_000_000 },
+    },
+    usage: null,
+    state: { xp: 0 },
+    rank: { label: 'Comum', hex: '#888888' },
+    ansi: false,
+  });
+  const tail = lines[3];
+  assert.match(tail, /300k\/1\.0M/);
+  assert.doesNotMatch(tail, /\/200k/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('configuredContextWindow lê context_window_tokens do config.ini', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'squeez-cfg-'));
   const prev = process.env.SQUEEZ_DIR;
