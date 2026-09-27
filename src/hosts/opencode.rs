@@ -1,7 +1,9 @@
 //! OpenCode adapter: drops squeez's ESM plugin into `~/.config/opencode/plugins/`
 //! and seeds `~/.config/opencode/AGENTS.md` with the squeez memory block.
 //!
-//! Research on OpenCode hook surface (2026-04-18):
+//! Research on OpenCode hook surface (2026-04-18, v1; v2 verified 2026-09-27
+//! against sst/opencode v2.0.18 — `plugins/` dir-drop still auto-loads, and
+//! the embedded plugin's `setup(ctx)` entry covers the v2 contract):
 //!   - `tool.execute.before` can mutate `output.args` for ANY tool (bash,
 //!     read, grep, glob) — enough for BASH_WRAP + BUDGET_HARD.
 //!   - `session.created` fires once per session — the plugin shells out to
@@ -152,6 +154,20 @@ fn strip_squeez_block(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_plugin_is_dual_export() {
+        // Guards the v1+v2 dual-host contract of opencode-plugin/squeez.js:
+        // v1 (OpenCode 1.x) consumes `server`; v2 (OpenCode 2.x) consumes
+        // `setup(ctx)`. Both must ship in the embedded copy.
+        assert!(PLUGIN_SOURCE.contains("id: \"squeez\""));
+        assert!(PLUGIN_SOURCE.contains("setup(ctx)"));
+        assert!(PLUGIN_SOURCE.contains("server: async"));
+        // v2 hook registrations the setup() entry depends on.
+        assert!(PLUGIN_SOURCE.contains("create.before"));
+        assert!(PLUGIN_SOURCE.contains("execute.before"));
+        assert!(PLUGIN_SOURCE.contains("execute.after"));
+    }
 
     #[test]
     fn strip_squeez_block_removes_inline_block() {

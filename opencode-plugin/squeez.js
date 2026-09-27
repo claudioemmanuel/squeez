@@ -1,23 +1,36 @@
-// squeez OpenCode plugin — full-parity integration.
+// squeez OpenCode plugin — full-parity integration, dual-host export.
 //
-// Conforms to the @opencode-ai/plugin SDK `PluginModule` contract: a default
-// export object with `id` + async `server(input, options)` that returns a map
-// of hook-name → handler. The server return value MUST be an object — a bare
-// return (or `return undefined`) causes OpenCode to crash on internal
-// property access (see squeez issue #69, reproduced on opencode 1.4.11 +
-// @opencode-ai/plugin 1.4.10).
+// v1 (OpenCode 1.x): `server(input, options)` returns a map of hook-name →
+//   handler. The return value MUST be an object — a bare return (or
+//   `return undefined`) crashes OpenCode on internal property access (see
+//   squeez issue #69, opencode 1.4.11 + @opencode-ai/plugin 1.4.10).
+//
+// v2 (OpenCode 2.x, verified against sst/opencode v2.0.18 source,
+//   packages/plugin/src/promise/adapter.ts): `setup(ctx)` registers hooks on
+//   domains. Contracts that matter here:
+//   - ctx.shell.hook("create.before", cb) — cb receives a MUTABLE
+//     { command, cwd, timeout, shell, env } (packages/plugin/src/effect/shell.ts);
+//     core reads invocation.command after trigger (packages/core/src/shell.ts),
+//     so in-place mutation is the contract.
+//   - ctx.tool.hook("execute.before"|"execute.after", cb) — mutable `input`
+//     field (packages/plugin/src/effect/tool.ts). v2 renamed the bash tool to
+//     "shell"; we map it back to "bash" for squeez track-result.
+//   - ctx.event.subscribe() returns an AsyncIterable of host events
+//     (session.created lives there).
+//   Registration shape differences across v2 point releases are tolerated via
+//   optional chaining: a missing domain simply disables that hook.
 //
 // Handlers:
-//   - event (session.created) → finalize previous session and refresh
-//     AGENTS.md via `squeez init --host=opencode`.
-//   - tool.execute.before (bash) → rewrite command to `squeez wrap <cmd>`.
-//   - tool.execute.before (read/grep) → inject budget limits so Read and
-//     Grep respect the squeez config.
-//   - tool.execute.after (any known tool) → fire-and-forget
-//     `squeez track-result` for post-execution context tracking.
+//   - session.created → finalize previous session and refresh AGENTS.md via
+//     `squeez init --host=opencode`.
+//   - bash/shell before-exec → rewrite command to `squeez wrap <cmd>`.
+//   - read/grep before-exec → inject budget limits so Read and Grep respect
+//     the squeez config.
+//   - after-exec (any known tool) → fire-and-forget `squeez track-result`.
 //
 // Caveat (upstream sst/opencode#2319): MCP tool calls do NOT trigger these
 // hooks. That's a host limitation, not something this plugin can work around.
+
 
 import { execSync, spawn } from "child_process";
 
@@ -86,7 +99,72 @@ function trackResult(tool) {
 
 export default {
   id: "squeez",
-  server: async (_input, _options) => {
+
+  // OpenCode 2.x entry point. v1 ignores this key (its PluginModule type is
+  // { id?, server, tui? }); v2 prefers setup() when present.
+  setup(ctx) {
+    if (!ctx) return;
+    // Returning nothing (not even a cleanup) keeps the v2 loader happy when
+    // squeez isn't on the machine. Hooks are simply absent.
+    if (!squeezExists()) return;
+
+    // session.created → squeez init (event bus is an AsyncIterable).
+    if (ctx.event && typeof ctx.event.subscribe === "function") {
+      (async () => {
+        try {
+          for await (const event of ctx.event.subscribe()) {
+            if (event && event.type === "session.created") runInit();
+          }
+        } catch {
+          // event stream closed or host shutting down — harmless
+        }
+      })();
+    }
+
+    // bash (v2: shell) → wrap command. Same guards as the v1 handler.
+    if (ctx.shell && typeof ctx.shell.hook === "function") {
+      ctx.shell.hook("create.before", (e) => {
+        if (!e || typeof e.command !== "string") return;
+        const command = e.command;
+        if (!command) return;
+        if (command.startsWith(SQUEEZ_BIN)) return;
+        if (command.includes("squeez wrap")) return;
+        if (command.startsWith("--no-squeez")) return;
+        // See the v1 handler for why the command is shell-quoted first.
+        const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
+        e.command = `${SQUEEZ_BIN} wrap ${quoted}`;
+      });
+    }
+
+    if (ctx.tool && typeof ctx.tool.hook === "function") {
+      // read/grep budget injection — v2's mutable field is `input`.
+      ctx.tool.hook("execute.before", (e) => {
+        if (!e || typeof e.tool !== "string") return;
+        const patch = budgetPatch(e.tool);
+        if (!patch) return;
+        const input = e.input;
+        if (!input || typeof input !== "object") return;
+        for (const [k, v] of Object.entries(patch)) {
+          // Do not override fields the user (or agent) already set explicitly.
+          if (input[k] === undefined) {
+            input[k] = v;
+          }
+        }
+      });
+
+      // Post-execution tracking — v2 renamed bash → shell; map it back.
+      ctx.tool.hook("execute.after", (e) => {
+        if (!e || !e.tool) return;
+        const tool = e.tool === "shell" ? "bash" : e.tool;
+        if (["bash", "read", "grep", "glob"].includes(tool)) {
+          trackResult(tool);
+        }
+      });
+    }
+  },
+
+  // OpenCode 1.x entry point — byte-identical behavior to pre-v2 squeez.
+server: async (_input, _options) => {
     // Returning `{}` (not `undefined`) keeps the plugin loader happy when
     // squeez isn't on the machine. Hooks are simply absent so OpenCode runs
     // as if the plugin were not installed.
