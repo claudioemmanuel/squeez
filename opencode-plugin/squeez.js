@@ -28,8 +28,12 @@
 //     the squeez config.
 //   - after-exec (any known tool) → fire-and-forget `squeez track-result`.
 //
-// Caveat (upstream sst/opencode#2319): MCP tool calls do NOT trigger these
-// hooks. That's a host limitation, not something this plugin can work around.
+// MCP tools: sst/opencode#2319 ("MCP tool calls don't trigger plugin hooks")
+// was fixed by sst/opencode#2320 (merged 2025-08-30), and v2 routes MCP tools
+// through the same Tool.execute that fires execute.before/after
+// (packages/core/src/tool.ts). So these hooks DO see MCP calls on current
+// hosts;
+squeez ignores them anyway (budget slugs cover read/grep only).
 
 
 import { execSync, spawn } from "child_process";
