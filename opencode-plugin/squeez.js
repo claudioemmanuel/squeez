@@ -33,7 +33,7 @@
 // through the same Tool.execute that fires execute.before/after
 // (packages/core/src/tool.ts). So these hooks DO see MCP calls on current
 // hosts;
-squeez ignores them anyway (budget slugs cover read/grep only).
+// squeez ignores them anyway (budget slugs cover read/grep only).
 
 
 import { execSync, spawn } from "child_process";
