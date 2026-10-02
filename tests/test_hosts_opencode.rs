@@ -78,6 +78,16 @@ fn opencode_install_drops_plugin_file() {
             "plugin must shell-quote the command before wrapping; \
              raw template-literal concat splits multi-line / quoted args"
         );
+        // The plugin MUST NOT start a child process synchronously. Inside the
+        // OpenCode server on Windows the first sync spawn of a hook invocation
+        // fails with a false ETIMEDOUT, which silently drops the read/grep
+        // budget (issue #245).
+        for sync_spawn in ["execSync(", "execFileSync(", "spawnSync("] {
+            assert!(
+                !body.contains(sync_spawn),
+                "plugin must not call {sync_spawn}; use async execFile"
+            );
+        }
     });
 }
 
