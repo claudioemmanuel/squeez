@@ -158,14 +158,23 @@ async function budgetPatch(tool) {
   return null;
 }
 
-function trackResult(tool) {
-  // Fire-and-forget — don't block the tool pipeline.
+function trackResult(tool, payload) {
+  // Fire-and-forget — don't block the tool pipeline. The observer reads
+  // stdin to completion and exits 0 immediately on an empty payload, so a
+  // call without one is a silent no-op; pipe the JSON and EOF the stream.
   try {
-    spawn(SQUEEZ_BIN, ["track-result", tool], {
-      stdio: "ignore",
+    const json = payload === undefined ? undefined : JSON.stringify(payload);
+    const child = spawn(SQUEEZ_BIN, ["track-result", tool], {
+      stdio: json === undefined ? "ignore" : ["pipe", "ignore", "ignore"],
       detached: true,
       windowsHide: true,
-    }).unref();
+    });
+    child.on("error", () => {});
+    if (child.stdin) {
+      child.stdin.on("error", () => {});
+      child.stdin.end(json);
+    }
+    child.unref();
   } catch {
     // best-effort
   }
@@ -173,6 +182,97 @@ function trackResult(tool) {
 
 export default {
   id: "squeez",
+
+  // OpenCode 2.x entry point. v1 ignores this key (its PluginModule type is
+  // { id?, server, tui? }); v2 prefers setup() when present.
+  setup(ctx) {
+    if (!ctx) return;
+    // Returning nothing (not even a cleanup) keeps the v2 loader happy when
+    // squeez isn't on the machine. Hooks are simply absent.
+    if (!squeezExists()) return;
+
+    // session.created → squeez init (event bus is an AsyncIterable).
+    if (ctx.event && typeof ctx.event.subscribe === "function") {
+      (async () => {
+        try {
+          const initializedSessions = new Set();
+          for await (const event of ctx.event.subscribe()) {
+            const type = event && event.type;
+            if (type === "session.created") {
+              runInit();
+            } else if (/^session\.execution\.started(\.\d+)?$/.test(type)) {
+              // OpenCode 2.x fires session.execution.started per turn instead
+              // of session.created per session — dedupe per sessionID so init
+              // still runs once per session (numeric suffixes occur too).
+              const sid = (event.data && event.data.sessionID) || "";
+              if (initializedSessions.has(sid)) continue;
+              initializedSessions.add(sid);
+              runInit();
+            } else if (/^shell\.exited(\.\d+)?$/.test(type)) {
+              // 2.x shell is its own domain/aggregate: it never reaches
+              // ctx.tool hooks, so completions are observed on the bus.
+              // Payload is {id, exit?, status} only — do not invent fields.
+              const data = event.data;
+              if (!data || typeof data.id !== "string") continue;
+              if (!["exited", "timeout", "killed"].includes(data.status)) continue;
+              trackResult("bash", {
+                tool_name: "Bash",
+                shell_id: data.id,
+                shell_status: data.status,
+                ...(typeof data.exit === "number" ? { exit_code: data.exit } : {}),
+              });
+            }
+          }
+        } catch {
+          // event stream closed or host shutting down — harmless
+        }
+      })();
+    }
+
+    // bash (v2: shell) → wrap command. Same guards as the v1 handler.
+    if (ctx.shell && typeof ctx.shell.hook === "function") {
+      ctx.shell.hook("create.before", (e) => {
+        if (!e || typeof e.command !== "string") return;
+        const command = e.command;
+        if (!command) return;
+        if (command.startsWith(SQUEEZ_BIN)) return;
+        if (command.includes("squeez wrap")) return;
+        if (command.startsWith("--no-squeez")) return;
+        // See the v1 handler for why the command is shell-quoted first.
+        const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
+        e.command = `${SQUEEZ_BIN} wrap ${quoted}`;
+      });
+    }
+
+    if (ctx.tool && typeof ctx.tool.hook === "function") {
+      // read/grep budget injection — v2's mutable field is `input`.
+      ctx.tool.hook("execute.before", (e) => {
+        if (!e || typeof e.tool !== "string") return;
+        const patch = budgetPatch(e.tool);
+        if (!patch) return;
+        const input = e.input;
+        if (!input || typeof input !== "object") return;
+        for (const [k, v] of Object.entries(patch)) {
+          // Do not override fields the user (or agent) already set explicitly.
+          if (input[k] === undefined) {
+            input[k] = v;
+          }
+        }
+      });
+
+      // Post-execution tracking — read/grep/glob only. Shell completions are
+      // owned by the shell.exited bus branch above: shell is its own domain on
+      // 2.x and never reaches tool hooks, so keeping bash here could double-count.
+      ctx.tool.hook("execute.after", (e) => {
+        if (!e || !e.tool) return;
+        if (["read", "grep", "glob"].includes(e.tool)) {
+          trackResult(e.tool);
+        }
+      });
+    }
+  },
+
+  // OpenCode 1.x entry point — byte-identical behavior to pre-v2 squeez.
   server: async (_input, _options) => {
     // Returning `{}` (not `undefined`) keeps the plugin loader happy when
     // squeez isn't on the machine. Hooks are simply absent so OpenCode runs
