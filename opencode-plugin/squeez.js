@@ -88,14 +88,23 @@ function budgetPatch(tool) {
   }
 }
 
-function trackResult(tool) {
-  // Fire-and-forget — don't block the tool pipeline.
+function trackResult(tool, payload) {
+  // Fire-and-forget — don't block the tool pipeline. The observer reads
+  // stdin to completion and exits 0 immediately on an empty payload, so a
+  // call without one is a silent no-op; pipe the JSON and EOF the stream.
   try {
-    spawn(SQUEEZ_BIN, ["track-result", tool], {
-      stdio: "ignore",
+    const json = payload === undefined ? undefined : JSON.stringify(payload);
+    const child = spawn(SQUEEZ_BIN, ["track-result", tool], {
+      stdio: json === undefined ? "ignore" : ["pipe", "ignore", "ignore"],
       detached: true,
       windowsHide: true,
-    }).unref();
+    });
+    child.on("error", () => {});
+    if (child.stdin) {
+      child.stdin.on("error", () => {});
+      child.stdin.end(json);
+    }
+    child.unref();
   } catch {
     // best-effort
   }
@@ -116,8 +125,33 @@ export default {
     if (ctx.event && typeof ctx.event.subscribe === "function") {
       (async () => {
         try {
+          const initializedSessions = new Set();
           for await (const event of ctx.event.subscribe()) {
-            if (event && event.type === "session.created") runInit();
+            const type = event && event.type;
+            if (type === "session.created") {
+              runInit();
+            } else if (/^session\.execution\.started(\.\d+)?$/.test(type)) {
+              // OpenCode 2.x fires session.execution.started per turn instead
+              // of session.created per session — dedupe per sessionID so init
+              // still runs once per session (numeric suffixes occur too).
+              const sid = (event.data && event.data.sessionID) || "";
+              if (initializedSessions.has(sid)) continue;
+              initializedSessions.add(sid);
+              runInit();
+            } else if (/^shell\.exited(\.\d+)?$/.test(type)) {
+              // 2.x shell is its own domain/aggregate: it never reaches
+              // ctx.tool hooks, so completions are observed on the bus.
+              // Payload is {id, exit?, status} only — do not invent fields.
+              const data = event.data;
+              if (!data || typeof data.id !== "string") continue;
+              if (!["exited", "timeout", "killed"].includes(data.status)) continue;
+              trackResult("bash", {
+                tool_name: "Bash",
+                shell_id: data.id,
+                shell_status: data.status,
+                ...(typeof data.exit === "number" ? { exit_code: data.exit } : {}),
+              });
+            }
           }
         } catch {
           // event stream closed or host shutting down — harmless
@@ -156,12 +190,13 @@ export default {
         }
       });
 
-      // Post-execution tracking — v2 renamed bash → shell; map it back.
+      // Post-execution tracking — read/grep/glob only. Shell completions are
+      // owned by the shell.exited bus branch above: shell is its own domain on
+      // 2.x and never reaches tool hooks, so keeping bash here could double-count.
       ctx.tool.hook("execute.after", (e) => {
         if (!e || !e.tool) return;
-        const tool = e.tool === "shell" ? "bash" : e.tool;
-        if (["bash", "read", "grep", "glob"].includes(tool)) {
-          trackResult(tool);
+        if (["read", "grep", "glob"].includes(e.tool)) {
+          trackResult(e.tool);
         }
       });
     }
