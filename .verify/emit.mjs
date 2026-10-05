@@ -21,3 +21,12 @@ async function emit(file, shell, command) {
 
 await emit("out/ps.txt", undefined, `Write-Output "it's ok"; Write-Output ("year=" + (Get-Date -Format yyyy)); exit 7`);
 await emit("out/bash.txt", "bash", `printf '%s\\n' "it's ok" "sum=$((40 + 2))"; exit 7`);
+
+// Same wrapper, with the progress stream silenced inside the encoded command.
+{
+  const { readFileSync } = await import("node:fs");
+  const base = readFileSync("out/ps.txt", "utf8");
+  const inner = `$ProgressPreference = 'SilentlyContinue'; Write-Output "it's ok"; Write-Output ("year=" + (Get-Date -Format yyyy)); exit 7`;
+  const encoded = Buffer.from(inner, "utf16le").toString("base64");
+  writeFileSync("out/ps2.txt", base.replace(/-EncodedCommand \S+'$/, `-EncodedCommand ${encoded}'`));
+}

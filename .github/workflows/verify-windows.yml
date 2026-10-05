@@ -22,13 +22,22 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $w = Get-Content out/ps.txt -Raw
-          $o = powershell.exe -NoProfile -NonInteractive -Command $w 2>&1 | Out-String
-          $code = $LASTEXITCODE
-          Write-Host "exit=$code"; Write-Host $o
-          if ($o -notmatch "it's ok") { throw "output lost" }
-          if ($o -notmatch "year=20\d\d") { throw "command not run by PowerShell" }
-          if ($code -ne 7) { throw "exit code $code, expected 7" }
+          $fail = @()
+          foreach ($v in "ps", "ps2") {
+            # A script file holds the wrapped line exactly as the host shell would get it.
+            Set-Content "out/$v.ps1" ((Get-Content "out/$v.txt" -Raw) + "`nexit `$LASTEXITCODE")
+            $p = Start-Process powershell.exe -ArgumentList "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File","out\$v.ps1" -Wait -PassThru -NoNewWindow -RedirectStandardOutput "out/$v.out" -RedirectStandardError "out/$v.err"
+            $o = (Get-Content "out/$v.out" -Raw) + ""
+            $e = (Get-Content "out/$v.err" -Raw) + ""
+            Write-Host "=== $v exit=$($p.ExitCode) stdout_chars=$($o.Length) stderr_chars=$($e.Length) clixml=$($o -match 'CLIXML')"
+            Write-Host "--- stdout (first 700)"; Write-Host $o.Substring(0, [Math]::Min(700, $o.Length))
+            Write-Host "--- stderr (first 300)"; Write-Host $e.Substring(0, [Math]::Min(300, $e.Length))
+            if ($o -notmatch "it's ok") { $fail += "$v output lost" }
+            if ($o -notmatch "year=20\d\d") { $fail += "$v not run by PowerShell" }
+            if ($p.ExitCode -ne 7) { $fail += "$v exit $($p.ExitCode), expected 7" }
+          }
+          if ($fail) { throw ($fail -join "; ") }
+          exit 0
       - name: "#244 POSIX wrapper runs under Git Bash"
         if: always()
         shell: bash
@@ -57,6 +66,7 @@ jobs:
           if ($code -ne 124) { throw "exit code $code, expected 124" }
           if ($secs -gt 30) { throw "returned after ${secs}s" }
           if ($left.Count -ne 0) { throw "process tree not killed" }
+          exit 0
       - name: "#243 Copilot registration on Windows"
         if: always()
         shell: pwsh
@@ -73,3 +83,4 @@ jobs:
           if ($s.PSObject.Properties.Name -contains "PreToolUse") { throw "legacy top-level key left" }
           if (-not $s.hooks.PreToolUse) { throw "hooks.PreToolUse missing" }
           if ($d -notmatch "registration: copilot ok") { throw "doctor does not accept the registration" }
+          exit 0
