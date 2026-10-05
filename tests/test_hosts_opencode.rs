@@ -91,6 +91,28 @@ fn opencode_install_drops_plugin_file() {
     });
 }
 
+/// The wrapper the plugin builds depends on the platform and on OpenCode's
+/// shell (issue #244), which only running the plugin shows. The cases live in
+/// `tests/opencode_plugin.test.mjs`; they fake the platform, so every OS runs
+/// all of them. Skipped when the machine has no `node`.
+#[test]
+fn opencode_plugin_wrapper_follows_the_shell() {
+    let node = std::process::Command::new("node")
+        .args(["--test", "tests/opencode_plugin.test.mjs"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output();
+    let Ok(out) = node else {
+        eprintln!("skipped: node is not on PATH");
+        return;
+    };
+    assert!(
+        out.status.success(),
+        "node --test failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[test]
 fn opencode_inject_memory_writes_marker_block() {
     with_xdg(|home| {

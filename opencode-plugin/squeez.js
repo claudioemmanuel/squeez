@@ -10,7 +10,9 @@
 // Handlers:
 //   - event (session.created) → finalize previous session and refresh
 //     AGENTS.md via `squeez init --host=opencode`.
-//   - tool.execute.before (bash) → rewrite command to `squeez wrap <cmd>`.
+//   - config → remember which shell OpenCode runs commands with.
+//   - tool.execute.before (bash) → rewrite command to `squeez wrap <cmd>`,
+//     in the syntax of that shell.
 //   - tool.execute.before (read/grep) → inject budget limits so Read and
 //     Grep respect the squeez config.
 //   - tool.execute.after (any known tool) → fire-and-forget
@@ -43,6 +45,59 @@ const BUDGET_TOOL_SLUG = {
   read: "Read",
   grep: "Grep",
 };
+
+// What the rewritten command line calls. On Windows it is written with
+// forward slashes, which both PowerShell and Git Bash accept, and it names the
+// `.exe` so neither shell has to guess the extension.
+const IS_WINDOWS = process.platform === "win32";
+const SQUEEZ_CMD = IS_WINDOWS
+  ? `${SQUEEZ_BIN.replace(/\\/g, "/")}.exe`
+  : SQUEEZ_BIN;
+
+const POSIX_SHELLS = ["bash", "sh", "zsh", "dash", "ksh"];
+
+// The shell OpenCode hands the command to, as a bare lowercase name: its
+// `shell` config key when set, else $SHELL. Empty when neither names one.
+function shellName(configShell) {
+  const shell = (typeof configShell === "string" && configShell) || process.env.SHELL || "";
+  return shell.split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, "");
+}
+
+function isAlreadyWrapped(command) {
+  return (
+    command.startsWith(SQUEEZ_BIN) ||
+    command.includes("squeez wrap") ||
+    /squeez(\.exe)?['"]?\s+wrap\s/.test(command)
+  );
+}
+
+// The command line that runs `command` through `squeez wrap`, written for the
+// shell that will parse it (squeez issue #244). The wrapper has to follow the
+// OpenCode shell, not the OS: on Windows that shell is PowerShell unless the
+// user configured bash, and each one misreads the other's quoting.
+//
+// POSIX shells: single-quote the command. Without that, multi-line
+// `python3 -c "..."`, `bash -c '...'`, and quoted
+// `git commit -m "msg with spaces"` are split into separate argv tokens by
+// the host shell and end up with `-c` getting no argument, pathspec errors on
+// commit messages, etc. Matches what the claude-code Python hook does with
+// `shlex.quote(cmd)`.
+//
+// PowerShell: `squeez wrap` re-runs its argument with bash when Git Bash is
+// installed, so a PowerShell command passed as text would be run by the wrong
+// shell. It goes through `-EncodedCommand` (base64 of UTF-16LE) instead,
+// which no quoting layer on the way can reinterpret.
+function wrapCommand(command, configShell) {
+  const name = shellName(configShell);
+  const posixQuote = (text) => "'" + text.replace(/'/g, "'\\''") + "'";
+  const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
+  if (!IS_WINDOWS) return `${SQUEEZ_BIN} wrap ${quoted}`;
+  if (POSIX_SHELLS.includes(name)) return `${posixQuote(SQUEEZ_CMD)} wrap ${quoted}`;
+  const exe = name === "pwsh" ? "pwsh.exe" : "powershell.exe";
+  const encoded = Buffer.from(command, "utf16le").toString("base64");
+  const bin = SQUEEZ_CMD.replace(/'/g, "''");
+  return `& '${bin}' wrap '${exe} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}'`;
+}
 
 function isExecutable(path) {
   try {
@@ -120,7 +175,14 @@ export default {
     // as if the plugin were not installed.
     if (!squeezExists()) return {};
 
+    let configShell;
+
     return {
+      // OpenCode hands every plugin the resolved config once at load.
+      config: async (cfg) => {
+        configShell = cfg && cfg.shell;
+      },
+
       event: async ({ event }) => {
         if (event && event.type === "session.created") {
           runInit();
@@ -130,20 +192,13 @@ export default {
       "tool.execute.before": async (input, output) => {
         if (!input || !output || !output.args) return;
 
-        if (input.tool === "bash") {
+        // Some OpenCode builds name the shell tool `shell`.
+        if (input.tool === "bash" || input.tool === "shell") {
           const command = output.args.command;
           if (!command || typeof command !== "string") return;
-          if (command.startsWith(SQUEEZ_BIN)) return;
-          if (command.includes("squeez wrap")) return;
+          if (isAlreadyWrapped(command)) return;
           if (command.startsWith("--no-squeez")) return;
-          // Shell-quote the command before prepending `squeez wrap`. Without
-          // this, multi-line `python3 -c "..."`, `bash -c '...'`, and quoted
-          // `git commit -m "msg with spaces"` are split into separate argv
-          // tokens by the host shell and end up with `-c` getting no argument,
-          // pathspec errors on commit messages, etc. Matches what the
-          // claude-code Python hook does with `shlex.quote(cmd)`.
-          const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
-          output.args.command = `${SQUEEZ_BIN} wrap ${quoted}`;
+          output.args.command = wrapCommand(command, configShell);
           return;
         }
 
