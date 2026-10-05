@@ -213,52 +213,52 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 
 | Scenario | Before | After | Reduction | Latency |
 |----------|--------|-------|-----------|---------|
-| `curl_json` | 18,904 tk | 36 tk | **-100%** | 1.1 ms |
-| `az_json` | 23,479 tk | 74 tk | **-100%** | 562 µs |
-| `summarize_huge` | 82,257 tk | 467 tk | **-99%** | 87.5 ms |
-| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 278 µs |
-| `go_test_ndjson_failures` | 7,176 tk | 106 tk | **-99%** | 1.1 ms |
-| `read_reread_distant` | 717 tk | 17 tk | **-98%** | 10.4 ms |
-| `rsync_transfer` | 912 tk | 26 tk | **-97%** | 191 µs |
-| `repetitive_output` | 4,692 tk | 134 tk | **-97%** | 388 µs |
-| `pytest_failures` | 3,402 tk | 108 tk | **-97%** | 299 µs |
-| `jest_json_failures` | 5,643 tk | 218 tk | **-96%** | 733 µs |
-| `systemctl_status` | 732 tk | 41 tk | **-94%** | 181 µs |
-| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 1.0 ms |
-| `cargo_test_failures` | 1,934 tk | 157 tk | **-92%** | 258 µs |
-| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 388 µs |
-| `tsc_errors` | 731 tk | 101 tk | **-86%** | 361 µs |
-| `eslint_json_failures` | 1,553 tk | 233 tk | **-85%** | 391 µs |
-| `pip_install` | 407 tk | 62 tk | **-85%** | 162 µs |
-| `high_context_adaptive` | 4,418 tk | 729 tk | **-84%** | 1.6 ms |
-| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 442 µs |
-| `bundle_install` | 121 tk | 28 tk | **-77%** | 148 µs |
-| `docker_logs` | 665 tk | 181 tk | **-73%** | 227 µs |
-| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 245 µs |
-| `git_status` | 50 tk | 16 tk | **-68%** | 170 µs |
-| `ruff_json_failures` | 1,261 tk | 494 tk | **-61%** | 353 µs |
-| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 832 µs |
-| `npm_install` | 524 tk | 218 tk | **-58%** | 215 µs |
-| `crosscall_redundancy_3x` | 486 tk | 222 tk | **-54%** | 52.3 ms |
-| `ls_la` | 1,782 tk | 872 tk | **-51%** | 214 µs |
-| `mypy_errors` | 650 tk | 349 tk | **-46%** | 162 µs |
-| `shellcheck_run` | 335 tk | 187 tk | **-44%** | 141 µs |
-| `agent_directory_output` | 3,348 tk | 1,937 tk | **-42%** | 943 µs |
-| `env_dump` | 441 tk | 287 tk | **-35%** | 164 µs |
-| `agent_heavy` | 2,306 tk | 1,514 tk | **-34%** | 666 µs |
-| `git_copilot` | 640 tk | 421 tk | **-34%** | 242 µs |
-| `find_deep` | 424 tk | 279 tk | **-34%** | 185 µs |
-| `adversarial_tiny_output` | 4 tk | 3 tk | **-25%** | 146 µs |
-| `md_prose` | 187 tk | 142 tk | **-24%** | 124 µs |
-| `md_claude_md` | 316 tk | 270 tk | **-15%** | 237 µs |
-| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 171 µs |
-| `next_build_output` | 902 tk | 884 tk | **-2%** | 228 µs |
-| `git_diff` | 502 tk | 497 tk | **-1%** | 196 µs |
-| `jest_failures` | 451 tk | 448 tk | **-1%** | 198 µs |
-| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 156 µs |
-| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 188 µs |
-| `adversarial_dense_json` | 485 tk | 485 tk | **-0%** | 163 µs |
-| `adversarial_reread_tiny` | 4 tk | 4 tk | **-0%** | 7.2 ms |
+| `curl_json` | 18,904 tk | 36 tk | **-100%** | 829 µs |
+| `az_json` | 23,479 tk | 74 tk | **-100%** | 429 µs |
+| `summarize_huge` | 82,257 tk | 467 tk | **-99%** | 77.3 ms |
+| `xcode_build` | 1,881 tk | 17 tk | **-99%** | 204 µs |
+| `go_test_ndjson_failures` | 7,176 tk | 106 tk | **-99%** | 811 µs |
+| `read_reread_distant` | 717 tk | 17 tk | **-98%** | 10.3 ms |
+| `rsync_transfer` | 912 tk | 26 tk | **-97%** | 144 µs |
+| `repetitive_output` | 4,692 tk | 134 tk | **-97%** | 284 µs |
+| `pytest_failures` | 3,402 tk | 108 tk | **-97%** | 210 µs |
+| `jest_json_failures` | 5,643 tk | 218 tk | **-96%** | 518 µs |
+| `systemctl_status` | 732 tk | 41 tk | **-94%** | 130 µs |
+| `ps_aux` | 40,373 tk | 2,338 tk | **-94%** | 882 µs |
+| `cargo_test_failures` | 1,934 tk | 157 tk | **-92%** | 162 µs |
+| `git_log_200` | 2,692 tk | 275 tk | **-90%** | 299 µs |
+| `tsc_errors` | 731 tk | 101 tk | **-86%** | 150 µs |
+| `eslint_json_failures` | 1,553 tk | 233 tk | **-85%** | 276 µs |
+| `pip_install` | 407 tk | 62 tk | **-85%** | 130 µs |
+| `high_context_adaptive` | 4,418 tk | 729 tk | **-84%** | 1.1 ms |
+| `cargo_build_noisy` | 2,106 tk | 439 tk | **-79%** | 325 µs |
+| `bundle_install` | 121 tk | 28 tk | **-77%** | 113 µs |
+| `docker_logs` | 665 tk | 181 tk | **-73%** | 173 µs |
+| `curl_html_response` | 2,181 tk | 626 tk | **-71%** | 173 µs |
+| `git_status` | 50 tk | 16 tk | **-68%** | 139 µs |
+| `ruff_json_failures` | 1,261 tk | 494 tk | **-61%** | 252 µs |
+| `verbose_app_log` | 4,957 tk | 1,978 tk | **-60%** | 592 µs |
+| `npm_install` | 524 tk | 218 tk | **-58%** | 165 µs |
+| `crosscall_redundancy_3x` | 486 tk | 222 tk | **-54%** | 51.9 ms |
+| `ls_la` | 1,782 tk | 872 tk | **-51%** | 168 µs |
+| `mypy_errors` | 650 tk | 349 tk | **-46%** | 121 µs |
+| `shellcheck_run` | 335 tk | 187 tk | **-44%** | 107 µs |
+| `agent_directory_output` | 3,348 tk | 1,937 tk | **-42%** | 699 µs |
+| `env_dump` | 441 tk | 287 tk | **-35%** | 122 µs |
+| `agent_heavy` | 2,306 tk | 1,514 tk | **-34%** | 473 µs |
+| `git_copilot` | 640 tk | 421 tk | **-34%** | 189 µs |
+| `find_deep` | 424 tk | 279 tk | **-34%** | 139 µs |
+| `adversarial_tiny_output` | 4 tk | 3 tk | **-25%** | 112 µs |
+| `md_prose` | 187 tk | 142 tk | **-24%** | 87 µs |
+| `md_claude_md` | 316 tk | 270 tk | **-15%** | 169 µs |
+| `claude_md_overhead` | 717 tk | 635 tk | **-11%** | 116 µs |
+| `next_build_output` | 902 tk | 884 tk | **-2%** | 168 µs |
+| `git_diff` | 502 tk | 497 tk | **-1%** | 156 µs |
+| `jest_failures` | 451 tk | 448 tk | **-1%** | 138 µs |
+| `state_first_simulation` | 182 tk | 181 tk | **-1%** | 100 µs |
+| `kubectl_pods` | 1,513 tk | 1,513 tk | **-0%** | 134 µs |
+| `adversarial_dense_json` | 485 tk | 485 tk | **-0%** | 126 µs |
+| `adversarial_reread_tiny` | 4 tk | 4 tk | **-0%** | 12.0 ms |
 
 ### Aggregate
 
@@ -269,8 +269,8 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | Markdown / context files | **-18.1%** |
 | Wrap / cross-call engine | **-99.2%** |
 | Quality (signal terms preserved) | **46 / 46 pass** |
-| Latency p50 (filter mode) | **3.8 ms** |
-| Latency p95 (incl. wrap/summarize) | **10 ms** |
+| Latency p50 (filter mode) | **3.5 ms** |
+| Latency p95 (incl. wrap/summarize) | **12 ms** |
 
 ### Estimated cost savings — Claude Sonnet 4.6 · $3.00 / MTok input
 
