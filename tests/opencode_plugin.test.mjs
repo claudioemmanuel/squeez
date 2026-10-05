@@ -67,7 +67,12 @@ test("Windows defaults to a PowerShell wrapper with an encoded command", async (
   );
   assert.ok(m, wrapped);
   assert.equal(m[1], `${slashed(home)}/.claude/squeez/bin/squeez.exe`);
-  assert.equal(Buffer.from(m[2], "base64").toString("utf16le"), TRICKY);
+  // The progress stream is silenced, or every command's output starts with a
+  // `#< CLIXML` block.
+  assert.equal(
+    Buffer.from(m[2], "base64").toString("utf16le"),
+    `$ProgressPreference = 'SilentlyContinue'; ${TRICKY}`,
+  );
 });
 
 test("Windows with shell=pwsh encodes for pwsh.exe", async () => {
