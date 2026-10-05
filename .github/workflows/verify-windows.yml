@@ -1,0 +1,75 @@
+name: Verify Windows fixes
+on:
+  push:
+    branches: [verify/windows-fixes]
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - name: Install squeez where the plugin looks for it
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:USERPROFILE ".claude\squeez\bin"
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          Copy-Item target\release\squeez.exe (Join-Path $bin "squeez.exe")
+          & (Join-Path $bin "squeez.exe") --version
+      - name: Emit the plugin's wrapped commands
+        run: node .verify/emit.mjs
+      - name: "#244 PowerShell wrapper runs under powershell.exe"
+        if: always()
+        shell: pwsh
+        run: |
+          $w = Get-Content out/ps.txt -Raw
+          $o = powershell.exe -NoProfile -NonInteractive -Command $w 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host "exit=$code"; Write-Host $o
+          if ($o -notmatch "it's ok") { throw "output lost" }
+          if ($o -notmatch "year=20\d\d") { throw "command not run by PowerShell" }
+          if ($code -ne 7) { throw "exit code $code, expected 7" }
+      - name: "#244 POSIX wrapper runs under Git Bash"
+        if: always()
+        shell: bash
+        run: |
+          w=$(cat out/bash.txt)
+          set +e; o=$(bash -c "$w" 2>&1); code=$?; set -e
+          echo "exit=$code"; echo "$o"
+          echo "$o" | grep -q "it's ok"
+          echo "$o" | grep -q "sum=42"
+          test "$code" -eq 7
+      - name: "#239 timeout returns 124 with a live grandchild"
+        if: always()
+        shell: pwsh
+        env:
+          SQUEEZ_WRAP_TIMEOUT_SECS: "3"
+        run: |
+          $env:SQUEEZ_DIR = Join-Path $env:RUNNER_TEMP "sqz-timeout"
+          New-Item -ItemType Directory -Force "$env:SQUEEZ_DIR\sessions","$env:SQUEEZ_DIR\memory" | Out-Null
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          & target\release\squeez.exe wrap "powershell.exe -NoProfile -Command Start-Sleep 90" 2>&1 | Out-String | Write-Host
+          $code = $LASTEXITCODE
+          $secs = [int]$sw.Elapsed.TotalSeconds
+          Write-Host "exit=$code elapsed=${secs}s"
+          $left = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match "Start-Sleep 90" })
+          Write-Host "surviving sleepers=$($left.Count)"
+          if ($code -ne 124) { throw "exit code $code, expected 124" }
+          if ($secs -gt 30) { throw "returned after ${secs}s" }
+          if ($left.Count -ne 0) { throw "process tree not killed" }
+      - name: "#243 Copilot registration on Windows"
+        if: always()
+        shell: pwsh
+        run: |
+          $h = Join-Path $env:RUNNER_TEMP "sqz home"
+          New-Item -ItemType Directory -Force "$h\.copilot" | Out-Null
+          '{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash C:\\Users\\x/.copilot\\squeez\\hooks\\copilot-pretooluse.sh"}]}]}' | Set-Content "$h\.copilot\settings.json"
+          $env:HOME = $h; $env:USERPROFILE = $h
+          & "$env:GITHUB_WORKSPACE\target\release\squeez.exe" setup --host=copilot
+          Get-Content "$h\.copilot\settings.json" -Raw | Write-Host
+          $d = & "$env:GITHUB_WORKSPACE\target\release\squeez.exe" doctor 2>&1 | Out-String
+          ($d -split "`n" | Select-String "copilot") | Write-Host
+          $s = Get-Content "$h\.copilot\settings.json" -Raw | ConvertFrom-Json
+          if ($s.PSObject.Properties.Name -contains "PreToolUse") { throw "legacy top-level key left" }
+          if (-not $s.hooks.PreToolUse) { throw "hooks.PreToolUse missing" }
+          if ($d -notmatch "registration: copilot ok") { throw "doctor does not accept the registration" }
