@@ -185,6 +185,41 @@ enum SpawnOutcome {
     Fatal(i32),
 }
 
+/// Stop a timed-out command together with whatever it started.
+///
+/// Killing only the direct child is not enough: it is the shell, and the
+/// program it launched lives on holding the output pipes.
+///
+/// Unix: the child leads its own process group, so the group is signalled —
+/// SIGTERM first so well-behaved tools clean up, then SIGKILL for anything
+/// that ignored it. Windows has no process groups to signal, so `taskkill /T`
+/// walks the tree. It stops at the Windows side of a `wsl.exe` hop: processes
+/// inside the distro are not its descendants and are left running.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    unsafe {
+        let pgid = -(child.id() as i32);
+        libc::kill(pgid, libc::SIGTERM);
+        std::thread::sleep(Duration::from_millis(200));
+        libc::kill(pgid, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        let taskkill = std::env::var_os("SystemRoot")
+            .map(|root| Path::new(&root).join("System32").join("taskkill.exe"))
+            .filter(|p| p.is_file())
+            .unwrap_or_else(|| "taskkill".into());
+        let _ = Command::new(taskkill)
+            .args(["/F", "/T", "/PID", &child.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Spawns `cmd_str` via the platform shell with `env_vars` applied
 /// (`Command::env()` — never changes the command's own text/semantics),
 /// drains stdout+stderr on background threads to avoid pipe-buffer
@@ -264,20 +299,19 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
             Ok(Some(s)) => break s.code().unwrap_or(1),
             Ok(None) => {
                 if call_start.elapsed() >= timeout {
-                    #[cfg(unix)]
-                    unsafe {
-                        libc::kill(-(child.id() as i32), libc::SIGTERM);
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
-                    let _ = child.kill();
+                    kill_tree(&mut child);
                     eprintln!(
                         "squeez: command timed out after {}s — raise it with \
                          `wrap_timeout_secs` in ~/.claude/squeez/config.ini \
                          or SQUEEZ_WRAP_TIMEOUT_SECS",
                         timeout_secs
                     );
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
+                    // The reader threads are deliberately NOT joined. A
+                    // descendant the kill could not reach (a process inside a
+                    // WSL distro, a daemon that left the group) keeps the pipe
+                    // open, so a join would block until it exits on its own —
+                    // the agent then waits hours past the timeout it was
+                    // promised (issue #239). The caller exits right after.
                     return SpawnOutcome::Fatal(124);
                 }
                 std::thread::sleep(Duration::from_millis(50));
