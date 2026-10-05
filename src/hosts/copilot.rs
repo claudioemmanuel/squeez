@@ -14,13 +14,13 @@ const PRETOOLUSE_SCRIPT: &str = include_str!("../../hooks/copilot-pretooluse.sh"
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/copilot-session-start.sh");
 const POSTTOOLUSE_SCRIPT: &str = include_str!("../../hooks/copilot-posttooluse.sh");
 
-/// Events squeez registers in the Copilot CLI settings file (top-level).
+/// Events squeez registers in the Copilot CLI settings file, under `hooks`.
 const SQUEEZ_EVENTS: [&str; 3] = ["PreToolUse", "SessionStart", "PostToolUse"];
 
-/// Copilot keeps its event map at the top level and takes plain `bash <path>`
-/// commands with no timeout.
+/// Copilot reads its event map from `settings["hooks"]` and takes
+/// `bash <path>` commands with no timeout.
 fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
-    let cmd = |script: &str| format!("bash {}", hooks_dir.join(script).display());
+    let cmd = |script: &str| format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script)));
     vec![
         settings_json::HookSpec {
             event: "PreToolUse",
@@ -61,9 +61,24 @@ impl CopilotCliAdapter {
     fn registration(&self) -> settings_json::HookRegistration {
         settings_json::HookRegistration {
             path: Self::settings_path(),
-            root: settings_json::EventRoot::TopLevel,
+            root: settings_json::EventRoot::Nested,
             specs: hook_specs(&self.data_dir().join("hooks")),
         }
+    }
+    /// squeez ≤ 1.48.10 wrote its events at the top level of the settings
+    /// file, where the Copilot CLI ignores them ("Ignoring unknown top-level
+    /// key(s)") — the hooks never ran (issue #243). Drop those entries so a
+    /// re-run of `squeez setup` leaves only the registration under `hooks`.
+    fn strip_legacy_top_level() -> std::io::Result<()> {
+        let settings = Self::settings_path();
+        if !settings.exists() {
+            return Ok(());
+        }
+        settings_json::unpatch_events(
+            &settings,
+            settings_json::EventRoot::TopLevel,
+            &SQUEEZ_EVENTS,
+        )
     }
     fn instructions_path() -> PathBuf {
         Self::copilot_dir().join("copilot-instructions.md")
@@ -112,6 +127,7 @@ impl HostAdapter for CopilotCliAdapter {
         write_hook(&hooks, "copilot-session-start.sh", SESSION_START_SCRIPT)?;
         write_hook(&hooks, "copilot-posttooluse.sh", POSTTOOLUSE_SCRIPT)?;
 
+        Self::strip_legacy_top_level()?;
         settings_json::install_registration(&self.registration())
     }
 
@@ -122,9 +138,10 @@ impl HostAdapter for CopilotCliAdapter {
     fn uninstall(&self) -> std::io::Result<()> {
         let settings = Self::settings_path();
         if settings.exists() {
+            Self::strip_legacy_top_level()?;
             settings_json::unpatch_events(
                 &settings,
-                settings_json::EventRoot::TopLevel,
+                settings_json::EventRoot::Nested,
                 &SQUEEZ_EVENTS,
             )?;
         }
