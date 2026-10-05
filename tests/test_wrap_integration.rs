@@ -393,3 +393,35 @@ fn refused_stash_ships_original_uncompressed_with_notice() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ── Timeout (issue #239) ────────────────────────────────────────────────────
+
+#[cfg(unix)]
+#[test]
+fn timeout_returns_124_even_when_a_descendant_keeps_the_pipes_open() {
+    // The shell ignores SIGTERM and `sleep` inherits that, so the polite kill
+    // does nothing; killing only the shell then leaves `sleep` holding the
+    // output pipes. wrap must still return at the timeout, not when the
+    // descendant finally exits. The trailing `echo` keeps the shell from
+    // exec-ing `sleep` in its own place.
+    let dir = tmp_squeez_dir("timeout_orphan");
+
+    let start = std::time::Instant::now();
+    let out = Command::new(bin())
+        .args(["wrap", "trap '' TERM; sleep 30; echo done"])
+        .env("SQUEEZ_DIR", &dir)
+        .env("SQUEEZ_WRAP_TIMEOUT_SECS", "1")
+        .output()
+        .unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(out.status.code(), Some(124));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("timed out after 1s"), "got: {stderr}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(10),
+        "wrap returned only after {elapsed:?}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
