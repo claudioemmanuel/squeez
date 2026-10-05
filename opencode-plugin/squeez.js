@@ -86,7 +86,10 @@ function isAlreadyWrapped(command) {
 // PowerShell: `squeez wrap` re-runs its argument with bash when Git Bash is
 // installed, so a PowerShell command passed as text would be run by the wrong
 // shell. It goes through `-EncodedCommand` (base64 of UTF-16LE) instead,
-// which no quoting layer on the way can reinterpret.
+// which no quoting layer on the way can reinterpret. The progress stream is
+// silenced first: with its output captured, PowerShell serialises the
+// "Preparing modules for first use" record as a `#< CLIXML` block, about 400
+// characters in front of every command's real output.
 function wrapCommand(command, configShell) {
   const name = shellName(configShell);
   const posixQuote = (text) => "'" + text.replace(/'/g, "'\\''") + "'";
@@ -94,7 +97,8 @@ function wrapCommand(command, configShell) {
   if (!IS_WINDOWS) return `${SQUEEZ_BIN} wrap ${quoted}`;
   if (POSIX_SHELLS.includes(name)) return `${posixQuote(SQUEEZ_CMD)} wrap ${quoted}`;
   const exe = name === "pwsh" ? "pwsh.exe" : "powershell.exe";
-  const encoded = Buffer.from(command, "utf16le").toString("base64");
+  const script = `$ProgressPreference = 'SilentlyContinue'; ${command}`;
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
   const bin = SQUEEZ_CMD.replace(/'/g, "''");
   return `& '${bin}' wrap '${exe} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}'`;
 }
