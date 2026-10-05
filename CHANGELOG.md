@@ -9,6 +9,8 @@ conventional commit messages on `main`.
 
 ## [Unreleased]
 
+## [1.48.12] - 2026-10-05
+
 ## [1.48.11] - 2026-10-05
 
 ### Added
@@ -24152,7 +24154,7 @@ pxpipe-inspired savings techniques ([#183](https://github.com/claudioemmanuel/sq
 ## [1.5.1] and earlier
 See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pre-1.5.2 details. release-please takes over changelog generation from 1.7.1 onwards.
 
-[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.48.11...HEAD
+[Unreleased]: https://github.com/claudioemmanuel/squeez/compare/v1.48.12...HEAD
 [1.7.0]: https://github.com/claudioemmanuel/squeez/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/claudioemmanuel/squeez/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/claudioemmanuel/squeez/compare/v1.5.2...v1.6.0
@@ -24238,3 +24240,4 @@ See the [git tag history](https://github.com/claudioemmanuel/squeez/tags) for pr
 [1.48.9]: https://github.com/claudioemmanuel/squeez/releases/tag/v1.48.9
 [1.48.10]: https://github.com/claudioemmanuel/squeez/releases/tag/v1.48.10
 [1.48.11]: https://github.com/claudioemmanuel/squeez/releases/tag/v1.48.11
+[1.48.12]: https://github.com/claudioemmanuel/squeez/compare/v1.48.13...v1.48.12
