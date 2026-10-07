@@ -62,7 +62,7 @@ Guards: identical image payloads dedup session-long; MCP results are dedup-only;
 | `src/config.rs` | config + `~/.claude/squeez/config.ini` parser; all fields defaulted |
 | `src/tokens.rs` | zero-dep estimates: `estimate`, `estimate_scaled`, `classify` + `estimate_classed` |
 | `src/session.rs` | token accounting; JSONL event log in `~/.claude/squeez/sessions/` |
-| `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 14 read-only tools |
+| `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 18 read-only tools |
 | `src/commands/protocol.rs` | auto-teach payload; `full_payload()` returns ~2.4 KB |
 
 ### Tests

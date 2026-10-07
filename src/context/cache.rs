@@ -113,6 +113,9 @@ pub struct FileFingerprint {
 #[derive(Debug, Clone)]
 pub struct SessionContext {
     pub session_file: String,
+    /// Bumped by every `begin_session`. `session_file` names an hourly log, so
+    /// two sessions started in the same hour share it; this tells them apart.
+    pub session_epoch: u64,
     pub call_counter: u64,
     /// Dedup floor: no call with `call_n <= dedup_floor_call` may be cited as
     /// a dedup source, because its output is no longer in the model's context.
@@ -281,6 +284,7 @@ impl Default for SessionContext {
     fn default() -> Self {
         Self {
             session_file: String::new(),
+            session_epoch: 0,
             call_counter: 0,
             dedup_floor_call: 0,
             seen_files: Vec::new(),
@@ -502,6 +506,60 @@ impl SessionContext {
         let mut ctx = SessionContext::load(sessions_dir);
         f(&mut ctx);
         ctx.save(sessions_dir);
+    }
+
+    /// Start a new session on top of the history `context.json` keeps.
+    ///
+    /// The file outlives a session on purpose (seen files, error and git
+    /// history), but two things in it describe one session only. Output
+    /// recorded before now is not in the new context, so the dedup floor rises
+    /// past it. And the running totals are reported to the model as this
+    /// session's: left alone they kept accumulating, so a session that had
+    /// spawned nothing was told `[agents: 47 calls, 825999K tokens measured]`
+    /// (2026-10-07), and the burn rate measured a lifetime sum against one
+    /// window's budget.
+    pub fn begin_session(&mut self, session_file: &str) {
+        self.dedup_floor_call = self.call_counter;
+        self.session_file = session_file.to_string();
+        self.session_epoch = self.session_epoch.saturating_add(1);
+        self.tokens_bash = 0;
+        self.tokens_read = 0;
+        self.tokens_grep = 0;
+        self.tokens_other = 0;
+        self.reread_count = 0;
+        self.exact_dedup_hits = 0;
+        self.fuzzy_dedup_hits = 0;
+        self.summarize_triggers = 0;
+        self.intensity_ultra_calls = 0;
+        self.agent_spawns = 0;
+        self.agent_estimated_tokens = 0;
+        self.agent_measured_tokens = 0;
+        self.agent_measured_count = 0;
+        self.agent_spawn_log.clear();
+        self.burn_window.clear();
+        self.last_agent_tag.clear();
+        self.last_agent_tag_call_n = 0;
+        self.last_burst_tag.clear();
+        self.last_burst_tag_call_n = 0;
+    }
+
+    /// Save a copy that was loaded a while ago, unless a session has started
+    /// since. Returns whether it was written.
+    ///
+    /// `wrap` loads the context before running the command and writes it back
+    /// when the command ends, which can be minutes later. If a session started
+    /// in between, that copy still carries the previous session's stamp, floor
+    /// and totals, and writing it would undo the start — observed 2026-10-07 as
+    /// `current.json` on hour 14 while `context.json` still said hour 12. The
+    /// stale copy describes a session that is over, so it is dropped. Compared
+    /// by `session_epoch`, because `session_file` repeats within an hour.
+    pub fn save_unless_superseded(&self, sessions_dir: &Path) -> bool {
+        let _guard = CtxLock::acquire(sessions_dir);
+        if SessionContext::load(sessions_dir).session_epoch != self.session_epoch {
+            return false;
+        }
+        self.save(sessions_dir);
+        true
     }
 
     pub fn save(&self, sessions_dir: &Path) {
@@ -1346,7 +1404,7 @@ impl SessionContext {
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
 \"last_budget_tag\":\"{}\",\"last_budget_tag_call_n\":{},\"last_agent_tag\":\"{}\",\"last_agent_tag_call_n\":{},\"last_burst_tag\":\"{}\",\"last_burst_tag_call_n\":{},\"agent_measured_tokens\":{},\"agent_measured_count\":{},\
-\"flag_force_failed\":{}}}",
+\"flag_force_failed\":{},\"session_epoch\":{}}}",
             json_util::escape_str(&self.session_file),
             self.call_counter,
             json_util::u64_array(&cl_n),
@@ -1416,6 +1474,7 @@ impl SessionContext {
             self.agent_measured_tokens,
             self.agent_measured_count,
             json_util::str_array(&self.flag_force_failed),
+            self.session_epoch,
         )
     }
 
@@ -1423,6 +1482,7 @@ impl SessionContext {
         let map = json_util::extract_all(s);
         let mut c = Self::default();
         c.session_file = json_util::map_str(&map, "session_file").unwrap_or_default();
+        c.session_epoch = json_util::map_u64(&map, "session_epoch").unwrap_or(0);
         c.call_counter = json_util::map_u64(&map, "call_counter").unwrap_or(0);
 
         let cl_n = json_util::map_u64_array(&map, "call_log_n");

@@ -129,3 +129,79 @@ fn test_init_empty_session_log_no_panic() {
     assert_eq!(code, 0, "empty session log must not crash");
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
+
+fn prior_session_context(sessions: &std::path::Path) -> squeez::context::cache::SessionContext {
+    let mut ctx = squeez::context::cache::SessionContext::default();
+    // Same hour as the session about to start: the hourly name cannot be what
+    // tells the two apart.
+    ctx.session_file = squeez::session::new_session_filename();
+    ctx.call_counter = 500;
+    ctx.note_agent_spawn("Agent", 350_000);
+    ctx.note_agent_measured(4_000_000);
+    ctx.note_tool_tokens("Bash", 900_000);
+    ctx.note_burn(900_000);
+    ctx.note_file("src/kept.rs", squeez::context::cache::FileAccess::Read);
+    ctx.save(sessions);
+    ctx
+}
+
+#[test]
+fn session_start_resets_the_previous_sessions_counters() {
+    let (sessions, memory) = tmp_dirs("counters");
+    let cfg = squeez::config::Config::default();
+    prior_session_context(&sessions);
+
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+
+    let ctx = squeez::context::cache::SessionContext::load(&sessions);
+    assert_eq!(ctx.agent_spawns, 0);
+    assert_eq!(ctx.agent_measured_tokens, 0);
+    assert_eq!(ctx.agent_measured_count, 0);
+    assert_eq!(ctx.agent_estimated_tokens, 0);
+    assert!(ctx.agent_spawn_log.is_empty());
+    assert_eq!(ctx.tokens_bash, 0);
+    assert!(ctx.burn_window.is_empty());
+    assert!(
+        squeez::economy::agent_tracker::agent_cost_warning(&ctx, &cfg).is_none(),
+        "a session that spawned nothing must not report the last one's agents"
+    );
+    assert!(!ctx.seen_files.is_empty(), "file history survives the session change");
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn copy_loaded_before_session_start_cannot_undo_it() {
+    let (sessions, memory) = tmp_dirs("stale");
+    let cfg = squeez::config::Config::default();
+    prior_session_context(&sessions);
+
+    // A wrapped command loads the context, then runs for a while.
+    let mut stale = squeez::context::cache::SessionContext::load(&sessions);
+    // Meanwhile a new session starts.
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+    let started = squeez::context::cache::SessionContext::load(&sessions);
+    // The command finishes and writes back what it loaded.
+    stale.next_call_n();
+    assert!(!stale.save_unless_superseded(&sessions), "stale copy is dropped");
+
+    let ctx = squeez::context::cache::SessionContext::load(&sessions);
+    assert_eq!(ctx.session_epoch, started.session_epoch, "session stamp kept");
+    assert_eq!(ctx.dedup_floor_call, started.dedup_floor_call, "dedup floor kept");
+    assert_eq!(ctx.agent_spawns, 0, "counters stay reset");
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn copy_loaded_in_the_current_session_is_saved() {
+    let (sessions, _memory) = tmp_dirs("same");
+    prior_session_context(&sessions);
+
+    let mut ctx = squeez::context::cache::SessionContext::load(&sessions);
+    ctx.next_call_n();
+    assert!(ctx.save_unless_superseded(&sessions));
+    assert_eq!(
+        squeez::context::cache::SessionContext::load(&sessions).call_counter,
+        ctx.call_counter
+    );
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
