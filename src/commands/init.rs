@@ -199,19 +199,20 @@ pub fn run_with_dirs_for(
     // 2b. Raise the dedup floor on a session change. `context.json` outlives a
     // session (seen_files / file history / MCP tools depend on that), but none
     // of the previous session's output is in the new context — so nothing
-    // recorded before now may be cited as "identical to #N". Stamp the session
-    // so the next start can tell whether it already fired.
-    {
-        let mut ctx = crate::context::cache::SessionContext::load(sessions_dir);
-        if ctx.session_file != new.session_file {
-            ctx.dedup_floor_call = ctx.call_counter;
-            ctx.session_file = new.session_file.clone();
-            ctx.save(sessions_dir);
-            // One-shot advisories are claimed on disk, not in context.json —
-            // release them so each is available again to the new session.
-            session::reset_nudge_claims(sessions_dir);
-        }
-    }
+    // recorded before now may be cited as "identical to #N".
+    //
+    // Locked, like every other read-modify-write of this file: an unlocked
+    // save here could be overwritten by a hook that loaded just before it.
+    //
+    // Every start counts, not only the first of an hour: this used to compare
+    // `session_file`, an hourly name, so a session started in the same hour as
+    // another kept the other's floor and totals.
+    crate::context::cache::SessionContext::update(sessions_dir, |ctx| {
+        ctx.begin_session(&new.session_file);
+    });
+    // One-shot advisories are claimed on disk, not in context.json — release
+    // them so each is available again to the new session.
+    session::reset_nudge_claims(sessions_dir);
 
     // 3. Git snapshot into session log (best-effort, may fail if not in a git repo)
     let git_log = git(&["log", "--oneline", "-5"]);

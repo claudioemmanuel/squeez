@@ -894,7 +894,9 @@ pub fn run(cmd_str: &str) -> i32 {
         // Queued warnings print on the next wrap call.
         crate::economy::nudge::note_quota_errors(&mut ctx, "Bash", &combined, &config);
 
-        ctx.save(&sessions_dir_pp);
+        // Loaded before the command ran: must not undo a session that started
+        // while it was running.
+        ctx.save_unless_superseded(&sessions_dir_pp);
     }
 
     // ── Continuous handler calibration (item 2) ────────────────────────
