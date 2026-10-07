@@ -406,12 +406,12 @@ Runs a Model Context Protocol JSON-RPC 2.0 server over stdin/stdout. Hand-rolled
 claude mcp add squeez -- /path/to/squeez mcp
 ```
 
-Thirteen read-only tools become available to the LLM:
+Eighteen read-only tools become available to the LLM:
 
 | Tool | Returns |
 |------|---------|
 | `squeez_recent_calls` | Last N bash invocations with hash + length + cmd snippet — check before re-running |
-| `squeez_seen_files` | Files this session has touched, with access type (Read/Write/Created/Deleted), sorted by recency |
+| `squeez_seen_files` | Files this session has touched, with the call number where each was last seen, sorted by recency |
 | `squeez_seen_errors` | Distinct error fingerprints observed this session (FNV-1a hashes of normalized errors) |
 | `squeez_seen_error_details` | Error fingerprints with the first 128 chars of message text — find *what* the error was |
 | `squeez_session_summary` | Token accounting + call counts (tokens_bash / tokens_read / tokens_other / seen_files / seen_errors / seen_git_refs) |
@@ -423,6 +423,11 @@ Thirteen read-only tools become available to the LLM:
 | `squeez_file_history` | Sessions where a given file path was touched, with token-savings and commit status |
 | `squeez_session_detail` | Full structured view of a past session by date: calls, files, errors, git events, test summary |
 | `squeez_protocol` | Auto-teach payload — read once per session to learn squeez's markers + memory protocol |
+| `squeez_context_pressure` | Budget used %, calls remaining, tokens saved, and a recommendation (ok / compact_soon / use_state_first) |
+| `squeez_handler_stats` | Per-handler cumulative compression across sessions; flags under- (<10%) and over-performers (≥90%) at ≥5 calls |
+| `squeez_enterprise_savings` | Enterprise transport mode (Bedrock/Vertex/OTEL) + USD saved this session at public Sonnet rates |
+| `squeez_retrieve` | Expands a stashed output back to its verbatim original by `key`; optional `start_line`/`count` to page a slice |
+| `squeez_stash_search` | Finds a stashed output by meaning when the key is lost — term overlap + fuzzy shingle match, returns key + preview |
 
 All read-only. Backed by `SessionContext::load()`, `memory::read_last_n()`, and `memory::search_history()`. No side effects.
 
