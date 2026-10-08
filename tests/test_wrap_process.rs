@@ -109,11 +109,13 @@ fn msys_sleepers(marker: &str) -> String {
 fn timeout_kills_a_program_the_msys_shell_started() {
     // `sleep` is an MSYS program: the shell's exec leaves it without a Windows
     // parent link, so `taskkill /T` alone walked straight past it.
-    let (out, _) = wrap("timeout_msys_child", "sleep 31337; echo done", "1");
+    // The odd duration doubles as the marker to find it by. It is kept short
+    // because a survivor also holds this test's own pipes until it exits.
+    let (out, _) = wrap("timeout_msys_child", "sleep 137; echo done", "1");
     assert_eq!(out.status.code(), Some(124));
 
     std::thread::sleep(Duration::from_secs(1));
-    assert_eq!(msys_sleepers("31337"), "0", "the MSYS child survived the timeout");
+    assert_eq!(msys_sleepers(" 137"), "0", "the MSYS child survived the timeout");
 }
 
 // ── Issue #262 ──────────────────────────────────────────────────────────────
