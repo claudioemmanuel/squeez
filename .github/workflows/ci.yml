@@ -29,3 +29,12 @@ jobs:
         run: bash bench/run_context.sh
       - name: Run squeez benchmark suite
         run: ./target/release/squeez benchmark --json --output bench/benchmark_report.json
+  # The process-handling half of `wrap` (job objects, handle inheritance, the
+  # native-to-MSYS argv hop) only does anything on Windows, and a type-check
+  # cannot tell whether it works. These tests run it against git-bash.
+  wrap-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --test test_wrap_process
