@@ -1,9 +1,10 @@
 // Behavioural tests for opencode-plugin/squeez.js, run by `node --test`
 // (driven from tests/test_hosts_opencode.rs). The plugin is loaded the way
-// OpenCode 1.x loads it: default export, `server()`, then the hooks.
+// OpenCode loads it: default export, then `server()` and its hooks (1.x) or
+// `setup(ctx)` (2.x).
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,7 +16,7 @@ let loads = 0;
 
 // The plugin reads the platform, HOME and SHELL once at import, so each case
 // imports its own copy.
-async function loadHooks({ platform, home, shell }) {
+async function loadPlugin({ platform, home, shell }) {
   Object.defineProperty(process, "platform", { value: platform });
   process.env.HOME = home;
   delete process.env.USERPROFILE;
@@ -23,11 +24,63 @@ async function loadHooks({ platform, home, shell }) {
   else process.env.SHELL = shell;
   try {
     const mod = await import(`${pathToFileURL(PLUGIN).href}?load=${++loads}`);
-    return await mod.default.server({}, {});
+    return mod.default;
   } finally {
     Object.defineProperty(process, "platform", { value: REAL_PLATFORM });
   }
 }
+
+async function loadHooks(options) {
+  return (await loadPlugin(options)).server({}, {});
+}
+
+// Runs `setup()` against a stand-in for the OpenCode 2.x context and returns
+// the callbacks it registered, keyed by "<domain>.<hook>".
+async function loadSetup(options, events = []) {
+  const plugin = await loadPlugin(options);
+  const hooks = {};
+  const domain = (name) => ({ hook: (hook, callback) => (hooks[`${name}.${hook}`] = callback) });
+  const subscribe = async function* () {
+    yield* events;
+  };
+  plugin.setup({ event: { subscribe }, shell: domain("shell"), tool: domain("tool") });
+  return hooks;
+}
+
+// A home whose squeez is a script: it answers `budget-params` and appends
+// every call, with whatever arrived on stdin, to `calls.log` beside it.
+function recordingHome() {
+  const home = mkdtempSync(join(tmpdir(), "squeez-plugin-"));
+  const bin = join(home, ".claude", "squeez", "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "squeez"),
+    [
+      "#!/bin/sh",
+      `if [ "$1" = "budget-params" ]; then printf '{"limit":200}'; fi`,
+      // Only track-result reads stdin; the other calls leave theirs open.
+      `if [ "$1" = "track-result" ]; then input="$(cat)"; fi`,
+      `printf '%s|%s\\n' "$*" "$input" >> "$(dirname "$0")/calls.log"`,
+      "",
+    ].join("\n"),
+  );
+  chmodSync(join(bin, "squeez"), 0o755);
+  return { home, log: join(bin, "calls.log") };
+}
+
+// The plugin does not wait for its children, so the log is polled.
+async function calls(log, count) {
+  let lines = [];
+  for (let waited = 0; waited < 5000; waited += 25) {
+    lines = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+    if (lines.length >= count) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return lines.sort();
+}
+
+// The recording squeez is a shell script, which Windows cannot execute.
+const NEEDS_SH = { skip: REAL_PLATFORM === "win32" };
 
 function fakeHome(sub = "") {
   const home = join(mkdtempSync(join(tmpdir(), "squeez-plugin-")), sub);
@@ -119,4 +172,70 @@ test("an already wrapped command is left alone in both forms", async () => {
   await hooks.config({ shell: "bash" });
   const posix = await wrap(hooks, "ls");
   assert.equal(await wrap(hooks, posix), posix);
+});
+
+test("2.x setup wraps through the shell the event names", async () => {
+  const home = fakeHome();
+  const linux = await loadSetup({ platform: "linux", home, shell: "/bin/zsh" });
+  const e = { command: "echo 'a b'", shell: "/bin/zsh" };
+  await linux["shell.create.before"](e);
+  assert.equal(e.command, `${home}/.claude/squeez/bin/squeez wrap 'echo '\\''a b'\\'''`);
+
+  const windows = await loadSetup({ platform: "win32", home: fakeHome() });
+  const pwsh = { command: "Get-Date", shell: "C:\\Program Files\\PowerShell\\7\\pwsh.exe" };
+  await windows["shell.create.before"](pwsh);
+  assert.match(pwsh.command, / wrap 'pwsh\.exe -NoLogo /);
+  const wrapped = pwsh.command;
+  await windows["shell.create.before"](pwsh);
+  assert.equal(pwsh.command, wrapped);
+});
+
+test("2.x setup registers nothing without squeez and survives a bare context", async () => {
+  const empty = mkdtempSync(join(tmpdir(), "squeez-plugin-"));
+  assert.deepEqual(await loadSetup({ platform: "linux", home: empty }), {});
+  const plugin = await loadPlugin({ platform: "linux", home: fakeHome() });
+  plugin.setup({});
+  plugin.setup(undefined);
+});
+
+test("2.x execute.before waits for the budget and keeps explicit values", NEEDS_SH, async () => {
+  const { home } = recordingHome();
+  const hooks = await loadSetup({ platform: "linux", home });
+  const bare = { tool: "read", input: { filePath: "a.txt" } };
+  await hooks["tool.execute.before"](bare);
+  assert.equal(bare.input.limit, 200);
+
+  const explicit = { tool: "read", input: { limit: 5 } };
+  await hooks["tool.execute.before"](explicit);
+  assert.equal(explicit.input.limit, 5);
+
+  const other = { tool: "write", input: {} };
+  await hooks["tool.execute.before"](other);
+  assert.deepEqual(other.input, {});
+});
+
+test("2.x events track finished shells and init each session once", NEEDS_SH, async () => {
+  const { home, log } = recordingHome();
+  const started = (type, sessionID) => ({ type, data: { sessionID } });
+  const hooks = await loadSetup({ platform: "linux", home }, [
+    started("session.execution.started", "s1"),
+    started("session.execution.started", "s1"),
+    started("session.execution.started.1", "s2"),
+    { type: "shell.exited", data: { id: "sh1", status: "exited", exit: 0 } },
+    { type: "shell.exited.1", data: { id: "sh2", status: "killed" } },
+    { type: "shell.exited", data: { id: "sh3", status: "running" } },
+    { type: "shell.exited", data: { status: "exited" } },
+    { type: "shell.started", data: { id: "sh4", status: "exited" } },
+  ]);
+  // A tool hook never reports the shell, and reports the rest without a payload.
+  await hooks["tool.execute.after"]({ tool: "bash" });
+  await hooks["tool.execute.after"]({ tool: "read" });
+
+  assert.deepEqual(await calls(log, 5), [
+    "init --host=opencode|",
+    "init --host=opencode|",
+    'track-result bash|{"tool_name":"Bash","shell_id":"sh1","shell_status":"exited","exit_code":0}',
+    'track-result bash|{"tool_name":"Bash","shell_id":"sh2","shell_status":"killed"}',
+    "track-result read|",
+  ]);
 });
