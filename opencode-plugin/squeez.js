@@ -32,7 +32,9 @@
 // hooks. That's a host limitation, not something this plugin can work around.
 
 import { execFile, spawn } from "child_process";
-import { accessSync, constants } from "fs";
+import { accessSync, constants, existsSync, promises as fsPromises } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 // Every child below passes `windowsHide: true`. On Windows a child without
 // it gets its own console, so each tool call flashed a console window
@@ -75,6 +77,7 @@ function shellName(configShell) {
 
 function isAlreadyWrapped(command) {
   return (
+    command.includes(GUARD_SENTINEL) ||
     command.startsWith(SQUEEZ_BIN) ||
     command.includes("squeez wrap") ||
     /squeez(\.exe)?['"]?\s+wrap\s/.test(command)
@@ -105,12 +108,159 @@ function wrapCommand(command, configShell) {
   const posixQuote = (text) => "'" + text.replace(/'/g, "'\\''") + "'";
   const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
   if (!IS_WINDOWS) return `${SQUEEZ_BIN} wrap ${quoted}`;
-  if (POSIX_SHELLS.includes(name)) return `${posixQuote(SQUEEZ_CMD)} wrap ${quoted}`;
+  // win32 + POSIX shell (the non-Windows case returned above): run the wrap
+  // under the outside-envelope guard (squeez issue #261). Falls back to the
+  // plain wrap when the kill-switch file exists or the guarded form would
+  // exceed the MSYS argv limit (squeez issue #262).
+  if (POSIX_SHELLS.includes(name)) return buildBashGuardedWrap(command);
   const exe = name === "pwsh" ? "pwsh.exe" : "powershell.exe";
   const script = `$ProgressPreference = 'SilentlyContinue'; ${command}`;
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   const bin = SQUEEZ_CMD.replace(/'/g, "''");
   return `& '${bin}' wrap '${exe} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}'`;
+}
+
+// ── outside-envelope guard (win32 + POSIX-shell path only) ────────────────
+//
+// Stopgap for squeez issue #261 until the binary-level fix lands. On Windows
+// with Git Bash as the OpenCode shell, a command that leaves a descendant
+// alive (a backgrounded daemon, an MSYS-exec'd program) makes the wrapped
+// call hang past every ceiling: squeez leaks its own std handles to every
+// descendant, so any survivor holds the harness pipe even with its own
+// stdout/stderr redirected to a file (mechanism D); after the direct child
+// exits, squeez drains its capture pipe with no deadline, so the ceiling no
+// longer applies (mechanism C); and the ceiling's `taskkill /T` cannot reach
+// MSYS-exec'd children because the cygwin exec breaks the Windows parent
+// link (mechanism B'). On timeout the captured output is discarded
+// (mechanism E). No construct inside the wrap envelope can release the
+// harness pipe, so the guard lives OUTSIDE it: the inner
+// `'squeez' wrap '<cmd>'` stays byte-identical (squeez still sees the real
+// command, so classification and compression survive), and an outer bash
+// structure redirects the whole wrap to a per-call log, backgrounds it, runs
+// a watchdog at ceiling+15 s that tree-kills via /proc/<pid>/winpid (the
+// Windows pid, not the MSYS pid), cats the log back, and exits 124 when the
+// watchdog fired.
+//
+// Guards against the guard: a command whose guarded form would exceed
+// GUARD_MAX_CHARS falls back to the plain wrap (Git Bash `-c` truncates
+// silently around 8186 chars, squeez issue #262), and a kill-switch file
+// (<tmpdir>/squeez-wrap-guard.OFF) restores the plain wrap without a
+// restart.
+const GUARD_SENTINEL = "__sqz_guard_v1";
+const GUARD_MAX_CHARS = 7000;
+const GUARD_WATCHDOG_SKEW_SECS = 15;
+const GUARD_CEILING_TTL_MS = 60000;
+const GUARD_PRUNE_AGE_MS = 2 * 3600 * 1000;
+
+function resolveGuardDir(tmp = tmpdir()) {
+  return join(tmp, "squeez-wrap-guard");
+}
+
+function resolveGuardKillSwitch(tmp = tmpdir()) {
+  return join(tmp, "squeez-wrap-guard.OFF");
+}
+
+let guardSeq = 0;
+function guardLogPath(dir = resolveGuardDir()) {
+  guardSeq = (guardSeq + 1) % 46656;
+  const name = `call-${Date.now().toString(36)}-${guardSeq.toString(36)}-${Math.random().toString(36).slice(2, 6)}.log`;
+  // Forward slashes: the path is embedded in a bash command line.
+  return join(dir, name).replace(/\\/g, "/");
+}
+
+// Create the guard dir and prune stale logs; fire-and-forget at module load.
+function initGuardDir(dir = resolveGuardDir()) {
+  (async () => {
+    try {
+      await fsPromises.mkdir(dir, { recursive: true });
+      const now = Date.now();
+      for (const name of await fsPromises.readdir(dir)) {
+        try {
+          const st = await fsPromises.stat(join(dir, name));
+          if (now - st.mtimeMs > GUARD_PRUNE_AGE_MS) await fsPromises.unlink(join(dir, name));
+        } catch {
+          // best-effort
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  })();
+}
+
+// Fallback while the config lookup has not landed yet: the env var, then
+// squeez's documented 360 default.
+function wrapTimeoutFallbackSecs(env = process.env) {
+  const n = Number.parseInt(env.SQUEEZ_WRAP_TIMEOUT_SECS, 10);
+  return Number.isFinite(n) && n > 0 ? n : 360;
+}
+
+// The effective ceiling lives in squeez's config, which the synchronous 2.x
+// create.before callback cannot await: cache it for a minute and refresh in
+// the background. Until the first refresh lands, fall back to the env var /
+// 360 default.
+let guardCeilingCache = { at: 0, secs: 0 };
+function guardCeilingSecs(env = process.env) {
+  if (guardCeilingCache.secs > 0 && Date.now() - guardCeilingCache.at < GUARD_CEILING_TTL_MS) {
+    return guardCeilingCache.secs;
+  }
+  refreshGuardCeiling().catch(() => {});
+  return guardCeilingCache.secs > 0 ? guardCeilingCache.secs : wrapTimeoutFallbackSecs(env);
+}
+
+async function refreshGuardCeiling() {
+  try {
+    const out = (await runSqueez(["config", "get", "wrap_timeout_secs"], 2000)).trim();
+    const n = Number.parseInt(out, 10);
+    if (Number.isFinite(n) && n > 0) guardCeilingCache = { at: Date.now(), secs: n };
+  } catch {
+    // keep the previous value
+  }
+}
+
+// The guarded form of a win32+POSIX-shell wrap. The `plain` construction is
+// byte-identical to the POSIX branch of wrapCommand, so the kill-switch and
+// the length fallback degrade to exactly the unguarded behaviour, and
+// squeez itself still receives the real command inside the envelope.
+function buildBashGuardedWrap(command, {
+  squeezBinary = SQUEEZ_CMD,
+  env = process.env,
+  ceilingSecs,
+  guardDir,
+  killSwitch,
+  exists = existsSync,
+  logPath,
+} = {}) {
+  const quoted = "'" + String(command).replace(/'/g, "'\\''") + "'";
+  const bin = String(squeezBinary).replace(/\\/g, "/");
+  const plain = `'${bin}' wrap ${quoted}`;
+  let off = false;
+  try {
+    off = exists(killSwitch ?? resolveGuardKillSwitch()) === true;
+  } catch {
+    off = false;
+  }
+  if (off) return plain;
+  const ceiling = Number.isFinite(ceilingSecs) && ceilingSecs > 0 ? ceilingSecs : guardCeilingSecs(env);
+  const w = ceiling + GUARD_WATCHDOG_SKEW_SECS;
+  const log = logPath ?? guardLogPath(guardDir);
+  const guard = [
+    `# ${GUARD_SENTINEL}`,
+    `__sqz_l='${log}'`,
+    `: >"$__sqz_l" 2>/dev/null || exec ${plain}`,
+    `${plain} >"$__sqz_l" 2>&1 </dev/null &`,
+    `__sqz_p=$!`,
+    `( trap 'kill "$s" 2>/dev/null; exit 0' TERM; sleep ${w} & s=$!; wait "$s" || exit 0; : >"$__sqz_l.to"; w="$(cat "/proc/$__sqz_p/winpid" 2>/dev/null)"; [ -n "$w" ] && taskkill //F //T //PID "$w"; kill -9 "$__sqz_p" 2>/dev/null ) >/dev/null 2>&1 </dev/null &`,
+    `__sqz_w=$!`,
+    `wait "$__sqz_p"; __sqz_r=$?`,
+    `kill "$__sqz_w" 2>/dev/null`,
+    `cat "$__sqz_l"`,
+    `if [ -e "$__sqz_l.to" ]; then echo "guard: watchdog fired" >&2; __sqz_r=124; fi`,
+    `rm -f "$__sqz_l" "$__sqz_l.to"`,
+    `exit "$__sqz_r"`,
+  ].join("\n");
+  if (guard.length > GUARD_MAX_CHARS) return plain;
+  return guard;
 }
 
 function isExecutable(path) {
@@ -266,6 +416,19 @@ async function watchEvents(events) {
     // event stream closed or host shutting down — harmless
   }
 }
+
+initGuardDir();
+refreshGuardCeiling().catch(() => {});
+
+export {
+  buildBashGuardedWrap,
+  guardCeilingSecs,
+  guardLogPath,
+  isAlreadyWrapped,
+  resolveGuardDir,
+  resolveGuardKillSwitch,
+  wrapCommand,
+};
 
 export default {
   id: "squeez",
