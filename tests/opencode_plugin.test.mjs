@@ -227,15 +227,61 @@ test("2.x events track finished shells and init each session once", NEEDS_SH, as
     { type: "shell.exited", data: { status: "exited" } },
     { type: "shell.started", data: { id: "sh4", status: "exited" } },
   ]);
-  // A tool hook never reports the shell, and reports the rest without a payload.
+  // A tool hook never reports the shell.
   await hooks["tool.execute.after"]({ tool: "bash" });
-  await hooks["tool.execute.after"]({ tool: "read" });
+  await hooks["tool.execute.after"]({
+    tool: "read",
+    input: { path: "/tmp/a.rs" },
+    status: "completed",
+    result: { content: [{ type: "text", text: "fn main" }, { type: "file", uri: "file:///tmp/a.rs" }] },
+  });
 
   assert.deepEqual(await calls(log, 5), [
     "init --host=opencode|",
     "init --host=opencode|",
     'track-result bash|{"tool_name":"Bash","shell_id":"sh1","shell_status":"exited","exit_code":0}',
     'track-result bash|{"tool_name":"Bash","shell_id":"sh2","shell_status":"killed"}',
-    "track-result read|",
+    'track-result read|{"tool_name":"read","tool_input":{"file_path":"/tmp/a.rs"},"tool_result":{"content":"fn main"}}',
+  ]);
+});
+
+test("2.x execute.after sends the search target, and the message of a failed call", NEEDS_SH, async () => {
+  const { home, log } = recordingHome();
+  const hooks = await loadSetup({ platform: "linux", home });
+  await hooks["tool.execute.after"]({
+    tool: "grep",
+    input: { pattern: "fn main", path: "src" },
+    status: "completed",
+    result: { content: "src/main.rs:1:fn main" },
+  });
+  await hooks["tool.execute.after"]({
+    tool: "glob",
+    input: { pattern: "*.rs" },
+    status: "error",
+    error: { message: "error: no such directory" },
+  });
+  await hooks["tool.execute.after"]({ tool: "write", input: { path: "a" }, status: "completed", result: {} });
+
+  assert.deepEqual(await calls(log, 2), [
+    'track-result glob|{"tool_name":"glob","tool_input":{"pattern":"*.rs"},"tool_result":{"content":"error: no such directory"}}',
+    'track-result grep|{"tool_name":"grep","tool_input":{"pattern":"fn main","path":"src"},"tool_result":{"content":"src/main.rs:1:fn main"}}',
+  ]);
+});
+
+test("1.x tool.execute.after sends what the tool read", NEEDS_SH, async () => {
+  const { home, log } = recordingHome();
+  const hooks = await loadHooks({ platform: "linux", home });
+  await hooks["tool.execute.after"](
+    { tool: "read", args: { filePath: "/tmp/a.rs", limit: 10 } },
+    { title: "a.rs", output: "fn main", metadata: {} },
+  );
+  await hooks["tool.execute.after"]({ tool: "grep", args: { pattern: "x", path: "src" } }, undefined);
+  await hooks["tool.execute.after"]({ tool: "bash", args: { command: "ls" } }, { output: "a.rs" });
+  await hooks["tool.execute.after"]({ tool: "write", args: { filePath: "b" } }, { output: "" });
+
+  assert.deepEqual(await calls(log, 3), [
+    'track-result bash|{"tool_name":"Bash"}',
+    'track-result grep|{"tool_name":"grep","tool_input":{"pattern":"x","path":"src"},"tool_result":{}}',
+    'track-result read|{"tool_name":"read","tool_input":{"file_path":"/tmp/a.rs"},"tool_result":{"content":"fn main"}}',
   ]);
 });

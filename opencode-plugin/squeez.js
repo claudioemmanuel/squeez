@@ -196,6 +196,42 @@ function trackResult(tool, payload) {
   }
 }
 
+// What the observer keeps of a result is capped at 256 KiB, so no more than
+// that is piped to it.
+const MAX_TRACKED_CHARS = 256 * 1024;
+
+// The payload `squeez track-result` reads, in the shape Claude Code's
+// PostToolUse hook sends it. `args` is the tool input as either host names
+// it: 1.x reads `filePath`, 2.x reads `path`; grep and glob take `pattern`
+// and an optional `path` on both.
+function toolPayload(tool, args, text) {
+  const input = args && typeof args === "object" ? args : {};
+  const str = (value) => (typeof value === "string" && value ? value : undefined);
+  const isRead = tool === "read";
+  return {
+    tool_name: tool,
+    tool_input: {
+      file_path: isRead ? str(input.filePath) || str(input.path) : undefined,
+      pattern: str(input.pattern),
+      path: isRead ? undefined : str(input.path),
+    },
+    tool_result: { content: str(text) && text.slice(0, MAX_TRACKED_CHARS) },
+  };
+}
+
+// The text of an OpenCode 2.x `execute.after` event: what the model was shown
+// (`content`, a string or a list of blocks), or the error message.
+function resultText(e) {
+  if (e.status === "error") return e.error && e.error.message;
+  const content = e.result && e.result.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  return content
+    .filter((block) => block && block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n");
+}
+
 const SHELL_END_STATUSES = ["exited", "timeout", "killed"];
 
 // OpenCode 2.x event bus. Event names can carry a numeric suffix
@@ -268,12 +304,10 @@ export default {
       });
 
       // No `bash` here: shell completions arrive as `shell.exited` above.
-      // Sent without a payload, so these calls record nothing yet (see
-      // trackResult).
       ctx.tool.hook("execute.after", (e) => {
         if (!e || !e.tool) return;
         if (["read", "grep", "glob"].includes(e.tool)) {
-          trackResult(e.tool);
+          trackResult(e.tool, toolPayload(e.tool, e.input, resultText(e)));
         }
       });
     }
@@ -323,12 +357,15 @@ export default {
         }
       },
 
-      "tool.execute.after": async (input) => {
+      "tool.execute.after": async (input, output) => {
         if (!input || !input.tool) return;
-        // Only track tools we know about — keeps the noise down. Sent without
-        // a payload, so these calls record nothing yet (see trackResult).
-        if (["bash", "read", "grep", "glob"].includes(input.tool)) {
-          trackResult(input.tool);
+        // Only track tools we know about — keeps the noise down.
+        if (["read", "grep", "glob"].includes(input.tool)) {
+          trackResult(input.tool, toolPayload(input.tool, input.args, output && output.output));
+        } else if (input.tool === "bash" || input.tool === "shell") {
+          // `squeez wrap` already read this output; the observer only has to
+          // see that a command finished, as on 2.x.
+          trackResult("bash", { tool_name: "Bash" });
         }
       },
     };
