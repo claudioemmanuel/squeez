@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, HostAdapter, HostCaps};
+use super::{memory_file, memory_size, HostAdapter, HostCaps};
 
 const EXTENSION_SCRIPT: &str = include_str!("../../hooks/pi-extension.ts");
 
@@ -95,7 +95,8 @@ impl HostAdapter for PiAdapter {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let file = memory_file::open(&path)?;
+        let existing = file.existing().to_string();
         let (frontmatter, body) = split_frontmatter(&existing);
 
         let mut block = String::from("<!-- squeez:start -->\n");
@@ -138,7 +139,7 @@ impl HostAdapter for PiAdapter {
         } else {
             frontmatter.to_string()
         };
-        std::fs::write(&path, format!("{}{}", fm, new_body))
+        file.commit(&format!("{}{}", fm, new_body))
     }
 }
 

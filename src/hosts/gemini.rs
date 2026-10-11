@@ -25,7 +25,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, settings_json, HostAdapter, HostCaps};
+use super::{memory_file, memory_size, settings_json, HostAdapter, HostCaps};
 
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/gemini-session-start.sh");
 const BEFORE_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-before-tool.sh");
@@ -152,9 +152,10 @@ impl HostAdapter for GeminiCliAdapter {
         }
         let memory = Self::memory_path();
         if memory.exists() {
-            let existing = std::fs::read_to_string(&memory).unwrap_or_default();
-            let cleaned = strip_squeez_block(&existing);
-            let _ = std::fs::write(&memory, cleaned);
+            if let Ok(file) = memory_file::open(&memory) {
+                let cleaned = strip_squeez_block(file.existing());
+                let _ = file.commit(&cleaned);
+            }
         }
         Ok(())
     }
@@ -164,7 +165,8 @@ impl HostAdapter for GeminiCliAdapter {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let file = memory_file::open(&path)?;
+        let existing = file.existing().to_string();
 
         let mut block = String::from("<!-- squeez:start -->\n");
         if let Some(banner) =
@@ -206,7 +208,7 @@ impl HostAdapter for GeminiCliAdapter {
 
         let cleaned = strip_squeez_block(&existing);
         let contents = format!("{}\n{}", block, cleaned.trim_start());
-        std::fs::write(&path, contents)
+        file.commit(&contents)
     }
 }
 
