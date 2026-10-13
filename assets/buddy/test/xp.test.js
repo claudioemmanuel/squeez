@@ -139,7 +139,8 @@ test('migração v1 -> v2 zera o XP uma vez e preserva a identidade', (t) => {
   assert.strictEqual(state.schemaVersion, 2);
   assert.strictEqual(state.xpResetReason, 'migration');
   assert.strictEqual(state.name, 'Pato', 'identidade preservada');
-  assert.strictEqual(state.archetype, 'Reclamão');
+  assert.strictEqual(state.archetype, 'Grumbler', 'legacy Portuguese archetype migrated to English');
+  assert.strictEqual(state.intensity, 'intense', 'legacy Portuguese intensity migrated to English');
   assert.strictEqual(state.createdAt, '2026-07-23');
   assert.strictEqual(state.squeez.lifetimeNetSaved, 137290, 'histórico de economia preservado');
   assert.strictEqual(state.hasRecentError, undefined, 'campo do gatilho removido');

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// Status line completa do squeez: pato de perfil à esquerda, medidores à
-// direita (projeto/modelo, janela de 5h, janela de 7d, pressão de contexto).
-// Substitui o HUD de terceiro — nada é encadeado.
+// Full squeez status line: side-view duck on the left, meters on the right
+// (project/model, 5h window, 7d window, context pressure). Replaces the
+// third-party HUD — nothing is chained.
 
 const fs = require('fs');
 
@@ -14,7 +14,7 @@ const { buildHudLines } = require('../lib/hud');
 const { getUsage } = require('../lib/usage');
 
 const SHINY_CYAN = '#22D3EE';
-const GUTTER = 11; // largura fixa da coluna do pato (SIDE_TEMPLATE)
+const GUTTER = 11; // fixed width of the duck column (SIDE_TEMPLATE)
 
 function readStdin() {
   try {
@@ -47,7 +47,7 @@ function render(input, usage, ansi = !process.env.NO_COLOR) {
 }
 
 function main() {
-  // --compact: uma linha só (`<(ಠ)__ C`), pra quem quiser encadear em outro HUD.
+  // --compact: a single line (`<(ಠ)__ C`), for anyone who wants to chain it into another HUD.
   if (process.argv.includes('--compact')) {
     const state = readState();
     const rank = currentRank(state);

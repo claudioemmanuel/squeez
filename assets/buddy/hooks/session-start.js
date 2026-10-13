@@ -2,11 +2,11 @@
 'use strict';
 
 /**
- * NOTA DE IMPLEMENTAÇÃO: os nomes exatos de campo no JSON de stdin de cada
- * hook podem variar entre versões do Claude Code. Este script lê com
- * fallback defensivo e não quebra se os campos não baterem -- rode
- * `claude --debug` durante o desenvolvimento pra conferir o payload real
- * da sua versão antes de confiar cegamente nestes nomes.
+ * IMPLEMENTATION NOTE: the exact field names in each hook's stdin JSON can
+ * vary between Claude Code versions. This script reads them with a defensive
+ * fallback and does not break if the fields don't match -- run
+ * `claude --debug` during development to check the real payload for your
+ * version before trusting these names blindly.
  */
 
 const { touchSession, currentRank } = require('../lib/state');
@@ -22,7 +22,7 @@ function readStdin() {
 }
 
 function main() {
-  readStdin(); // reservado pra quando quisermos ler accountUuid/session id daqui
+  readStdin(); // reserved for when we want to read accountUuid/session id from here
   const state = touchSession();
   const rank = currentRank(state);
 
@@ -34,14 +34,14 @@ function main() {
     rankIndex: rank.index,
     xp: state.xp,
     shiny: state.shiny,
-    ansi: false, // texto puro pra ir no contexto, não no terminal
+    ansi: false, // plain text, meant for the context, not the terminal
   });
 
   const additionalContext = [
-    `Você tem um companheiro chamado ${state.name} (arquétipo: ${state.archetype}, intensidade: ${state.intensity}, degrau: ${rank.label}).`,
-    'Quando o usuário chamar o companheiro pelo nome diretamente na conversa, deixe-o responder em primeira pessoa, no tom do arquétipo, e você (Claude) fica de fora dessa fala.',
-    'Fora isso, não mencione o companheiro a menos que ele tenha algo relevante a comentar sobre o que está acontecendo na sessão.',
-    `Card atual:\n${card}`,
+    `You have a companion named ${state.name} (archetype: ${state.archetype}, intensity: ${state.intensity}, rank: ${rank.label}).`,
+    'When the user calls the companion by name directly in the conversation, let it reply in first person, in the tone of its archetype, and you (Claude) stay out of that speech.',
+    'Otherwise, do not mention the companion unless it has something relevant to comment about what is happening in the session.',
+    `Current card:\n${card}`,
   ].join('\n');
 
   const output = {

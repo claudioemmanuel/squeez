@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// Ver nota de implementação em session-start.js. Este hook assume que o
-// payload traz `transcript_path` apontando pro JSONL da sessão -- confirme
-// esse campo com `claude --debug` na sua versão antes de depender dele.
+// See the implementation note in session-start.js. This hook assumes the
+// payload carries `transcript_path` pointing at the session JSONL -- confirm
+// that field with `claude --debug` on your version before depending on it.
 
 const fs = require('node:fs');
 const { readState, writeState, addXp } = require('../lib/state');
@@ -50,7 +50,7 @@ function main() {
     }
   }
 
-  // Captura economia do squeez acumulada até o fim do turno (1M tokens = 1 XP).
+  // Capture squeez savings accumulated by the end of the turn (1M tokens = 1 XP).
   const state = readState();
   const gained = applySqueezSavings(state);
   writeState(state);

@@ -87,7 +87,7 @@ test('arquétipo desconhecido cai no Sábio em vez de quebrar', () => {
 });
 
 test('card sem ANSI mostra nome, degrau, XP e o desenho do estágio certo', () => {
-  const rank = RANKS[14]; // Lendário I
+  const rank = RANKS[14]; // Legendary I
   const card = renderCard({
     name: 'Pato',
     archetype: ARCHETYPES.RECLAMAO,
@@ -99,9 +99,9 @@ test('card sem ANSI mostra nome, degrau, XP e o desenho do estágio certo', () =
     ansi: false,
   });
   assert.ok(card.includes('~ Pato ~'));
-  assert.ok(card.includes('Lendário I'));
+  assert.ok(card.includes('Legendary I'));
   assert.ok(card.includes('XP: 24100'));
-  assert.ok(card.includes('\\|/'), 'Lendário desenha a coroa');
+  assert.ok(card.includes('\\|/'), 'Legendary desenha a coroa');
   assert.ok(!card.includes('\x1b'), 'ansi:false não pode emitir escape');
 });
 
@@ -131,7 +131,7 @@ test('statusline compacta cabe no gutter e traz a inicial da raridade', () => {
   for (const archetype of ARCHETYPE_LIST) {
     const text = renderStatusline({
       archetype,
-      rankLabel: 'Lendário I',
+      rankLabel: 'Legendary I',
       rankHex: '#FBBF24',
       shiny: false,
       ansi: false,

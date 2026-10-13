@@ -1,22 +1,22 @@
 'use strict';
 
 /**
- * Motor determinístico do pato-buddy.
+ * Deterministic engine for pato-buddy.
  *
- * Tudo neste arquivo é função pura (sem I/O, sem Date.now() direto nos cálculos
- * centrais) de propósito: o gatilho, o arquétipo e a intensidade da personalidade
- * precisam ser auditáveis e testáveis por tabela de casos, não "emergentes".
- * Só o texto final do comentário (fora deste arquivo) é gerado por LLM.
+ * Everything in this file is a pure function (no I/O, no direct Date.now() in
+ * the central calculations) on purpose: the trigger, the archetype and the
+ * personality intensity need to be auditable and table-testable, not
+ * "emergent". Only the final comment text (outside this file) is LLM-generated.
  */
 
 const STAT_NAMES = ['DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK'];
 
 // ---------------------------------------------------------------------------
-// Hash + PRNG determinísticos (mesma família de algoritmo documentada para o
-// /buddy original: hash de identidade -> seed -> PRNG determinístico).
+// Deterministic hash + PRNG (same algorithm family documented for the original
+// /buddy: identity hash -> seed -> deterministic PRNG).
 // ---------------------------------------------------------------------------
 
-/** FNV-1a de 32 bits. Determinístico, sem dependências externas. */
+/** 32-bit FNV-1a. Deterministic, no external dependencies. */
 function fnv1a(str) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -26,7 +26,7 @@ function fnv1a(str) {
   return hash >>> 0;
 }
 
-/** PRNG mulberry32: rápido, determinístico, qualidade suficiente pra isso. */
+/** mulberry32 PRNG: fast, deterministic, quality good enough for this. */
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -45,19 +45,19 @@ function seedFromIdentity(identity) {
 }
 
 // ---------------------------------------------------------------------------
-// Geração de stats (peak/dump)
+// Stat generation (peak/dump)
 // ---------------------------------------------------------------------------
 
 /**
- * Gera os 5 stats (0-100) a partir de uma identidade estável (ex: account id).
- * Sempre há exatamente 1 stat de pico (o maior) e 1 de vale (o menor) --
- * a árvore de decisão do arquétipo depende dessa garantia.
+ * Generates the 5 stats (0-100) from a stable identity (e.g. account id).
+ * There is always exactly 1 peak stat (the highest) and 1 dump stat (the
+ * lowest) -- the archetype decision tree depends on that guarantee.
  */
 function generateStats(identity) {
   const rand = mulberry32(seedFromIdentity(identity));
 
   const order = [...STAT_NAMES];
-  // Fisher-Yates determinístico usando o mesmo PRNG
+  // Deterministic Fisher-Yates using the same PRNG
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
@@ -78,21 +78,21 @@ function generateStats(identity) {
 }
 
 // ---------------------------------------------------------------------------
-// Árvore de decisão: stats -> arquétipo
+// Decision tree: stats -> archetype
 // ---------------------------------------------------------------------------
 
 const ARCHETYPES = {
-  MANDAO: 'Mandão',
-  RECLAMAO: 'Reclamão',
-  CAOTICO: 'Caótico',
-  FISCAL: 'Fiscal/Guardião',
-  SABIO: 'Sábio',
-  MOTIVADOR: 'Motivador',
+  MANDAO: 'Bossy',
+  RECLAMAO: 'Grumbler',
+  CAOTICO: 'Chaotic',
+  FISCAL: 'Inspector/Guardian',
+  SABIO: 'Sage',
+  MOTIVADOR: 'Motivator',
 };
 
 /**
- * Regra de prioridade fechada (ver spec). Cobre as 20 combinações possíveis
- * de (peak, dump) entre os 5 stats. Testado exaustivamente em engine.test.js.
+ * Closed priority rule (see spec). Covers the 20 possible (peak, dump)
+ * combinations across the 5 stats. Exhaustively tested in engine.test.js.
  */
 function resolveArchetype(peakName, dumpName) {
   if (dumpName === 'PATIENCE' && (peakName === 'DEBUGGING' || peakName === 'CHAOS')) {
@@ -103,18 +103,18 @@ function resolveArchetype(peakName, dumpName) {
   if (peakName === 'DEBUGGING') return ARCHETYPES.FISCAL;
   if (peakName === 'WISDOM' && dumpName !== 'SNARK') return ARCHETYPES.SABIO;
   if (peakName === 'PATIENCE') return ARCHETYPES.MOTIVADOR;
-  return ARCHETYPES.SABIO; // fallback: peak WISDOM, dump SNARK ("Sábio ácido")
+  return ARCHETYPES.SABIO; // fallback: peak WISDOM, dump SNARK ("acidic Sage")
 }
 
-/** Intensidade = distância entre pico e vale, não valor absoluto do pico. */
+/** Intensity = distance between peak and dump, not the peak's absolute value. */
 function resolveIntensity(stats, peakName, dumpName) {
   const gap = stats[peakName] - stats[dumpName];
-  if (gap <= 25) return 'leve';
-  if (gap <= 50) return 'moderado';
-  return 'intenso';
+  if (gap <= 25) return 'mild';
+  if (gap <= 50) return 'moderate';
+  return 'intense';
 }
 
-/** Monta a identidade completa e determinística de um buddy. */
+/** Builds a buddy's full, deterministic identity. */
 function buildBuddy(identity) {
   const { stats, peakName, dumpName } = generateStats(identity);
   const archetype = resolveArchetype(peakName, dumpName);
@@ -123,50 +123,51 @@ function buildBuddy(identity) {
 }
 
 // ---------------------------------------------------------------------------
-// Ranking (XP -> degrau), 5 cores x 3 sub-níveis = 15 degraus
+// Ranking (XP -> rank), 5 colors x 3 sub-levels = 15 ranks
 // ---------------------------------------------------------------------------
 
-const RANK_COLORS = ['Comum', 'Incomum', 'Raro', 'Épico', 'Lendário'];
-const SUB_LEVELS = ['III', 'II', 'I']; // III é o mais baixo dentro da cor
+const RANK_COLORS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+const SUB_LEVELS = ['III', 'II', 'I']; // III is the lowest within the color
 
 const RANK_HEX = {
-  Comum: '#9CA3AF',
-  Incomum: '#34D399',
-  Raro: '#60A5FA',
-  Épico: '#C084FC',
-  Lendário: '#FBBF24',
+  Common: '#9CA3AF',
+  Uncommon: '#34D399',
+  Rare: '#60A5FA',
+  Epic: '#C084FC',
+  Legendary: '#FBBF24',
 };
 
 /**
- * Curva de XP acumulado necessário para alcançar cada um dos 15 degraus.
+ * Cumulative XP curve required to reach each of the 15 ranks.
  *
- * Progressão geométrica: base 60, razão ~1.45. Cada degrau custa ~45% mais que
- * o anterior; o teto é 24.100 XP acumulados.
+ * Geometric progression: base 60, ratio ~1.45. Each rank costs ~45% more than
+ * the previous one; the ceiling is 24,100 cumulative XP.
  *
- * A curva anterior (base 150, razão 1.55, teto 125.730) foi calibrada sobre uma
- * premissa errada — "sessão pesada = ~70 XP". A medição real do primeiro pato
- * em produção deu ~700 XP/dia, 10x isso, porque o gatilho de "bug resolvido"
- * pagava 10 XP toda vez que a palavra "error" aparecia numa saída e o comando
- * seguinte vinha limpo. Corrigido o vazamento (ver hooks/post-tool-use.js), a
- * torneira honesta é a economia de tokens do squeez.
+ * The previous curve (base 150, ratio 1.55, ceiling 125,730) was calibrated on
+ * a wrong premise — "heavy session = ~70 XP". The real measurement from the
+ * first duck in production gave ~700 XP/day, 10x that, because the "bug fixed"
+ * trigger paid 10 XP every time the word "error" appeared in an output and the
+ * next command came back clean. With the leak fixed (see
+ * hooks/post-tool-use.js), the honest faucet is squeez token savings.
  *
- * PREMISSA DE CALIBRAÇÃO: ~20 XP por dia ativo
- *   = até 8 XP de ação (teto duro por sessão) + ~12 XP de economia
- *     (~300k tokens líquidos/dia a 25.000:1, ver lib/squeez.js).
+ * CALIBRATION PREMISE: ~20 XP per active day
+ *   = up to 8 XP from action (hard cap per session) + ~12 XP from savings
+ *     (~300k net tokens/day at 25,000:1, see lib/squeez.js).
  *
- * As duas colunas abaixo medem coisas diferentes — a confusão entre elas foi o
- * que quebrou a calibração anterior:
+ * The two columns below measure different things — confusing them is what
+ * broke the previous calibration:
  *
- *   degrau        XP acumulado    tempo acumulado a 20 XP/dia ativo
- *   Comum II              60      ~3 dias        <- fisgada inicial rápida
- *   Incomum I          1.100      ~2 meses
- *   Raro I             3.650      ~6 meses
- *   Épico I           11.400      ~1,5 ano
- *   Lendário I        24.100      ~3,3 anos      <- endgame, não um checkpoint
+ *   rank          cumulative XP   cumulative time at 20 XP/active day
+ *   Common II              60      ~3 days        <- quick initial bite
+ *   Uncommon I          1,100      ~2 months
+ *   Rare I              3,650      ~6 months
+ *   Epic I             11,400      ~1.5 years
+ *   Legendary I        24,100      ~3.3 years     <- endgame, not a checkpoint
  *
- * Mexer aqui reprecifica todo o histórico: o XP acumulado não muda, só o degrau
- * que ele compra. Para recalibrar o ritmo prefira ajustar TOKENS_PER_XP em
- * lib/squeez.js — a taxa é o botão de calibração, a curva é a forma.
+ * Changing anything here reprices the whole history: cumulative XP doesn't
+ * change, only the rank it buys. To recalibrate the pace prefer adjusting
+ * TOKENS_PER_XP in lib/squeez.js — the rate is the calibration knob, the curve
+ * is the shape.
  */
 const RANK_THRESHOLDS = [
   0, 60, 150, 275, 460, 720, 1100, 1660, 2470, 3650, 5350, 7800, 11400, 16600,
@@ -178,7 +179,7 @@ const RANKS = RANK_COLORS.flatMap((color) =>
 ).map((r, i) => ({ ...r, index: i, xpRequired: RANK_THRESHOLDS[i], hex: RANK_HEX[r.color] }));
 
 const MAX_RANK_INDEX = RANKS.length - 1;
-const FLOOR_RANK_INDEX = 0; // Comum III -- piso de decaimento
+const FLOOR_RANK_INDEX = 0; // Common III -- decay floor
 
 function rankIndexFromXp(xp) {
   let idx = 0;
@@ -195,28 +196,28 @@ function rankFromIndex(index) {
 }
 
 /**
- * Estágio de crescimento do desenho (0-4), um por cor de raridade. É o que dá
- * recompensa visível ao subir de rank: o sub-nível (III/II/I) só muda o rótulo,
- * a cor muda a silhueta inteira. Ver lib/art.js STAGES.
+ * Art growth stage (0-4), one per rarity color. It is what gives a visible
+ * reward for ranking up: the sub-level (III/II/I) only changes the label, the
+ * color changes the whole silhouette. See lib/art.js STAGES.
  */
 function stageFromRank(index) {
   return Math.floor(Math.max(0, Math.min(MAX_RANK_INDEX, index)) / SUB_LEVELS.length);
 }
 
 // ---------------------------------------------------------------------------
-// Decaimento por inatividade
+// Decay from inactivity
 // ---------------------------------------------------------------------------
 
 const GRACE_PERIOD_DAYS = 3;
 const DECAY_INTERVAL_DAYS = 7;
 
 /**
- * Calcula o degrau efetivo aplicando decaimento por inatividade.
- * - até GRACE_PERIOD_DAYS sem sessão: nenhum efeito
- * - a cada DECAY_INTERVAL_DAYS além do grace: -1 sub-degrau
- * - nunca cai abaixo de FLOOR_RANK_INDEX (Comum III)
- * - retorna o índice efetivo; o XP acumulado NUNCA é alterado por isso --
- *   decaimento afeta só a exibição/degrau atual, não o histórico de XP.
+ * Computes the effective rank by applying inactivity decay.
+ * - up to GRACE_PERIOD_DAYS without a session: no effect
+ * - every DECAY_INTERVAL_DAYS beyond the grace: -1 sub-rank
+ * - never drops below FLOOR_RANK_INDEX (Common III)
+ * - returns the effective index; cumulative XP is NEVER changed by this --
+ *   decay affects only the display/current rank, not the XP history.
  */
 function applyDecay(xp, daysSinceLastSession) {
   const baseIndex = rankIndexFromXp(xp);

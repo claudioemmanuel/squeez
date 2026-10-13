@@ -1,22 +1,22 @@
 ---
-description: Mostra o pato companheiro (card, stats, carinho, renomear)
+description: Show the companion duck (card, stats, pet, rename)
 ---
-O usuário quer interagir com o pato companheiro do squeez. Pedido: $ARGUMENTS
+The user wants to interact with the squeez companion duck. Request: $ARGUMENTS
 
-Rode o CLI do pato e mostre a saída ao usuário **verbatim, em um bloco de
-código** (a arte ASCII depende do alinhamento):
+Run the duck CLI and show the output to the user **verbatim, in a code block**
+(the ASCII art depends on alignment):
 
-- Sem argumentos ou "card": `node ~/.claude/squeez/buddy/buddy-cli.js card`
-- "stats" ou "status": `node ~/.claude/squeez/buddy/buddy-cli.js stats`
-- "pet" / "carinho": `node ~/.claude/squeez/buddy/buddy-cli.js pet`
-- "rename <nome>" / "chama ele de <nome>": `node ~/.claude/squeez/buddy/buddy-cli.js rename <nome>`
-- "reset" / "zera o XP": `node ~/.claude/squeez/buddy/buddy-cli.js reset`
+- No arguments or "card": `node ~/.claude/squeez/buddy/buddy-cli.js card`
+- "stats" or "status": `node ~/.claude/squeez/buddy/buddy-cli.js stats`
+- "pet" / "pat": `node ~/.claude/squeez/buddy/buddy-cli.js pet`
+- "rename <name>" / "call it <name>": `node ~/.claude/squeez/buddy/buddy-cli.js rename <name>`
+- "reset" / "zero the XP": `node ~/.claude/squeez/buddy/buddy-cli.js reset`
 
-Depois do bloco, no máximo uma linha de comentário — o pato fala por si.
+After the block, at most one line of comment — the duck speaks for itself.
 
-A fonte principal de XP é a economia de tokens do squeez: 25.000 tokens
-líquidos economizados = 1 XP, sem teto. Ações (edits, commits, suíte que sai do
-vermelho) valem pouco e param num teto de 8 XP por sessão — subir de rank tem
-que vir de economia real, não de grind. O desenho muda a cada cor de raridade,
-então dá pra ver o progresso: filhote (Comum) → jovem (Incomum) → adulto na água
-(Raro) → asa aberta (Épico) → coroado (Lendário).
+The main XP source is squeez token savings: 25,000 net tokens saved = 1 XP, no
+cap. Actions (edits, commits, a suite that goes from red to green) are worth
+little and stop at a cap of 8 XP per session — ranking up has to come from real
+savings, not grinding. The art changes with every rarity color, so progress is
+visible: hatchling (Common) → young (Uncommon) → adult in the water (Rare) →
+wings spread (Epic) → crowned (Legendary).
