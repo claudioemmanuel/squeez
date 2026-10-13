@@ -66,6 +66,26 @@ const SQUEEZ_CMD = IS_WINDOWS
 
 const POSIX_SHELLS = ["bash", "sh", "zsh", "dash", "ksh"];
 
+// This host's squeez state directory. The OpenCode adapter
+// (`src/hosts/opencode.rs` → `data_dir()`) keeps OpenCode's call log, memory
+// and config under `$XDG_CONFIG_HOME/opencode/squeez` (default
+// `~/.config/opencode/squeez`), the same directory `squeez init
+// --host=opencode` writes and the AGENTS.md memory block is rendered from.
+// Every child below has to be pointed at it: without it `wrap` and
+// `track-result` fall back to the Claude Code default (`~/.claude/squeez`), so
+// the call log lands in one store and the session memory in another and no
+// session is ever whole.
+//
+// The wrapper `wrapCommand` builds is spawned by the host shell, not by this
+// process, and a plugin's `process.env` writes never reach that child (the
+// host snapshots the environment before plugins load), so the directory has
+// to ride on the command line there.
+//
+// Forward slashes on every platform, like SQUEEZ_CMD: Git Bash runs the
+// wrapper on Windows and the binary accepts them.
+const SQUEEZ_DIR =
+  `${process.env.XDG_CONFIG_HOME || `${HOME}/.config`}/opencode/squeez`.replace(/\\/g, "/");
+
 // The shell OpenCode hands the command to, as a bare lowercase name: its
 // `shell` config key when set, else $SHELL. Empty when neither names one.
 function shellName(configShell) {
@@ -104,13 +124,18 @@ function wrapCommand(command, configShell) {
   const name = shellName(configShell);
   const posixQuote = (text) => "'" + text.replace(/'/g, "'\\''") + "'";
   const quoted = "'" + command.replace(/'/g, "'\\''") + "'";
-  if (!IS_WINDOWS) return `${SQUEEZ_BIN} wrap ${quoted}`;
-  if (POSIX_SHELLS.includes(name)) return `${posixQuote(SQUEEZ_CMD)} wrap ${quoted}`;
+  // The wrapper is a child of the host shell, not of this process, so the
+  // state directory rides on the command line: a leading assignment for POSIX
+  // shells (it applies to that one command), `$env:` for PowerShell.
+  const env = `SQUEEZ_DIR=${posixQuote(SQUEEZ_DIR)} `;
+  if (!IS_WINDOWS) return `${env}${SQUEEZ_BIN} wrap ${quoted}`;
+  if (POSIX_SHELLS.includes(name)) return `${env}${posixQuote(SQUEEZ_CMD)} wrap ${quoted}`;
   const exe = name === "pwsh" ? "pwsh.exe" : "powershell.exe";
   const script = `$ProgressPreference = 'SilentlyContinue'; ${command}`;
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   const bin = SQUEEZ_CMD.replace(/'/g, "''");
-  return `& '${bin}' wrap '${exe} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}'`;
+  const dir = SQUEEZ_DIR.replace(/'/g, "''");
+  return `$env:SQUEEZ_DIR='${dir}'; & '${bin}' wrap '${exe} -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}'`;
 }
 
 function isExecutable(path) {
@@ -134,7 +159,12 @@ function runSqueez(args, timeoutMs) {
     execFile(
       SQUEEZ_BIN,
       args,
-      { timeout: timeoutMs, encoding: "utf8", windowsHide: true },
+      {
+        timeout: timeoutMs,
+        encoding: "utf8",
+        windowsHide: true,
+        env: { ...process.env, SQUEEZ_DIR },
+      },
       (error, stdout) => (error ? reject(error) : resolve(String(stdout))),
     );
   });
@@ -183,6 +213,7 @@ function trackResult(tool, payload) {
       stdio: json === undefined ? "ignore" : ["pipe", "ignore", "ignore"],
       detached: true,
       windowsHide: true,
+      env: { ...process.env, SQUEEZ_DIR },
     });
     // A missing binary or a closed pipe must never reach the host.
     child.on("error", () => {});
