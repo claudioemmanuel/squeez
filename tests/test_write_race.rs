@@ -36,23 +36,25 @@ fn rules(lines: usize) -> String {
     )
 }
 
-/// One writer's state directory, with a config that renders a block no other
-/// writer renders — sessions with different summaries write different blocks.
+/// One writer's sandboxed data directory (`LOCALAPPDATA` / `XDG_DATA_HOME`).
 fn state_dir(root: &Path, n: usize) -> PathBuf {
     let state = root.join(format!("state-{n}"));
+    std::fs::create_dir_all(&state).unwrap();
+    state
+}
+
+/// The OpenCode adapter reads `config.ini` next to `AGENTS.md`, so every
+/// writer in a round shares it. A threshold that changes each round renders a
+/// block the file does not carry yet: every round replaces the file while the
+/// other writers contend for it.
+fn write_config(root: &Path, round: usize) {
+    let dir = root.join("config/opencode/squeez");
+    std::fs::create_dir_all(&dir).unwrap();
     let ini = format!(
         "auto_compress_md = false\ncompact_threshold_tokens = {}\n",
-        100_000 + n * 8_000
+        100_000 + round * 8_000
     );
-    // Where the guarded build keeps OpenCode state …
-    let new_home = state.join("squeez").join("opencode");
-    std::fs::create_dir_all(&new_home).unwrap();
-    std::fs::write(new_home.join("config.ini"), &ini).unwrap();
-    // … and where a stock build looks for it.
-    let old_home = root.join("config/opencode/squeez");
-    std::fs::create_dir_all(&old_home).unwrap();
-    std::fs::write(old_home.join("config.ini"), "auto_compress_md = false\n").unwrap();
-    state
+    std::fs::write(dir.join("config.ini"), ini).unwrap();
 }
 
 fn spawn_init(bin: &str, root: &Path, state: &Path) -> Child {
@@ -79,6 +81,7 @@ fn race(bin: &str, root: &Path, rules: &str, rounds: usize) -> Option<usize> {
     let agents = root.join("config/opencode/AGENTS.md");
     let states: Vec<PathBuf> = (0..PROCS).map(|n| state_dir(root, n)).collect();
     for round in 0..rounds {
+        write_config(root, round);
         let children: Vec<Child> = states.iter().map(|s| spawn_init(bin, root, s)).collect();
         for mut child in children {
             child.wait().expect("squeez init did not exit");
