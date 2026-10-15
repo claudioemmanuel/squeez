@@ -20,8 +20,9 @@
 //! On top of that `commit` re-reads the file and refuses to write when it
 //! changed since `open` (a writer that does not take the lock).
 //!
-//! Everything fails closed: on any doubt the file is left exactly as it was
-//! and the squeez block simply is not refreshed this time.
+//! Detected errors fail closed. Non-cooperating writers can still race the
+//! final comparison and rename: ordinary filesystems provide no atomic
+//! compare-and-replace by content. This is not a CAS guarantee for editors.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -31,6 +32,7 @@ use std::time::{Duration, Instant, SystemTime};
 /// Promotion marker: present in every error and log line of this module, so
 /// a built binary can be checked for the guard.
 pub const MARKER: &str = "WRITE_RACE_GUARD_V1";
+const REVIEW_MARKER: &str = "WRITE_RACE_REVIEW_V2";
 
 const BLOCK_START: &str = "<!-- squeez:start -->";
 const BLOCK_END: &str = "<!-- squeez:end -->";
@@ -71,6 +73,7 @@ pub fn open_with_wait(path: &Path, wait: Duration) -> io::Result<MemoryFile> {
     sweep_stale_tmp(&path);
     let snapshot = read_strict(&path)
         .map_err(|e| refuse(&path, e.kind(), &format!("exists but is unreadable ({e})")))?;
+    validate_markers(&path, snapshot.as_deref().unwrap_or(""))?;
     Ok(MemoryFile { path, snapshot, _lock: lock })
 }
 
@@ -88,12 +91,12 @@ impl MemoryFile {
         if self.snapshot.as_deref() == Some(contents) {
             return Ok(());
         }
-        if let Some(line) = dropped_content(self.existing(), contents) {
-            let shown: String = line.chars().take(80).collect();
+        validate_markers(&self.path, contents)?;
+        if dropped_content(self.existing(), contents).is_some() {
             return Err(refuse(
                 &self.path,
                 io::ErrorKind::InvalidData,
-                &format!("new content would drop text outside the squeez block: {shown:?}"),
+                "new content would drop text outside the squeez block",
             ));
         }
         let now = read_strict(&self.path).map_err(|e| {
@@ -106,8 +109,20 @@ impl MemoryFile {
                 "file changed since it was read; not overwriting",
             ));
         }
-        write_atomic(&self.path, contents.as_bytes())
+        write_atomic(&self.path, contents.as_bytes(), &self.snapshot)
             .map_err(|e| refuse(&self.path, e.kind(), &format!("atomic write failed ({e})")))
+    }
+}
+
+/// Multiple, nested, reversed or unterminated markers are ambiguous ownership.
+/// Never guess where the owner's text ends in such a file.
+fn validate_markers(path: &Path, contents: &str) -> io::Result<()> {
+    let starts = contents.matches(BLOCK_START).count();
+    let ends = contents.matches(BLOCK_END).count();
+    let valid = (starts == 0 && ends == 0)
+        || (starts == 1 && ends == 1 && contents.find(BLOCK_START) < contents.find(BLOCK_END));
+    if valid { Ok(()) } else {
+        Err(refuse(path, io::ErrorKind::InvalidData, "ambiguous squeez markers; not overwriting"))
     }
 }
 
@@ -208,7 +223,7 @@ fn acquire(lock_path: &Path, wait: Duration) -> io::Result<File> {
     }
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn write_atomic(path: &Path, bytes: &[u8], snapshot: &Option<String>) -> io::Result<()> {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = sibling(
         path,
@@ -218,16 +233,41 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
             SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ),
     );
+    write_atomic_to(path, bytes, snapshot, &tmp)
+}
+
+fn write_atomic_to(path: &Path, bytes: &[u8], snapshot: &Option<String>, tmp: &Path) -> io::Result<()> {
+    let permissions = match std::fs::metadata(path) {
+        Ok(meta) => {
+            let permissions = meta.permissions();
+            if permissions.readonly() {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "target is read-only"));
+            }
+            Some(permissions)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    // Do not clean up a path we failed to create: it belongs to someone else.
+    let mut file = options.open(tmp)?;
     let result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
         #[cfg(unix)]
-        if let Ok(meta) = std::fs::metadata(path) {
-            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        if let Some(permissions) = permissions {
+            std::fs::set_permissions(tmp, permissions)?;
         }
-        rename_over(&tmp, path)
+        #[cfg(not(unix))]
+        let _ = permissions;
+        rename_over(tmp, path, snapshot)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -237,9 +277,14 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 /// Rename with a short retry: on Windows the target can be briefly held by a
 /// reader that did not open it for shared delete.
-fn rename_over(tmp: &Path, path: &Path) -> io::Result<()> {
+fn rename_over(tmp: &Path, path: &Path, snapshot: &Option<String>) -> io::Result<()> {
     let mut attempt = 0;
     loop {
+        // Compare AFTER staging/fsync and before EVERY retry. A sharing
+        // violation can otherwise extend a stale overwrite window by 500 ms.
+        if &read_strict(path)? != snapshot {
+            return Err(io::Error::other("file changed since it was read; not overwriting"));
+        }
         match std::fs::rename(tmp, path) {
             Ok(()) => return Ok(()),
             Err(e) => {
@@ -289,7 +334,7 @@ pub fn log_path() -> PathBuf {
 /// watching, the log file for everyone else (`squeez init` discards the
 /// adapter's result).
 fn refuse(path: &Path, kind: io::ErrorKind, why: &str) -> io::Error {
-    let msg = format!("squeez {MARKER}: {} left untouched: {why}", path.display());
+    let msg = format!("squeez {MARKER} {REVIEW_MARKER}: {} left untouched: {why}", path.display());
     eprintln!("{msg}");
     if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(log_path()) {
         let ts = SystemTime::now()
@@ -795,5 +840,167 @@ mod tests {
             wiped > 0,
             "the pre-fix code path did not reproduce the wipe ({torn} torn, {intact} intact)"
         );
+    }
+
+    #[test]
+    fn review_refusal_never_discloses_owner_text() {
+        let dir = tmp_dir("review-secret");
+        let path = dir.join("AGENTS.md");
+        let secret = "PRIVATE_TOKEN_REVIEW_9fa187";
+        std::fs::write(&path, secret).unwrap();
+        let err = open(&path).unwrap().commit(&block("new")).unwrap_err();
+        assert!(!err.to_string().contains(secret));
+        let log = std::fs::read_to_string(log_path()).unwrap();
+        assert!(!log.lines().filter(|l| l.contains(&path.display().to_string()))
+            .any(|l| l.contains(secret)));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), secret);
+    }
+
+    #[test]
+    fn review_temp_collision_never_deletes_an_unowned_file() {
+        let dir = tmp_dir("review-collision");
+        let path = dir.join("AGENTS.md");
+        let tmp = dir.join(".AGENTS.md.squeez-tmp-collision");
+        std::fs::write(&path, RULES).unwrap();
+        std::fs::write(&tmp, "unowned recovery data").unwrap();
+        let err = write_atomic_to(&path, block("new").as_bytes(), &Some(RULES.to_string()), &tmp)
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "unowned recovery data");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), RULES);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn review_unix_permissions_are_preserved() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmp_dir("review-mode");
+        let path = dir.join("AGENTS.md");
+        std::fs::write(&path, RULES).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        inject(&path, "new").unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
+    }
+
+    #[test]
+    fn review_ambiguous_markers_are_refused_without_modification() {
+        let dir = tmp_dir("review-markers");
+        let path = dir.join("AGENTS.md");
+        for before in [
+            format!("{BLOCK_START}\nowner\n{BLOCK_START}\ninner\n{BLOCK_END}\n"),
+            format!("{}{}owner\n", block("one"), block("two")),
+            format!("{BLOCK_END}\nowner\n{BLOCK_START}\n"),
+            format!("{BLOCK_START}\nowner\n"),
+        ] {
+            std::fs::write(&path, &before).unwrap();
+            assert!(inject(&path, "replacement").is_err(), "ambiguous file accepted");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn review_readonly_file_is_not_replaced() {
+        let dir = tmp_dir("review-readonly");
+        let path = dir.join("AGENTS.md");
+        std::fs::write(&path, RULES).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms.clone()).unwrap();
+        let result = inject(&path, "new");
+        let after = std::fs::read_to_string(&path).unwrap();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        std::fs::set_permissions(&path, perms).unwrap();
+        assert!(result.is_err());
+        assert_eq!(after, RULES);
+        assert!(leftovers(&dir).is_empty());
+    }
+
+    #[test]
+    fn review_ten_megabytes_crlf_unicode_and_bom_survive() {
+        let dir = tmp_dir("review-large");
+        let path = dir.join("AGENTS.md");
+        let rules = format!("\u{feff}# 私有 правила 🦀\r\n{}END\r\n",
+            "owner content 0123456789\r\n".repeat(440_000));
+        assert!(rules.len() > 10_000_000);
+        for before in [rules.clone(), format!("{rules}{}", block("end")),
+            format!("{}{rules}", block("start"))] {
+            std::fs::write(&path, &before).unwrap();
+            inject(&path, "new").unwrap();
+            assert_eq!(outside_block(&std::fs::read_to_string(&path).unwrap()).trim_start(), rules);
+        }
+        assert!(leftovers(&dir).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn review_external_writer_during_rename_retry_is_not_overwritten() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tmp_dir("review-retry-race");
+        let path = dir.join("AGENTS.md");
+        std::fs::write(&path, RULES).unwrap();
+        // Allow external writes and reads, but block replacement until released.
+        let held = OpenOptions::new().read(true).share_mode(3).open(&path).unwrap();
+        let worker = {
+            let path = path.clone();
+            std::thread::spawn(move || inject(&path, "replacement"))
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while leftovers(&dir).is_empty() {
+            assert!(Instant::now() < deadline, "writer did not stage temp");
+            std::thread::yield_now();
+        }
+        // Wait for staging to finish and the first rename to hit sharing violation.
+        std::thread::sleep(Duration::from_millis(75));
+        let external = format!("{RULES}NEW EXTERNAL RULE\n");
+        std::fs::write(&path, &external).unwrap();
+        drop(held);
+        let result = worker.join().unwrap();
+        assert!(result.is_err(), "guard overwrote external writer in retry window");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), external);
+        assert!(leftovers(&dir).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn review_kill_child() {
+        if let Some(path) = std::env::var_os("SQUEEZ_REVIEW_KILL_PATH") {
+            inject(Path::new(&path), "child replacement").unwrap();
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn review_killed_writer_keeps_target_and_releases_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tmp_dir("review-kill");
+        let path = dir.join("AGENTS.md");
+        let rules = format!("{RULES}{}", "owner line\n".repeat(1_000_000));
+        std::fs::write(&path, &rules).unwrap();
+        let held = OpenOptions::new().read(true).share_mode(1).open(&path).unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "hosts::memory_file::tests::review_kill_child", "--nocapture"])
+            .env("SQUEEZ_REVIEW_KILL_PATH", &path)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+            .spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while leftovers(&dir).is_empty() {
+            if Instant::now() >= deadline {
+                let _ = child.kill(); let _ = child.wait();
+                panic!("child did not enter atomic write");
+            }
+            std::thread::yield_now();
+        }
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success());
+        drop(held);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), rules);
+        let abandoned = leftovers(&dir);
+        assert_eq!(abandoned.len(), 1);
+        File::options().write(true).open(dir.join(&abandoned[0])).unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(3600)).unwrap();
+        inject(&path, "after crash").unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().ends_with(&rules));
+        assert!(leftovers(&dir).is_empty());
     }
 }
