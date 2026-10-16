@@ -417,8 +417,12 @@ async function watchEvents(events) {
   }
 }
 
-initGuardDir();
-refreshGuardCeiling().catch(() => {});
+// The guard is Windows-only; other platforms must not create its directory
+// or spawn a config lookup merely by loading the plugin.
+if (IS_WINDOWS) {
+  initGuardDir();
+  refreshGuardCeiling().catch(() => {});
+}
 
 export {
   buildBashGuardedWrap,

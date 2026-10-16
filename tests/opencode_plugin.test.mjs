@@ -134,20 +134,35 @@ test("Windows with shell=pwsh encodes for pwsh.exe", async () => {
   assert.match(await wrap(hooks, "Get-Date"), / wrap 'pwsh\.exe -NoLogo /);
 });
 
-test("Windows with shell=bash gets a quoted forward-slash POSIX wrapper", async () => {
+test("Windows with shell=bash guards the quoted forward-slash POSIX wrapper", async () => {
   const home = fakeHome();
   const hooks = await loadHooks({ platform: "win32", home });
   await hooks.config({ shell: "bash" });
-  assert.equal(
-    await wrap(hooks, "echo 'a b'"),
-    `'${slashed(home)}/.claude/squeez/bin/squeez.exe' wrap 'echo '\\''a b'\\'''`,
-  );
+  const wrapped = await wrap(hooks, "echo 'a b'");
+  assert.ok(wrapped.startsWith("# __sqz_guard_v1\n"), wrapped);
+  assert.ok(wrapped.includes(
+    `'${slashed(home)}/.claude/squeez/bin/squeez.exe' wrap 'echo '\\''a b'\\''' >"$__sqz_l" 2>&1 </dev/null &`,
+  ), wrapped);
+  assert.ok(wrapped.includes('wait "$__sqz_p"; __sqz_r=$?'), wrapped);
+  assert.ok(wrapped.includes('__sqz_r=124'), wrapped);
 });
 
 test("Windows falls back to $SHELL when the config names no shell", async () => {
   const hooks = await loadHooks({ platform: "win32", home: fakeHome(), shell: "/usr/bin/bash" });
   await hooks.config({});
-  assert.match(await wrap(hooks, "ls"), /^'.+squeez\.exe' wrap 'ls'$/);
+  const wrapped = await wrap(hooks, "ls");
+  assert.ok(wrapped.startsWith("# __sqz_guard_v1\n"), wrapped);
+  assert.match(wrapped, /'.+squeez\.exe' wrap 'ls' >"\$__sqz_l"/);
+});
+
+test("guard kill switch and length limit retain the plain quoted wrapper", async () => {
+  const { buildBashGuardedWrap } = await import(pathToFileURL(PLUGIN).href);
+  const options = { squeezBinary: "C:/squeez.exe", ceilingSecs: 10, logPath: "C:/tmp/call.log" };
+  assert.equal(buildBashGuardedWrap("echo 'a b'", { ...options, exists: () => true }),
+    "'C:/squeez.exe' wrap 'echo '\\''a b'\\'''" );
+  const command = "x".repeat(7001);
+  assert.equal(buildBashGuardedWrap(command, { ...options, exists: () => false }),
+    `'C:/squeez.exe' wrap '${command}'`);
 });
 
 test("Windows home with backslashes is written with forward slashes", async () => {
