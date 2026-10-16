@@ -44,3 +44,5 @@ pub mod benchmark;
 pub mod setup;
 pub mod update;
 pub mod wrap;
+#[cfg(windows)]
+mod wrap_win32;

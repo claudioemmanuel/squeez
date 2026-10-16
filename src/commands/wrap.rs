@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 #[cfg(unix)]
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -176,10 +177,129 @@ fn shell_candidates() -> Vec<(String, &'static str)> {
     out
 }
 
+/// Longest command handed to a POSIX shell as a `-c` argument on Windows.
+/// MSYS bash started by a native parent silently cuts the argument at 8186
+/// chars (issue #262); the margin keeps clear of it.
+const MSYS_ARG_SAFE_LEN: usize = 8000;
+
+/// `bash`/`sh`, with or without `.exe` — the shells that can run a script file
+/// in place of a `-c` string. `SQUEEZ_SHELL` may name anything else.
+fn is_posix_shell(shell: &str) -> bool {
+    let base = shell
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    matches!(base.trim_end_matches(".exe"), "bash" | "sh")
+}
+
+/// Whether `cmd` has to reach the shell as a script file instead of a `-c`
+/// argument. Pure over `windows` so the rule is testable from any host.
+///
+/// The native→MSYS argv hop is lossy in two ways, both silent (issue #262):
+/// the argument is truncated past 8186 chars, and each `\\` pair comes out as
+/// a single `\`. A script file never crosses argv, so neither applies. Every
+/// other command keeps `-c`, whose semantics (`$0`, how far a syntax error
+/// reaches) a script file does not reproduce exactly.
+fn needs_script_file(cmd: &str, windows: bool, program: &str) -> bool {
+    windows && is_posix_shell(program) && (cmd.len() > MSYS_ARG_SAFE_LEN || cmd.contains('\\'))
+}
+
+/// A staged command script, removed when the call is over.
+struct ScriptFile(std::path::PathBuf);
+
+impl ScriptFile {
+    fn stage(cmd: &str) -> std::io::Result<ScriptFile> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "squeez-wrap-{}-{}.sh",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::write(&path, cmd)?;
+        Ok(ScriptFile(path))
+    }
+}
+
+impl Drop for ScriptFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// The `Command` that runs `cmd` under `program`, plus the script file it
+/// reads from when one was needed — keep it alive until the shell has exited.
+fn shell_command(program: &str, flag: &str, cmd: &str) -> (Command, Option<ScriptFile>) {
+    let mut command = Command::new(program);
+    if needs_script_file(cmd, cfg!(windows), program) {
+        match ScriptFile::stage(cmd) {
+            Ok(script) => {
+                // Forward slashes: the path crosses the same argv hop.
+                command.arg(script.0.display().to_string().replace('\\', "/"));
+                return (command, Some(script));
+            }
+            Err(e) => eprintln!(
+                "squeez: could not stage the command in a temp file ({e}); passing it as an \
+                 argument, which MSYS truncates past 8186 chars and where each `\\\\` becomes `\\`"
+            ),
+        }
+    }
+    command.args([flag, cmd]);
+    (command, None)
+}
+
+/// Captures a pipe on a background thread. The bytes land in a shared buffer
+/// as they arrive, so whatever was read is still available when the pipe
+/// never reaches EOF; the receiver disconnects when the thread is done.
+fn spawn_reader<R: Read + Send + 'static>(pipe: R) -> (Arc<Mutex<Vec<u8>>>, mpsc::Receiver<()>) {
+    // Cap capture at 10 MB per stream to prevent OOM on runaway output.
+    const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let sink = Arc::clone(&captured);
+    thread::spawn(move || {
+        let _done = done_tx;
+        let mut pipe = pipe.take(MAX_CAPTURE);
+        let mut chunk = [0u8; 8192];
+        loop {
+            match pipe.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => sink.lock().unwrap().extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+    });
+    (captured, done_rx)
+}
+
+/// Waits for every reader to hit EOF. False if `deadline` came first.
+fn readers_finished(readers: &[&mpsc::Receiver<()>], deadline: Instant) -> bool {
+    readers.iter().all(|done| {
+        let left = deadline.saturating_duration_since(Instant::now());
+        matches!(
+            done.recv_timeout(left),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        )
+    })
+}
+
+/// stderr then stdout, as captured so far.
+fn merge_captured(stderr: &Mutex<Vec<u8>>, stdout: &Mutex<Vec<u8>>) -> String {
+    let mut combined = String::new();
+    combined.push_str(&String::from_utf8_lossy(&stderr.lock().unwrap()));
+    combined.push_str(&String::from_utf8_lossy(&stdout.lock().unwrap()));
+    combined
+}
+
 /// Result of spawning and fully draining one command. `Fatal` carries the
-/// process exit code `run()` should return immediately (spawn/pipe error,
-/// timeout) — distinct from `Ok`'s `exit_code`, which is the CHILD's own
-/// exit status and gets fed into the normal compression pipeline.
+/// process exit code `run()` should return immediately (spawn or
+/// pipe error) — distinct from `Ok`'s `exit_code`, which is the CHILD's own
+/// exit status (124 when it was stopped at the timeout) and gets fed into the
+/// normal compression pipeline.
 enum SpawnOutcome {
     Ok { exit_code: i32, combined: String },
     Fatal(i32),
@@ -192,9 +312,11 @@ enum SpawnOutcome {
 ///
 /// Unix: the child leads its own process group, so the group is signalled —
 /// SIGTERM first so well-behaved tools clean up, then SIGKILL for anything
-/// that ignored it. Windows has no process groups to signal, so `taskkill /T`
-/// walks the tree. It stops at the Windows side of a `wsl.exe` hop: processes
-/// inside the distro are not its descendants and are left running.
+/// that ignored it. Windows has no process groups to signal: the caller
+/// terminates the command's job object first, and `taskkill /T` then walks the
+/// tree for anything that started before the job was attached. Both stop at
+/// the Windows side of a `wsl.exe` hop: processes inside the distro are not
+/// descendants and are left running.
 fn kill_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     unsafe {
@@ -220,18 +342,23 @@ fn kill_tree(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+/// How long the readers get to collect output after a timeout kill.
+const TIMEOUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
+/// Minimum time the readers get to reach EOF after the command exits.
+const EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
 /// Spawns `cmd_str` via the platform shell with `env_vars` applied
 /// (`Command::env()` — never changes the command's own text/semantics),
 /// drains stdout+stderr on background threads to avoid pipe-buffer
-/// deadlock, and waits up to `timeout_secs`. Factored out of `run()` so
+/// deadlock, and waits up to `timeout_secs`. A command stopped at the timeout
+/// comes back as exit 124 with whatever it printed first. Factored out of `run()` so
 /// flag-forcing (E3) can call it a second time for the one-shot un-forced
 /// fallback without duplicating the spawn/drain/timeout logic.
 fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64) -> SpawnOutcome {
     let mut spawned = None;
     let mut spawn_err = None;
     for (program, flag) in shell_candidates() {
-        let mut cmd = Command::new(&program);
-        cmd.args([flag, cmd_str]);
+        let (mut cmd, script) = shell_command(&program, flag, cmd_str);
         for (k, v) in env_vars {
             cmd.env(k, v);
         }
@@ -243,13 +370,13 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
         }
         match cmd.spawn() {
             Ok(c) => {
-                spawned = Some(c);
+                spawned = Some((c, script));
                 break;
             }
             Err(e) => spawn_err = Some(format!("{program}: {e}")),
         }
     }
-    let Some(mut child) = spawned else {
+    let Some((mut child, _script)) = spawned else {
         eprintln!(
             "squeez: {}",
             spawn_err.unwrap_or_else(|| "no usable shell".to_string())
@@ -260,6 +387,8 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
     // Store PID for signal forwarding (Unix only)
     #[cfg(unix)]
     CHILD_PID.store(child.id() as i32, Ordering::SeqCst);
+    #[cfg(windows)]
+    let job = super::wrap_win32::Job::attach(&child);
 
     // Drain stdout/stderr on background threads to prevent pipe-buffer deadlock.
     // This MUST happen before the try_wait loop — if we wait first, the child can
@@ -278,18 +407,8 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
             return SpawnOutcome::Fatal(1);
         }
     };
-    // Cap capture at 10 MB per stream to prevent OOM on runaway output.
-    const MAX_CAPTURE: u64 = 10 * 1024 * 1024;
-    let stdout_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        stdout_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
-        buf
-    });
-    let stderr_thread = thread::spawn(move || {
-        let mut buf = Vec::new();
-        stderr_pipe.take(MAX_CAPTURE).read_to_end(&mut buf).ok();
-        buf
-    });
+    let (stdout_buf, stdout_done) = spawn_reader(stdout_pipe);
+    let (stderr_buf, stderr_done) = spawn_reader(stderr_pipe);
 
     // Poll for exit with the configured timeout
     let call_start = Instant::now();
@@ -299,6 +418,10 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
             Ok(Some(s)) => break s.code().unwrap_or(1),
             Ok(None) => {
                 if call_start.elapsed() >= timeout {
+                    #[cfg(windows)]
+                    if let Some(job) = &job {
+                        job.terminate();
+                    }
                     kill_tree(&mut child);
                     eprintln!(
                         "squeez: command timed out after {}s — raise it with \
@@ -306,13 +429,22 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
                          or SQUEEZ_WRAP_TIMEOUT_SECS",
                         timeout_secs
                     );
-                    // The reader threads are deliberately NOT joined. A
-                    // descendant the kill could not reach (a process inside a
-                    // WSL distro, a daemon that left the group) keeps the pipe
-                    // open, so a join would block until it exits on its own —
-                    // the agent then waits hours past the timeout it was
-                    // promised (issue #239). The caller exits right after.
-                    return SpawnOutcome::Fatal(124);
+                    // The readers get a moment to pick up what the kill
+                    // flushed, never an unbounded join. A descendant the kill
+                    // could not reach (a process inside a WSL distro, a daemon
+                    // that left the group) keeps the pipe open, so a join would
+                    // block until it exits on its own — the agent then waits
+                    // hours past the timeout it was promised (issue #239).
+                    // What the command printed before hanging is usually the
+                    // only clue to why it hung, so it is kept (issue #261).
+                    readers_finished(
+                        &[&stdout_done, &stderr_done],
+                        Instant::now() + TIMEOUT_DRAIN_GRACE,
+                    );
+                    return SpawnOutcome::Ok {
+                        exit_code: 124,
+                        combined: merge_captured(&stderr_buf, &stdout_buf),
+                    };
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -323,21 +455,31 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
         }
     };
 
-    // Pipes are closed (child exited), join safely
-    let stdout_bytes = stdout_thread.join().unwrap_or_default();
-    let stderr_bytes = stderr_thread.join().unwrap_or_default();
+    // The shell exiting does not close the pipes: a process it left running
+    // in the background still holds them. Joining the readers unconditionally
+    // meant the call returned when that process exited, with the timeout no
+    // longer applying (issue #261). The drain is held to the same ceiling as
+    // the command, with a floor so a command that finishes right at the limit
+    // still gets its last bytes read.
+    let drain_deadline = (call_start + timeout).max(Instant::now() + EXIT_DRAIN_GRACE);
+    if !readers_finished(&[&stdout_done, &stderr_done], drain_deadline) {
+        eprintln!(
+            "squeez: the command exited but a process it started still holds its output \
+             open — returning what was captured"
+        );
+    }
 
-    // Merge stderr + stdout
-    let mut combined = String::new();
-    combined.push_str(&String::from_utf8_lossy(&stderr_bytes));
-    combined.push_str(&String::from_utf8_lossy(&stdout_bytes));
-
-    SpawnOutcome::Ok { exit_code, combined }
+    SpawnOutcome::Ok {
+        exit_code,
+        combined: merge_captured(&stderr_buf, &stdout_buf),
+    }
 }
 
 pub fn run(cmd_str: &str) -> i32 {
     #[cfg(unix)]
     setup_signals();
+    #[cfg(windows)]
+    super::wrap_win32::stop_std_handle_inheritance();
     let config = Config::load();
 
     if !config.enabled || config.is_bypassed(cmd_str) || is_streaming(cmd_str) {
@@ -958,7 +1100,8 @@ fn retrieve_marker_text(orig_line_count: usize, id: &str) -> String {
 fn passthrough(cmd: &str) -> i32 {
     let mut last_err = None;
     for (program, flag) in shell_candidates() {
-        match Command::new(&program).args([flag, cmd]).status() {
+        let (mut command, _script) = shell_command(&program, flag, cmd);
+        match command.status() {
             Ok(status) => return status.code().unwrap_or(1),
             Err(e) => last_err = Some(format!("{program}: {e}")),
         }
@@ -1213,7 +1356,7 @@ fn record_bash_event(
 mod tests {
     use super::{
         is_cmd_shell, is_net_loss, is_rooted, is_wsl_launcher, pick_program,
-        retrieve_marker_text, shell_choice,
+        needs_script_file, retrieve_marker_text, shell_choice, ScriptFile, MSYS_ARG_SAFE_LEN,
     };
     use std::path::{Path, PathBuf};
 
@@ -1390,6 +1533,46 @@ mod tests {
         assert!(!is_cmd_shell("bash"));
         assert!(!is_cmd_shell("/bin/sh"));
         assert!(!is_cmd_shell("C:/Program Files/Git/bin/bash.exe"));
+    }
+
+    // ── Script-file staging (issue #262) ────────────────────────────────────
+
+    const GIT_BASH: &str = "C:/Program Files/Git/bin/bash.exe";
+
+    #[test]
+    fn long_or_backslashed_commands_are_staged_for_a_windows_posix_shell() {
+        let long = "x".repeat(MSYS_ARG_SAFE_LEN + 1);
+        assert!(needs_script_file(&long, true, GIT_BASH));
+        assert!(needs_script_file(r"ls C:\\Users", true, GIT_BASH));
+        assert!(needs_script_file(r"echo a\b", true, r"C:\Git\usr\bin\sh.exe"));
+        assert!(needs_script_file(r"echo a\b", true, "bash"));
+    }
+
+    #[test]
+    fn ordinary_commands_keep_the_dash_c_argument() {
+        assert!(!needs_script_file("git status", true, GIT_BASH));
+        assert!(!needs_script_file(&"x".repeat(MSYS_ARG_SAFE_LEN), true, GIT_BASH));
+    }
+
+    #[test]
+    fn staging_is_limited_to_windows_and_to_shells_that_run_script_files() {
+        let long = "x".repeat(MSYS_ARG_SAFE_LEN + 1);
+        // Unix argv is lossless.
+        assert!(!needs_script_file(&long, false, "sh"));
+        assert!(!needs_script_file(r"echo a\b", false, "sh"));
+        // cmd and a SQUEEZ_SHELL such as pwsh do not take a .sh file.
+        assert!(!needs_script_file(r"dir C:\Users", true, "cmd"));
+        assert!(!needs_script_file(r"dir C:\Users", true, r"C:\Program Files\PowerShell\7\pwsh.exe"));
+    }
+
+    #[test]
+    fn staged_script_holds_the_command_and_is_removed_afterwards() {
+        let cmd = r"printf '%s\n' 'a\\\\b'";
+        let script = ScriptFile::stage(cmd).unwrap();
+        let path = script.0.clone();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), cmd);
+        drop(script);
+        assert!(!path.exists());
     }
 
 
