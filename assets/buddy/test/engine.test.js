@@ -63,15 +63,15 @@ test('rankIndexFromXp acerta as fronteiras de cada degrau', () => {
 });
 
 test('rankFromIndex satura nas pontas', () => {
-  assert.strictEqual(rankFromIndex(-3).label, 'Comum III');
-  assert.strictEqual(rankFromIndex(999).label, 'Lendário I');
+  assert.strictEqual(rankFromIndex(-3).label, 'Common III');
+  assert.strictEqual(rankFromIndex(999).label, 'Legendary I');
 });
 
-test('rótulos vão de Comum III a Lendário I, III é o mais baixo da cor', () => {
-  assert.strictEqual(RANKS[0].label, 'Comum III');
-  assert.strictEqual(RANKS[MAX_RANK_INDEX].label, 'Lendário I');
-  assert.strictEqual(RANKS[1].label, 'Comum II');
-  assert.ok(RANKS[3].xpRequired > RANKS[2].xpRequired, 'Incomum III custa mais que Comum I');
+test('rótulos vão de Common III a Legendary I, III é o mais baixo da cor', () => {
+  assert.strictEqual(RANKS[0].label, 'Common III');
+  assert.strictEqual(RANKS[MAX_RANK_INDEX].label, 'Legendary I');
+  assert.strictEqual(RANKS[1].label, 'Common II');
+  assert.ok(RANKS[3].xpRequired > RANKS[2].xpRequired, 'Uncommon III custa mais que Common I');
 });
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ test('stageFromRank satura fora da faixa', () => {
 // ---------------------------------------------------------------------------
 
 test('decaimento respeita a carência e desce 1 sub-degrau por intervalo', () => {
-  const xp = RANKS[6].xpRequired; // Raro III
+  const xp = RANKS[6].xpRequired; // Rare III
   assert.strictEqual(applyDecay(xp, 0), 6);
   assert.strictEqual(applyDecay(xp, GRACE_PERIOD_DAYS), 6, 'dentro da carência não decai');
   assert.strictEqual(applyDecay(xp, GRACE_PERIOD_DAYS + DECAY_INTERVAL_DAYS), 5);
@@ -154,7 +154,7 @@ test('árvore de arquétipos cobre as 20 combinações de pico/vale', () => {
 
 test('intensidade vem da distância pico-vale, não do valor absoluto', () => {
   const stats = { A: 100, B: 80 };
-  assert.strictEqual(resolveIntensity(stats, 'A', 'B'), 'leve'); // gap 20
-  assert.strictEqual(resolveIntensity({ A: 60, B: 20 }, 'A', 'B'), 'moderado'); // gap 40
-  assert.strictEqual(resolveIntensity({ A: 90, B: 10 }, 'A', 'B'), 'intenso'); // gap 80
+  assert.strictEqual(resolveIntensity(stats, 'A', 'B'), 'mild'); // gap 20
+  assert.strictEqual(resolveIntensity({ A: 60, B: 20 }, 'A', 'B'), 'moderate'); // gap 40
+  assert.strictEqual(resolveIntensity({ A: 90, B: 10 }, 'A', 'B'), 'intense'); // gap 80
 });

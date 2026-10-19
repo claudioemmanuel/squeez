@@ -1,21 +1,22 @@
 'use strict';
 
-// Coluna direita da status line: projeto/branch/modelo, janela de 5h, janela de
-// 7d e pressão de contexto. Tudo derivado do payload que o host manda no stdin
-// + a API de uso (lib/usage.js). Sem dependência npm.
+// Right column of the status line: project/branch/model, 5h window, 7d window
+// and context pressure. All derived from the payload the host sends on stdin
+// + the usage API (lib/usage.js). No npm dependency.
 
 const fs = require('fs');
 const path = require('path');
 
 const { ansiFg, hexToRgb, ANSI_RESET } = require('./art');
 const { configuredContextWindow } = require('./squeez');
+const { currentLang, messages } = require('./i18n');
 
 const DIM = '\x1b[2m';
 const BAR_CELLS = 9;
 const HEAT = [
-  { max: 49, hex: '#4ADE80' }, // verde
-  { max: 79, hex: '#FBBF24' }, // âmbar
-  { max: 100, hex: '#F87171' }, // vermelho
+  { max: 49, hex: '#4ADE80' }, // green
+  { max: 79, hex: '#FBBF24' }, // amber
+  { max: 100, hex: '#F87171' }, // red
 ];
 
 function heatHex(percent) {
@@ -35,13 +36,13 @@ function bar(percent) {
   return '█'.repeat(filled) + '░'.repeat(BAR_CELLS - filled);
 }
 
-/** "2h 4m" / "3d 5h" / "agora" a partir de um ISO de reset. */
-function untilReset(iso) {
+/** "2h 4m" / "3d 5h" / "now" from a reset ISO. */
+function untilReset(iso, lang = currentLang()) {
   if (!iso) return '';
   const target = new Date(iso).getTime();
   if (!Number.isFinite(target)) return '';
   const left = target - Date.now();
-  if (left <= 0) return 'agora';
+  if (left <= 0) return messages(lang).now;
   const minutes = Math.floor(left / 60000);
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
@@ -51,8 +52,8 @@ function untilReset(iso) {
 }
 
 /**
- * Tokens de contexto do último turno do assistente no transcript JSONL.
- * Lê só a cauda do arquivo — transcripts passam de dezenas de MB.
+ * Context tokens from the assistant's last turn in the transcript JSONL.
+ * Reads only the tail of the file — transcripts run into tens of MB.
  */
 function contextTokens(transcriptPath) {
   if (!transcriptPath) return null;
@@ -71,7 +72,7 @@ function contextTokens(transcriptPath) {
       try {
         entry = JSON.parse(line);
       } catch {
-        continue; // primeira linha da janela costuma vir cortada
+        continue; // first line of the window usually comes truncated
       }
       const usage = entry && entry.message && entry.message.usage;
       if (!usage) continue;
@@ -89,30 +90,34 @@ function contextTokens(transcriptPath) {
       try {
         fs.closeSync(fd);
       } catch {
-        /* fd já fechado */
+        /* fd already closed */
       }
     }
   }
 }
 
 const LONG_CONTEXT_RE = /\[1m\]|-1m\b|context-1m|\b1m\s+context\b/i;
-// Fable / Mythos têm 1M nativo — id e display_name vêm crus (`claude-fable-5-1`,
-// "Fable 5.1"), sem marcador nenhum.
+// Fable / Mythos have 1M natively — id and display_name come raw
+// (`claude-fable-5-1`, "Fable 5.1"), with no marker at all.
 const NATIVE_1M_RE = /fable|mythos/i;
 
 /**
- * Janela de contexto do host. Precedência:
- *   1. `context_window_tokens` do config.ini — o usuário pinou, é autoritativo;
- *   2. `context_window.context_window_size` do payload da status line — o host
- *      diz o tamanho real. Opus 5.5 com 1M chega como "claude-opus-5-5" /
- *      "Opus 5.5", sem marcador nenhum, e o sniff abaixo caía em 200k;
- *   3. marcador de 1M no `id` OU no `display_name` (host sem o campo);
+ * The host's context window. Precedence:
+ *   1. `context_window_tokens` from config.ini — the user pinned it, it is
+ *      authoritative;
+ *   2. `context_window.context_window_size` from the status line payload — the
+ *      host reports the real size. Opus 5.5 with 1M arrives as
+ *      "claude-opus-5-5" / "Opus 5.5", with no marker at all, and the sniff
+ *      below would fall back to 200k;
+ *   3. a 1M marker in the `id` OR in the `display_name` (host without the
+ *      field);
  *   4. 200k.
  *
- * O `id` sozinho não serve (#199): numa sessão 1M o Claude Code grava
- * `claude-opus-5` cru, sem `[1m]` — verificado em 70/70 registros assistant de
- * uma sessão 1M real. Quem carrega o sinal é `display_name`, "Opus 5 (1M context)".
- * Aceita string (só o id) por compatibilidade com quem já chamava assim.
+ * The `id` alone is not enough (#199): in a 1M session Claude Code writes
+ * `claude-opus-5` raw, without `[1m]` — verified in 70/70 assistant records of
+ * a real 1M session. `display_name` is what carries the signal, "Opus 5 (1M
+ * context)". Accepts a string (id only) for compatibility with callers that
+ * already passed it that way.
  */
 function contextWindow(model, pinnedTokens, hostWindowSize) {
   const pinned = Number(pinnedTokens);
@@ -127,7 +132,7 @@ function contextWindow(model, pinnedTokens, hostWindowSize) {
   return LONG_CONTEXT_RE.test(probe) ? 1_000_000 : 200_000;
 }
 
-/** Branch atual sem spawnar git: lê .git/HEAD subindo a árvore. */
+/** Current branch without spawning git: reads .git/HEAD walking up the tree. */
 function gitBranch(cwd) {
   let dir = cwd;
   for (let i = 0; i < 12 && dir; i++) {
@@ -150,8 +155,8 @@ function compactTokens(n) {
   return String(n);
 }
 
-function meter(label, percent, suffix, ansi) {
-  if (percent == null) return `${label.padEnd(3)}${dim('sem dados', ansi)}`;
+function meter(label, percent, suffix, ansi, lang) {
+  if (percent == null) return `${label.padEnd(3)}${dim(messages(lang).noData, ansi)}`;
   const hex = heatHex(percent);
   const head = `${label.padEnd(3)}${String(percent).padStart(3)}% `;
   const tail = suffix ? ` ${dim(suffix, ansi)}` : '';
@@ -160,44 +165,46 @@ function meter(label, percent, suffix, ansi) {
 
 const CURRENCY_SYMBOL = { USD: '$', BRL: 'R$', EUR: '€', GBP: '£' };
 
-/** "$42.37" / "$200" — centavos só quando existem. */
+/** "$42.37" / "$200" — cents only when they exist. */
 function money(value, currency) {
   if (value == null) return '';
   return `${CURRENCY_SYMBOL[currency] || ''}${Number.isInteger(value) ? value : value.toFixed(2)}`;
 }
 
 /**
- * As duas linhas do meio do HUD.
+ * The HUD's two middle lines.
  *
- * Em conta enterprise toda janela de rate limit vem null (#198), e duas linhas
- * "sem dados" são indistinguíveis de buddy quebrado. Lá o limite que morde é o
- * de crédito, então o medidor de gasto assume o lugar. Sem janelas E sem gasto
- * o placeholder honesto fica — melhor dizer "sem dados" do que inventar.
+ * On an enterprise account every rate limit window comes back null (#198), and
+ * two "no data" lines are indistinguishable from a broken buddy. There the
+ * limit that bites is the credit one, so the spend meter takes its place.
+ * With no windows AND no spend the honest placeholder stays — better to say
+ * "no data" than to make things up.
  */
-function usageRows(usage, ansi) {
+function usageRows(usage, ansi, lang) {
   const hasWindows = usage && (usage.fiveHour != null || usage.sevenDay != null);
   if (!hasWindows && usage && usage.spend != null) {
     const suffix = [money(usage.spendUsed, usage.spendCurrency), money(usage.spendLimit, usage.spendCurrency)]
       .filter(Boolean)
       .join('/');
     return [
-      meter('$', usage.spend, suffix, ansi),
+      meter('$', usage.spend, suffix, ansi, lang),
       usage.extraUsage != null
-        ? meter('+', usage.extraUsage, 'extra', ansi)
-        : meter('7d', null, '', ansi),
+        ? meter('+', usage.extraUsage, 'extra', ansi, lang)
+        : meter('7d', null, '', ansi, lang),
     ];
   }
   return [
-    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
-    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
+    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt, lang) : '', ansi, lang),
+    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt, lang) : '', ansi, lang),
   ];
 }
 
 /**
- * Monta as 4 linhas da coluna direita.
- * `input` é o JSON do host; `usage` vem de lib/usage.js (pode ser null).
+ * Builds the 4 lines of the right column.
+ * `input` is the host JSON; `usage` comes from lib/usage.js (may be null);
+ * `rank.label` comes already localized (lib/state.js currentRank).
  */
-function buildHudLines({ input, usage, state, rank, ansi = true }) {
+function buildHudLines({ input, usage, state, rank, ansi = true, lang = currentLang() }) {
   const cwd = (input.workspace && input.workspace.current_dir) || input.cwd || process.cwd();
   const project = path.basename(cwd);
   const branch = gitBranch(cwd);
@@ -222,13 +229,13 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
 
   const xp = `XP ${state.xp}`;
   const tail = [
-    meter('ctx', ctxPct, ctxSuffix, ansi),
+    meter('ctx', ctxPct, ctxSuffix, ansi, lang),
     dim('·', ansi),
     paint(`${rank.label}`, rank.hex, ansi),
     dim(`· ${xp}`, ansi),
   ].join(' ');
 
-  const [first, second] = usageRows(usage, ansi);
+  const [first, second] = usageRows(usage, ansi, lang);
 
   return [head, first, second, tail];
 }

@@ -1,76 +1,77 @@
 'use strict';
 
 const { ARCHETYPES, stageFromRank } = require('./engine');
+const { archetypeId, archetypeLabel, currentLang } = require('./i18n');
 
 // ---------------------------------------------------------------------------
-// Rosto: sobrancelha + olho, exatamente 2 colunas.
+// Face: eyebrow + eye, exactly 2 columns.
 //
-// O desenho antigo tinha um slot {EYES} de largura variável (`ಠ_ಠ` = 3 chars no
-// Reclamão, `><` = 2 nos outros), então o corpo do pato desalinhava conforme o
-// arquétipo. Aqui todo kit ocupa 2 colunas fixas e a expressão vem do par
-// sobrancelha+olho — é o que dá cara diferente a cada arquétipo sem precisar de
-// nenhuma fala.
+// The old art had a variable-width {EYES} slot (`ಠ_ಠ` = 3 chars on the
+// Grumbler, `><` = 2 on the others), so the duck's body misaligned per
+// archetype. Here every kit occupies 2 fixed columns and the expression comes
+// from the eyebrow+eye pair — that is what gives each archetype a different
+// face without needing any speech.
 //
-// REGRA DE GLIFO: só caracteres de largura de exibição 1. Os antigos `★`
-// (U+2605), `⊙` (U+2299) e `▤` (U+25A4) são East Asian Ambiguous/Wide e ocupam
-// 2 colunas em vários terminais — quebravam o alinhamento do card e, pior, o
-// gutter fixo da status line. `ಠ` (U+0CA0) é Neutral, largura 1, e fica.
+// GLYPH RULE: display-width-1 characters only. The old `★` (U+2605), `⊙`
+// (U+2299) and `▤` (U+25A4) are East Asian Ambiguous/Wide and take 2 columns in
+// many terminals — they broke the card alignment and, worse, the fixed gutter
+// of the status line. `ಠ` (U+0CA0) is Neutral, width 1, and stays.
 // ---------------------------------------------------------------------------
 
 const SLOT_KITS = {
-  [ARCHETYPES.RECLAMAO]: { brow: '-', eye: 'ಠ' }, // sobrancelha reta, olho cético
-  [ARCHETYPES.MANDAO]: { brow: '\\', eye: 'o' }, // sobrancelha franzida
-  [ARCHETYPES.FISCAL]: { brow: '=', eye: 'O' }, // olho arregalado, vigilante
-  [ARCHETYPES.MOTIVADOR]: { brow: '^', eye: '*' }, // olho brilhando
-  [ARCHETYPES.CAOTICO]: { brow: '~', eye: '@' }, // olho rodando
-  [ARCHETYPES.SABIO]: { brow: '.', eye: '-' }, // olho semicerrado
+  [ARCHETYPES.RECLAMAO]: { brow: '-', eye: 'ಠ' }, // straight brow, skeptical eye
+  [ARCHETYPES.MANDAO]: { brow: '\\', eye: 'o' }, // furrowed brow
+  [ARCHETYPES.FISCAL]: { brow: '=', eye: 'O' }, // wide-open, watchful eye
+  [ARCHETYPES.MOTIVADOR]: { brow: '^', eye: '*' }, // sparkling eye
+  [ARCHETYPES.CAOTICO]: { brow: '~', eye: '@' }, // spinning eye
+  [ARCHETYPES.SABIO]: { brow: '.', eye: '-' }, // half-closed eye
 };
 
 function kitFor(archetype) {
-  return SLOT_KITS[archetype] || SLOT_KITS[ARCHETYPES.SABIO];
+  return SLOT_KITS[archetypeId(archetype)] || SLOT_KITS[ARCHETYPES.SABIO];
 }
 
-/** Substitui o slot de rosto ({F} = sobrancelha+olho) numa linha de template. */
+/** Replaces the face slot ({F} = eyebrow+eye) in a template line. */
 function fillFace(line, kit) {
   return line.replace('{F}', kit.brow + kit.eye);
 }
 
 // ---------------------------------------------------------------------------
-// Cinco estágios de crescimento, um por cor de raridade (Comum … Lendário).
+// Five growth stages, one per rarity color (Common … Legendary).
 //
-// A silhueta base é o pato de perfil que já funcionava na status line: bico
-// `<`, cabeça `( )`, dorso `___`, barriga/asa `( ._> /`, quilha `` `---' ``.
-// O card antigo usava uma variante quebrada dessa mesma silhueta.
+// The base silhouette is the side-view duck that already worked on the status
+// line: beak `<`, head `( )`, back `___`, belly/wing `( ._> /`, keel `` `---' ``.
+// The old card used a broken variant of that same silhouette.
 //
-// Subir de cor muda a forma inteira — é a recompensa visível que faltava: antes
-// um Lendário I e um Comum III desenhavam exatamente o mesmo pato, só mudava a
-// cor. O sub-nível (III/II/I) continua aparecendo apenas no rótulo.
+// Going up a color changes the whole shape — it is the visible reward that was
+// missing: before, a Legendary I and a Common III drew exactly the same duck,
+// only the color changed. The sub-level (III/II/I) still shows only in the label.
 // ---------------------------------------------------------------------------
 
 const STAGES = [
   {
-    name: 'filhote',
+    name: 'hatchling',
     lines: ['  __', '<({F})_', ' `~~\''],
   },
   {
-    name: 'jovem',
+    name: 'young',
     lines: ['   ___', ' <({F})__', '  ( ._> /', '   `---\''],
   },
   {
-    name: 'adulto',
+    name: 'adult',
     lines: ['    ___', '  <({F})__', '   ( ._> /', ' ~~~`---\'~~~'],
   },
   {
-    name: 'asa aberta',
+    name: 'wings spread',
     lines: ['    ___', '  <({F})__', '  \\( ._> /\\_', ' ~~~`----\'~~~'],
   },
   {
-    name: 'coroado',
+    name: 'crowned',
     lines: ['    \\|/', '    ___', '  <({F})__', '  \\( ._> /\\_', ' ~~~`----\'~~~'],
   },
 ];
 
-/** Linhas do corpo para um estágio (0-4) e arquétipo, sem cor. */
+/** Body lines for a stage (0-4) and archetype, without color. */
 function fillBody(archetype, stage = 1) {
   const kit = kitFor(archetype);
   const shape = STAGES[Math.max(0, Math.min(STAGES.length - 1, stage))];
@@ -78,16 +79,16 @@ function fillBody(archetype, stage = 1) {
 }
 
 // ---------------------------------------------------------------------------
-// Silhueta da status line: 4 linhas de largura fixa, porque os medidores do HUD
-// alinham nessa coluna. O estágio não pode mexer no tamanho aqui — só a linha
-// do topo muda (penugem do filhote / dorso / coroa do lendário).
+// Status line silhouette: 4 fixed-width lines, because the HUD meters align on
+// that column. The stage can't change the size here — only the top line changes
+// (hatchling fluff / back / legendary crown).
 // ---------------------------------------------------------------------------
 
 const SIDE_TEMPLATE = ['   {TOP}', ' <({F})__', '  ( ._> /', "   `---'"];
 const SIDE_TOPS = ['_', '___', '___', '___', '\\|/'];
-const SIDE_WIDTH = 11; // coluna fixa: os medidores da status line alinham nela
+const SIDE_WIDTH = 11; // fixed column: the status line meters align on it
 
-/** Linhas da arte de perfil, já com o rosto do arquétipo e largura fixa. */
+/** Side-art lines, already with the archetype face and fixed width. */
 function renderDuckArt(archetype, stage = 1) {
   const kit = kitFor(archetype);
   const top = SIDE_TOPS[Math.max(0, Math.min(SIDE_TOPS.length - 1, stage))];
@@ -97,8 +98,8 @@ function renderDuckArt(archetype, stage = 1) {
 }
 
 // ---------------------------------------------------------------------------
-// Cor ANSI true-color (24-bit) por raridade. Shiny = paleta alternada por
-// linha em vez de cor sólida.
+// ANSI true-color (24-bit) per rarity. Shiny = palette alternating per line
+// instead of a solid color.
 // ---------------------------------------------------------------------------
 
 function hexToRgb(hex) {
@@ -111,14 +112,15 @@ function ansiFg({ r, g, b }) {
 }
 
 const ANSI_RESET = '\x1b[0m';
-const SHINY_PALETTE = ['#22D3EE', '#F472B6']; // ciano / rosa alternados
+const SHINY_PALETTE = ['#22D3EE', '#F472B6']; // alternating cyan / pink
 
 /**
- * Renderiza o card completo (multi-linha) com nome, degrau e cor.
- * `rankHex` vem do motor de ranking (lib/engine.js RANKS[i].hex) e `rankIndex`
- * escolhe o estágio do desenho (lib/engine.js stageFromRank).
+ * Renders the full (multi-line) card with name, rank and color. `rankLabel`
+ * comes already localized; the archetype is labeled here in `lang`.
+ * `rankHex` comes from the ranking engine (lib/engine.js RANKS[i].hex) and
+ * `rankIndex` picks the art stage (lib/engine.js stageFromRank).
  */
-function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, shiny, ansi = true }) {
+function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, shiny, ansi = true, lang = currentLang() }) {
   const stage = stageFromRank(rankIndex);
   const bodyLines = fillBody(archetype, stage);
   const lines = [
@@ -126,7 +128,7 @@ function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, sh
     '',
     ...bodyLines,
     '',
-    `${archetype} · ${rankLabel}${shiny ? ' · shiny ✦' : ''}`,
+    `${archetypeLabel(archetype, lang)} · ${rankLabel}${shiny ? ' · shiny ✦' : ''}`,
     `XP: ${xp}`,
   ];
 
@@ -134,7 +136,7 @@ function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, sh
 
   return lines
     .map((line, i) => {
-      if (i < 2 || i >= bodyLines.length + 2) return line; // título/rodapé sem cor
+      if (i < 2 || i >= bodyLines.length + 2) return line; // title/footer without color
       if (shiny) {
         const color = SHINY_PALETTE[i % 2];
         return ansiFg(hexToRgb(color)) + line + ANSI_RESET;
@@ -145,13 +147,13 @@ function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, sh
 }
 
 /**
- * Versão compacta de 1 linha, pra status line (espaço é caro ali).
- * Mesma cabeça de perfil do card, achatada: bico `<`, rosto, dorso `__`.
+ * Compact 1-line version, for the status line (space is expensive there).
+ * Same side-view head as the card, flattened: beak `<`, face, back `__`.
  */
 function renderStatusline({ archetype, rankLabel, rankHex, shiny, ansi = true }) {
   const kit = kitFor(archetype);
   const compact = `<(${kit.brow}${kit.eye})__`;
-  const star = rankLabel.split(' ')[0][0]; // primeira letra da cor, ex: "L" de Lendário
+  const star = rankLabel.split(' ')[0][0]; // first letter of the color, e.g. "L" for Legendary
   const text = `${compact} ${star}`;
 
   if (!ansi) return text;

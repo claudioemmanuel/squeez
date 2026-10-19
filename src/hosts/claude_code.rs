@@ -30,6 +30,7 @@ const POSTCOMPACT_SCRIPT: &str = include_str!("../../hooks/postcompact.sh");
 const SQUEEZ_COMMAND: &str = include_str!("../../assets/squeez-command.md");
 /// `/buddy` slash command — draws the vendored pato-buddy in the conversation.
 const BUDDY_COMMAND: &str = include_str!("../../assets/buddy-command.md");
+const BUDDY_COMMAND_PT_BR: &str = include_str!("../../assets/buddy-command.pt-BR.md");
 
 /// Embedded hook sources keyed by installed filename — lets `squeez doctor`
 /// detect drift between the running binary and the installed hook scripts.
@@ -454,7 +455,8 @@ impl HostAdapter for ClaudeCodeAdapter {
 
         // Vendored pato-buddy: materialized + registered by default; when
         // `buddy = false` the entries are stripped instead (files stay inert).
-        let buddy_dir = if crate::config::Config::load().buddy {
+        let cfg = crate::config::Config::load();
+        let buddy_dir = if cfg.buddy {
             Some(super::buddy::materialize(&data)?)
         } else {
             None
@@ -479,7 +481,9 @@ impl HostAdapter for ClaudeCodeAdapter {
         if buddy_dir.is_none() {
             let _ = std::fs::remove_file(&buddy_cmd);
         } else {
-            std::fs::write(&buddy_cmd, BUDDY_COMMAND)?;
+            // Same language mapping as the buddy itself (lib/i18n.js).
+            let pt = crate::commands::compress_md::Locale::from_code(&cfg.lang).code == "pt-BR";
+            std::fs::write(&buddy_cmd, if pt { BUDDY_COMMAND_PT_BR } else { BUDDY_COMMAND })?;
         }
         Ok(())
     }

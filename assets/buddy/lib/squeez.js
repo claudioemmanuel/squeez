@@ -1,24 +1,24 @@
 'use strict';
 
-// Fonte de XP por economia do squeez: lê <squeez data dir>/sessions/current.json
-// e converte economia líquida (tokens_saved - overhead_tokens) em XP.
+// XP source from squeez savings: reads <squeez data dir>/sessions/current.json
+// and converts net savings (tokens_saved - overhead_tokens) into XP.
 //
-// Esta é a fonte PRIMÁRIA de XP, e é a única não-gamificável do projeto: ou o
-// squeez economizou tokens de verdade, ou não economizou. Por isso ela não tem
-// teto por sessão, ao contrário do XP de ação (hooks/post-tool-use.js).
+// This is the PRIMARY XP source, and the only non-gameable one in the project:
+// either squeez saved real tokens, or it didn't. That is why it has no
+// per-session cap, unlike action XP (hooks/post-tool-use.js).
 //
-// TAXA: 25.000 tokens líquidos = 1 XP. A taxa anterior (1.000.000:1) era tão
-// alta que ficou inerte -- medição real do primeiro pato em produção: 137.290
-// tokens economizados em 5 dias renderam 0 XP, enquanto um gatilho quebrado de
-// "bug resolvido" despejava ~700 XP/dia. A torneira honesta precisa ser a que
-// realmente enche. A 25k:1, um dia pesado com compressão ligada (~300k tokens
-// líquidos) rende ~12 XP -- a premissa em cima da qual lib/engine.js calibra a
-// curva. Este é o botão de calibração do ritmo; a curva é a forma.
+// RATE: 25,000 net tokens = 1 XP. The previous rate (1,000,000:1) was so high
+// it sat inert -- real measurement from the first duck in production: 137,290
+// tokens saved in 5 days yielded 0 XP, while a broken "bug fixed" trigger
+// poured out ~700 XP/day. The honest faucet has to be the one that actually
+// fills. At 25k:1, a heavy day with compression on (~300k net tokens) yields
+// ~12 XP -- the premise lib/engine.js calibrates the curve on. This is the
+// pace calibration knob; the curve is the shape.
 //
-// Baseline por start_ts: sessão nova zera a régua; o resto sub-taxa fica
-// acumulado em lifetimeNetSaved (nada se perde). Mudança de taxa re-baseia o XP
-// já concedido (tracker.rate registra a taxa vigente; o delta da recomputação
-// pode ser negativo).
+// Baseline per start_ts: a new session resets the ruler; the sub-rate remainder
+// stays accumulated in lifetimeNetSaved (nothing is lost). A rate change
+// re-bases the XP already granted (tracker.rate records the current rate; the
+// recomputation delta can be negative).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,11 +31,11 @@ function squeezDataDir() {
 }
 
 /**
- * `context_window_tokens` do config.ini, ou 0 quando não pinado. Mesma
- * semântica do parser Rust (`Config::from_str`): ignora vazio e `#`, corta no
- * primeiro `=`, trima os dois lados.
+ * Raw value of `key` in config.ini, or null when absent. Same semantics as the
+ * Rust parser (`Config::from_str`): skips empty lines and `#`, cuts at the
+ * first `=`, trims both sides.
  */
-function configuredContextWindow() {
+function configValue(key) {
   try {
     const raw = fs.readFileSync(path.join(squeezDataDir(), 'config.ini'), 'utf8');
     for (const line of raw.split('\n')) {
@@ -43,13 +43,23 @@ function configuredContextWindow() {
       if (!s || s.startsWith('#')) continue;
       const eq = s.indexOf('=');
       if (eq < 0) continue;
-      if (s.slice(0, eq).trim() !== 'context_window_tokens') continue;
-      return Number(s.slice(eq + 1).trim()) || 0;
+      if (s.slice(0, eq).trim() !== key) continue;
+      return s.slice(eq + 1).trim();
     }
   } catch {
-    /* sem config.ini */
+    /* no config.ini */
   }
-  return 0;
+  return null;
+}
+
+/** `context_window_tokens` from config.ini, or 0 when not pinned. */
+function configuredContextWindow() {
+  return Number(configValue('context_window_tokens')) || 0;
+}
+
+/** `lang` from config.ini, raw (lib/i18n.js normalizes it), or null. */
+function configuredLang() {
+  return configValue('lang');
 }
 
 function readCurrentSession() {
@@ -71,11 +81,11 @@ function readCurrentSession() {
 }
 
 /**
- * Muta state.squeez (tracker) e devolve o XP a conceder agora. Normalmente
- * inteiro >= 0; negativo apenas na re-base após uma mudança de taxa (o
- * chamador deve aplicar via addXp mesmo assim). Idempotente entre chamadas
- * sem economia nova (baseline monotônico), então é seguro chamar tanto do
- * PostToolUse quanto do Stop.
+ * Mutates state.squeez (tracker) and returns the XP to grant now. Normally an
+ * integer >= 0; negative only on the re-base after a rate change (the caller
+ * should still apply it via addXp). Idempotent across calls with no new
+ * savings (monotonic baseline), so it is safe to call from both PostToolUse
+ * and Stop.
  */
 function applySqueezSavings(state) {
   const cur = readCurrentSession();
@@ -87,8 +97,9 @@ function applySqueezSavings(state) {
       : { lastStartTs: 0, lastNetSaved: 0, lifetimeNetSaved: 0, xpGranted: 0, rate: TOKENS_PER_XP };
   state.squeez = tracker;
 
-  // Re-base após mudança de taxa: recomputa o XP total que o lifetime vale na
-  // taxa nova e devolve a diferença contra o já concedido (pode ser negativa).
+  // Re-base after a rate change: recompute the total XP the lifetime is worth
+  // at the new rate and return the difference against what was already granted
+  // (may be negative).
   let rebase = 0;
   if ((Number(tracker.rate) || 0) !== TOKENS_PER_XP) {
     const worth = Math.floor((Number(tracker.lifetimeNetSaved) || 0) / TOKENS_PER_XP);
@@ -113,4 +124,4 @@ function applySqueezSavings(state) {
   return rebase + gain;
 }
 
-module.exports = { applySqueezSavings, configuredContextWindow, TOKENS_PER_XP };
+module.exports = { applySqueezSavings, configuredContextWindow, configuredLang, TOKENS_PER_XP };

@@ -28,15 +28,15 @@ test('arte de perfil tem largura fixa em todos os arquétipos', () => {
 });
 
 test('rosto do arquétipo aparece na cabeça', () => {
-  assert.ok(renderDuckArt('Reclamão')[1].includes('-ಠ'));
-  assert.ok(renderDuckArt('Motivador')[1].includes('^*'));
+  assert.ok(renderDuckArt('Grumbler')[1].includes('-ಠ'));
+  assert.ok(renderDuckArt('Motivator')[1].includes('^*'));
 });
 
 test('estágio muda o topo da silhueta sem mexer na largura', () => {
-  assert.ok(renderDuckArt('Sábio', 0)[0].includes('_'));
-  assert.ok(renderDuckArt('Sábio', 4)[0].includes('\\|/'), 'lendário ganha coroa');
+  assert.ok(renderDuckArt('Sage', 0)[0].includes('_'));
+  assert.ok(renderDuckArt('Sage', 4)[0].includes('\\|/'), 'lendário ganha coroa');
   for (let stage = 0; stage <= 4; stage++) {
-    for (const line of renderDuckArt('Sábio', stage)) {
+    for (const line of renderDuckArt('Sage', stage)) {
       assert.strictEqual([...line].length, 11, `estágio ${stage}: coluna de 11`);
     }
   }
@@ -61,7 +61,7 @@ test('reset formata dias/horas/minutos e nunca fica negativo', () => {
   assert.match(untilReset(inMinutes(45)), /^4[45]m$/); // floor: o relógio anda durante o teste
   assert.match(untilReset(inMinutes(125)), /^2h \d+m$/);
   assert.match(untilReset(inMinutes(60 * 30)), /^1d \d+h$/);
-  assert.strictEqual(untilReset(inMinutes(-5)), 'agora');
+  assert.strictEqual(untilReset(inMinutes(-5), 'en'), 'now');
   assert.strictEqual(untilReset(null), '');
   assert.strictEqual(untilReset('não é data'), '');
 });
@@ -127,7 +127,7 @@ test('buildHudLines mede o contexto contra a janela que o host informou', () => 
     },
     usage: null,
     state: { xp: 0 },
-    rank: { label: 'Comum', hex: '#888888' },
+    rank: { label: 'Common', hex: '#888888' },
     ansi: false,
   });
   const tail = lines[3];
@@ -158,7 +158,7 @@ test('configuredContextWindow lê context_window_tokens do config.ini', () => {
   }
 });
 
-const HUD_ARGS = { state: { xp: 10 }, rank: { label: 'Comum I', hex: '#4ADE80' }, ansi: false };
+const HUD_ARGS = { state: { xp: 10 }, rank: { label: 'Common I', hex: '#4ADE80' }, ansi: false, lang: 'en' };
 const hudRows = (usage) =>
   buildHudLines({ input: { model: { id: 'claude-sonnet-5' } }, usage, ...HUD_ARGS });
 
@@ -169,7 +169,7 @@ test('medidores de plano consumidor seguem sendo 5h e 7d', () => {
 });
 
 test('plano enterprise cai para medidor de gasto quando toda janela é null', () => {
-  // #198: com as janelas null o HUD mostrava duas linhas "sem dados", que o
+  // #198: com as janelas null o HUD mostrava duas linhas "no data", que o
   // usuário não distingue de "buddy quebrado". spend é o limite que importa lá.
   const rows = hudRows({
     fiveHour: null,
@@ -184,21 +184,21 @@ test('plano enterprise cai para medidor de gasto quando toda janela é null', ()
   assert.match(rows[1], /\$42\.37\/\$200/, 'sufixo mostra usado/limite');
   assert.match(rows[2], /^\+\s+8%/, 'linha 3 vira extra usage');
   assert.ok(
-    !`${rows[1]}\n${rows[2]}`.includes('sem dados'),
+    !`${rows[1]}\n${rows[2]}`.includes('no data'),
     'nenhuma das duas linhas de uso fica como placeholder morto'
   );
 });
 
 test('sem janelas e sem spend, o placeholder honesto permanece', () => {
   const rows = hudRows({ fiveHour: null, sevenDay: null, spend: null, extraUsage: null });
-  assert.match(rows[1], /^5h\s+sem dados/);
-  assert.match(rows[2], /^7d\s+sem dados/);
+  assert.match(rows[1], /^5h\s+no data/);
+  assert.match(rows[2], /^7d\s+no data/);
 });
 
 test('spend sem extra_usage mantém 7d como placeholder', () => {
   const rows = hudRows({ fiveHour: null, sevenDay: null, spend: 55, extraUsage: null });
   assert.match(rows[1], /^\$\s+55%/);
-  assert.match(rows[2], /^7d\s+sem dados/);
+  assert.match(rows[2], /^7d\s+no data/);
 });
 
 test('tokens compactos', () => {

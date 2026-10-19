@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 'use strict';
 
-// Ver nota de implementação em session-start.js sobre os nomes de campo do
-// stdin -- confira com `claude --debug` antes de confiar cegamente.
+// See the implementation note in session-start.js about the stdin field
+// names -- check with `claude --debug` before trusting them blindly.
 
 const { readState, writeState, addXp, sessionKeyFrom } = require('../lib/state');
 const { applySqueezSavings } = require('../lib/squeez');
 
-// XP de ação é a fonte SECUNDÁRIA e é limitada por SESSION_ACTION_CAP. A fonte
-// primária é a economia de tokens do squeez (lib/squeez.js), que não tem teto
-// porque não é gamificável: ou o squeez economizou tokens de verdade, ou não.
+// Action XP is the SECONDARY source and is capped by SESSION_ACTION_CAP. The
+// primary source is squeez token savings (lib/squeez.js), which has no cap
+// because it is not gameable: either squeez saved real tokens, or it didn't.
 //
-// O gatilho antigo BUG_RESOLVED (10 XP) foi REMOVIDO, não reajustado. Ele pagava
-// sempre que a palavra "error" aparecia em comando+saída e o Bash seguinte vinha
-// limpo -- ou seja, um `grep error`, um caminho com "failed" ou uma linha de log
-// armavam o gatilho, e numa sessão de agente o par arma/dispara se repetia
-// indefinidamente. Medido em produção: ~700 XP/dia contra os ~70 que o design
-// assumia. Não dá pra distinguir "bug resolvido" de "a palavra error apareceu na
-// tela" por regex; o substituto (SUITE_RECOVERED) exige uma transição real
-// falha -> sucesso de uma execução de teste.
+// The old BUG_RESOLVED trigger (10 XP) was REMOVED, not rebalanced. It paid out
+// every time the word "error" appeared in command+output and the next Bash came
+// back clean -- that is, a `grep error`, a path containing "failed" or a log
+// line armed the trigger, and in an agent session the arm/fire pair repeated
+// indefinitely. Measured in production: ~700 XP/day against the ~70 the design
+// assumed. There is no way to tell "bug fixed" from "the word error appeared on
+// screen" by regex; the replacement (SUITE_RECOVERED) requires a real
+// fail -> pass transition of a test run.
 const XP = {
   EDIT_OR_WRITE: 1,
   GIT_COMMIT: 2,
@@ -26,12 +26,12 @@ const XP = {
   SUITE_RECOVERED: 3,
 };
 
-const SESSION_ACTION_CAP = 8; // teto duro de XP de ação por sessão
-const SESSION_EDIT_CAP = 5; // dentro do teto acima, quanto pode vir de edits
+const SESSION_ACTION_CAP = 8; // hard cap on action XP per session
+const SESSION_EDIT_CAP = 5; // within the cap above, how much can come from edits
 
-// Estes padrões são aplicados SÓ À SAÍDA, nunca ao texto do comando -- o comando
-// é justamente o que gerava os falsos positivos (`grep error`, `cargo test`,
-// caminhos contendo "failed").
+// These patterns are applied ONLY TO THE OUTPUT, never to the command text --
+// the command is exactly what generated the false positives (`grep error`,
+// `cargo test`, paths containing "failed").
 const ERROR_PATTERN = /\b(error|exception|traceback|failed|failure)\b/i;
 const TEST_PASS_PATTERN = /\b(passed|passing|0 failing|all tests pass|test result: ok)\b|✓/i;
 const TEST_COMMAND_PATTERN = /\b(test|spec|jest|vitest|pytest|mocha)\b/i;
@@ -46,7 +46,7 @@ function readStdin() {
   }
 }
 
-/** Exit code do payload quando o host manda; null quando não dá pra saber. */
+/** Exit code from the payload when the host sends it; null when it can't be known. */
 function exitCodeOf(response) {
   if (!response || typeof response !== 'object') return null;
   for (const key of ['exit_code', 'exitCode', 'returnCode', 'status']) {
@@ -57,8 +57,8 @@ function exitCodeOf(response) {
 }
 
 /**
- * Resultado de uma execução de teste: 'pass', 'fail' ou null (não era teste).
- * Prefere o exit code; a regex só entra quando o host não expõe o código.
+ * Outcome of a test run: 'pass', 'fail' or null (not a test).
+ * Prefers the exit code; the regex only kicks in when the host doesn't expose it.
  */
 function testOutcome(command, output, exitCode) {
   if (!TEST_COMMAND_PATTERN.test(command)) return null;
@@ -80,7 +80,7 @@ function main() {
 
   const state = readState();
 
-  // O teto é por sessão: uma sessão nova zera os contadores.
+  // The cap is per session: a new session zeroes the counters.
   const sessionKey = sessionKeyFrom(input);
   if (state.sessionKey !== sessionKey) {
     state.sessionKey = sessionKey;
@@ -104,27 +104,27 @@ function main() {
 
     const outcome = testOutcome(command, output, exitCode);
     if (outcome === 'pass') {
-      // Suíte que estava vermelha e ficou verde vale mais -- é a única forma
-      // honesta de detectar "consertou alguma coisa" sem adivinhar por regex.
+      // A suite that was red and turned green is worth more -- it is the only
+      // honest way to detect "something got fixed" without guessing by regex.
       action += state.lastTestRun === 'fail' ? XP.SUITE_RECOVERED : XP.TEST_PASS;
     }
     if (outcome) state.lastTestRun = outcome;
   }
 
-  // Aplica o teto duro de ação da sessão.
+  // Apply the session's hard action cap.
   const room = Math.max(0, SESSION_ACTION_CAP - (state.sessionXp || 0));
   const capped = Math.min(action, room);
   state.sessionXp = (state.sessionXp || 0) + capped;
 
-  // XP por economia do squeez: fonte primária, sem teto. Pode ser negativo uma
-  // única vez, na re-base após mudança de taxa.
+  // XP from squeez savings: primary source, no cap. Can be negative exactly
+  // once, on the re-base after a rate change.
   const savings = applySqueezSavings(state);
 
   writeState(state);
   const gained = capped + savings;
   if (gained !== 0) addXp(gained);
 
-  // PostToolUse não precisa emitir nada pro Claude ver; silencioso por design.
+  // PostToolUse doesn't need to emit anything for Claude to see; silent by design.
   process.stdout.write(JSON.stringify({}));
 }
 

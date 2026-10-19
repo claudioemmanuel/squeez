@@ -1,9 +1,9 @@
 'use strict';
 
-// Janelas de uso (5h / 7d) direto da API OAuth da Anthropic — mesma fonte que o
-// Claude Code usa no /usage. Sem dependência npm: credenciais vêm do Keychain
-// (macOS) ou de `~/.claude/.credentials.json`, e a resposta é cacheada em disco
-// porque a status line roda um processo novo a cada render.
+// Usage windows (5h / 7d) straight from Anthropic's OAuth API — the same source
+// Claude Code uses for /usage. No npm dependency: credentials come from the
+// Keychain (macOS) or `~/.claude/.credentials.json`, and the response is cached
+// on disk because the status line runs a fresh process on every render.
 
 const fs = require('fs');
 const path = require('path');
@@ -13,10 +13,10 @@ const { execFileSync } = require('child_process');
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const KEYCHAIN_TIMEOUT_MS = 3000;
-const TTL_OK_MS = 60_000; // resposta boa vale 1 minuto
-const TTL_ERR_MS = 15_000; // erro segura 15s antes de tentar de novo
-const BACKOFF_MS = 60_000; // falha de credencial: 1 min sem reprompt
-const API_TIMEOUT_MS = 2000; // status line não pode travar o terminal
+const TTL_OK_MS = 60_000; // a good response is valid for 1 minute
+const TTL_ERR_MS = 15_000; // an error holds for 15s before retrying
+const BACKOFF_MS = 60_000; // credential failure: 1 min without reprompt
+const API_TIMEOUT_MS = 2000; // the status line must not freeze the terminal
 
 function configDir() {
   const env = (process.env.CLAUDE_CONFIG_DIR || '').trim();
@@ -40,7 +40,7 @@ function writeCache(entry) {
     fs.mkdirSync(path.dirname(cacheFile()), { recursive: true });
     fs.writeFileSync(cacheFile(), JSON.stringify(entry));
   } catch {
-    /* cache é otimização; falhar aqui não pode derrubar a status line */
+    /* the cache is an optimization; failing here must not take the status line down */
   }
 }
 
@@ -50,7 +50,7 @@ function cacheFresh(entry, now) {
   return now - entry.at < ttl;
 }
 
-/** Credenciais OAuth: Keychain primeiro (macOS), arquivo como fallback. */
+/** OAuth credentials: Keychain first (macOS), file as fallback. */
 function readCredentials(now) {
   const cached = readCache();
   if (cached && cached.credBackoffUntil && now < cached.credBackoffUntil) return null;
@@ -75,7 +75,7 @@ function readCredentials(now) {
         const oauth = JSON.parse(raw).claudeAiOauth;
         if (oauth && oauth.accessToken) return oauth;
       } catch {
-        /* tenta o próximo formato de lookup */
+        /* try the next lookup format */
       }
     }
   }
@@ -85,7 +85,7 @@ function readCredentials(now) {
     const oauth = JSON.parse(raw).claudeAiOauth;
     if (oauth && oauth.accessToken) return oauth;
   } catch {
-    /* sem credencial em arquivo */
+    /* no credential in file */
   }
 
   writeCache({ ...(cached || {}), credBackoffUntil: now + BACKOFF_MS });
@@ -142,7 +142,7 @@ function pct(value) {
   return Math.round(Math.max(0, Math.min(100, value)));
 }
 
-/** `{amount_minor, exponent}` → valor na unidade maior (4237/2 → 42.37), ou null. */
+/** `{amount_minor, exponent}` → value in the major unit (4237/2 → 42.37), or null. */
 function amount(m) {
   if (!m || typeof m.amount_minor !== 'number') return null;
   const exp = Number.isFinite(m.exponent) ? m.exponent : 2;
@@ -150,13 +150,14 @@ function amount(m) {
 }
 
 /**
- * Achata o payload da API no que o HUD desenha.
+ * Flattens the API payload into what the HUD draws.
  *
- * Em conta enterprise a chamada devolve 200 mas TODAS as janelas de rate limit
- * vêm null (#198) — o que morde lá é o limite de crédito, que viaja em `spend`
- * e `extra_usage`. Ambos já trazem percentuais 0-100, então alimentam `pct()`
- * direto. `enabled`/`is_enabled` falso significa "não é limite desta conta", e
- * vira null para o HUD não desenhar um medidor que não quer dizer nada.
+ * On an enterprise account the call returns 200 but ALL rate limit windows
+ * come back null (#198) — what bites there is the credit limit, which travels
+ * in `spend` and `extra_usage`. Both already carry 0-100 percentages, so they
+ * feed `pct()` directly. `enabled`/`is_enabled` false means "not a limit on
+ * this account", and becomes null so the HUD doesn't draw a meter that means
+ * nothing.
  */
 function shape(payload) {
   const p = payload || {};
@@ -176,8 +177,9 @@ function shape(payload) {
 }
 
 /**
- * Uso atual. Chama `cb(usage|null)` — nunca lança. Usa cache fresco quando há,
- * cai pro cache velho quando a rede falha, e `null` quando não há nada.
+ * Current usage. Calls `cb(usage|null)` — never throws. Uses a fresh cache when
+ * available, falls back to a stale cache when the network fails, and `null`
+ * when there is nothing.
  */
 function getUsage(cb) {
   const now = Date.now();
