@@ -30,6 +30,11 @@ use super::{memory_file, memory_size, settings_json, HostAdapter, HostCaps};
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/gemini-session-start.sh");
 const BEFORE_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-before-tool.sh");
 const AFTER_TOOL_SCRIPT: &str = include_str!("../../hooks/gemini-after-tool.sh");
+const HOOK_SCRIPTS: [(&str, &str); 3] = [
+    ("gemini-session-start.sh", SESSION_START_SCRIPT),
+    ("gemini-before-tool.sh", BEFORE_TOOL_SCRIPT),
+    ("gemini-after-tool.sh", AFTER_TOOL_SCRIPT),
+];
 
 /// Python program used to patch `~/.gemini/settings.json`. Receives the
 /// target path as argv[1] and the squeez-hooks directory as argv[2].
@@ -91,11 +96,7 @@ impl GeminiCliAdapter {
 
     fn write_hook_scripts(hooks_dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(hooks_dir)?;
-        for (name, body) in [
-            ("gemini-session-start.sh", SESSION_START_SCRIPT),
-            ("gemini-before-tool.sh", BEFORE_TOOL_SCRIPT),
-            ("gemini-after-tool.sh", AFTER_TOOL_SCRIPT),
-        ] {
+        for (name, body) in HOOK_SCRIPTS {
             let path = hooks_dir.join(name);
             std::fs::write(&path, body)?;
             // Make the hook scripts executable (Gemini invokes them as commands).
@@ -122,6 +123,10 @@ impl HostAdapter for GeminiCliAdapter {
 
     fn data_dir(&self) -> PathBuf {
         Self::gemini_dir().join("squeez")
+    }
+
+    fn hook_scripts(&self) -> Vec<(&'static str, &'static str)> {
+        HOOK_SCRIPTS.to_vec()
     }
 
     fn capabilities(&self) -> HostCaps {

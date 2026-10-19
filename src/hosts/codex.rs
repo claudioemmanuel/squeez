@@ -205,6 +205,10 @@ impl HostAdapter for CodexCliAdapter {
         Self::codex_dir().join("squeez")
     }
 
+    fn hook_scripts(&self) -> Vec<(&'static str, &'static str)> {
+        HOOK_SCRIPTS.to_vec()
+    }
+
     fn capabilities(&self) -> HostCaps {
         HostCaps::BASH_WRAP | HostCaps::SESSION_MEM | HostCaps::BUDGET_SOFT
     }

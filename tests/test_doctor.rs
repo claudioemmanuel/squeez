@@ -200,3 +200,79 @@ fn quick_check_silent_when_healthy_and_loud_when_disabled() {
     assert!(w.len() <= 80, "banner line must stay short: {}", w.len());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── #267: the hook checks follow the host that owns the store ─────────────
+
+/// A store under `<tmp>/<tail>` — tails are how doctor recognises a host's
+/// own store (`.gemini/squeez`, `squeez/opencode`, …).
+fn host_store(tail: &str) -> PathBuf {
+    let dir = tmp().join(tail);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn install_scripts_of(host: &str, dir: &PathBuf) {
+    let hooks = dir.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    for (name, body) in squeez::hosts::find(host).unwrap().hook_scripts() {
+        std::fs::write(hooks.join(name), body).unwrap();
+    }
+}
+
+fn hook_failures(lines: &[String]) -> Vec<&String> {
+    lines
+        .iter()
+        .filter(|l| l.starts_with("[FAIL] hooks") || l.starts_with("[FAIL] registration") || l.starts_with("[FAIL] runnable"))
+        .collect()
+}
+
+#[test]
+fn a_healthy_gemini_store_is_judged_by_gemini_scripts() {
+    let dir = host_store(".gemini/squeez");
+    install_scripts_of("gemini", &dir);
+    // No Claude Code settings at all: they are not this store's business.
+    let (lines, _) = doctor::run_with(&dir, &dir.join("absent.json"), &Config::default());
+    assert!(hook_failures(&lines).is_empty(), "{lines:?}");
+    assert!(lines.iter().any(|l| l.starts_with("[ok]   hooks:")), "{lines:?}");
+}
+
+#[test]
+fn a_stale_copilot_script_fails_with_that_host_setup_command() {
+    let dir = host_store(".copilot/squeez");
+    install_scripts_of("copilot", &dir);
+    std::fs::write(dir.join("hooks/copilot-pretooluse.sh"), "# edited\n").unwrap();
+    let (lines, has_fail) = doctor::run_with(&dir, &dir.join("absent.json"), &Config::default());
+    assert!(has_fail);
+    let line = lines.iter().find(|l| l.starts_with("[FAIL] hooks")).expect("drift must FAIL");
+    assert!(line.contains("copilot-pretooluse.sh"), "{line}");
+    assert!(line.contains("squeez setup --host=copilot"), "{line}");
+    assert!(!line.contains("pretooluse.sh,") && !line.contains("subagent-stop.sh"), "{line}");
+}
+
+/// OpenCode loads squeez as a plugin: no hook scripts exist to drift, and
+/// `squeez setup` could never create the Claude Code ones there.
+#[test]
+fn a_plugin_host_store_has_no_hook_drift_to_fail() {
+    let dir = host_store("squeez/opencode");
+    let (lines, _) = doctor::run_with(&dir, &dir.join("absent.json"), &Config::default());
+    assert!(hook_failures(&lines).is_empty(), "{lines:?}");
+}
+
+#[test]
+fn quick_check_does_not_call_a_healthy_host_store_degraded() {
+    let dir = host_store(".codex/squeez");
+    install_scripts_of("codex", &dir);
+    assert_eq!(doctor::quick_check(&dir, &dir.join("absent.json"), &Config::default()), None);
+    let oc = host_store("squeez/opencode");
+    assert_eq!(doctor::quick_check(&oc, &oc.join("absent.json"), &Config::default()), None);
+}
+
+/// Anything that is not another host's store — the default one or a custom
+/// SQUEEZ_DIR — is still held to Claude Code's hooks.
+#[test]
+fn an_unrecognised_store_is_still_held_to_claude_code_hooks() {
+    let dir = tmp();
+    let (lines, has_fail) = doctor::run_with(&dir, &dir.join("absent.json"), &Config::default());
+    assert!(has_fail);
+    assert!(lines.iter().any(|l| l.starts_with("[FAIL] hooks") && l.contains("subagent-stop.sh")), "{lines:?}");
+}
