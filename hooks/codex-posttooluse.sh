@@ -48,7 +48,8 @@ tool = d.get('tool_name') or d.get('tool') or 'unknown'
 try:
     subprocess.run(
         [os.environ['SQUEEZ_BIN'], 'track-result', tool],
-        input=data,
+        # bytes, not str: without text=True a str raises TypeError (#278).
+        input=data.encode('utf-8', 'replace'),
         timeout=3,
         check=False,
         stdout=subprocess.DEVNULL,

@@ -41,6 +41,11 @@ use super::{memory_file, memory_size, settings_json, HostAdapter, HostCaps};
 const SESSION_START_SCRIPT: &str = include_str!("../../hooks/codex-session-start.sh");
 const PRE_TOOL_USE_SCRIPT: &str = include_str!("../../hooks/codex-pretooluse.sh");
 const POST_TOOL_USE_SCRIPT: &str = include_str!("../../hooks/codex-posttooluse.sh");
+const HOOK_SCRIPTS: [(&str, &str); 3] = [
+    ("codex-session-start.sh", SESSION_START_SCRIPT),
+    ("codex-pretooluse.sh", PRE_TOOL_USE_SCRIPT),
+    ("codex-posttooluse.sh", POST_TOOL_USE_SCRIPT),
+];
 
 /// Events squeez registers under `hooks` in the Codex CLI hooks.json.
 const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "PreToolUse", "PostToolUse"];
@@ -52,11 +57,25 @@ const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "PreToolUse", "PostToolUse"];
 /// command directly rather than handing it to a shell, so on Windows a bare
 /// `.sh` path has no interpreter to run it and the hook dies immediately with
 /// exit code 1 (every squeez Codex hook, starting with SessionStart).
-fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
+///
+/// On Windows even `bash <path>` cannot spawn (#278): Codex hands the command
+/// to `cmd.exe`, where `bash` is rarely on PATH, and naming Git Bash by its
+/// absolute path does not help — cmd's quote stripping mangles a command made
+/// of two quoted paths (`"C:/Program Files/…/bash.exe" "…"`). So there the
+/// command is a `<script>.cmd` launcher (see [`launcher_body`]) and nothing
+/// else.
+fn hook_specs(hooks_dir: &Path, windows: bool) -> Vec<settings_json::HookSpec> {
+    let command = |script: &str| {
+        if windows {
+            launcher_command(&hooks_dir.join(format!("{script}.cmd")))
+        } else {
+            format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script)))
+        }
+    };
     let spec = |event: &'static str, script: &'static str, timeout_ms: u64| settings_json::HookSpec {
         event,
         matcher: Some(".*"),
-        command: format!("bash {}", settings_json::shell_arg(&hooks_dir.join(script))),
+        command: command(script),
         name: None,
         timeout_ms: Some(timeout_ms),
         script,
@@ -66,6 +85,53 @@ fn hook_specs(hooks_dir: &Path) -> Vec<settings_json::HookSpec> {
         spec("PreToolUse", "codex-pretooluse.sh", 5000),
         spec("PostToolUse", "codex-posttooluse.sh", 3000),
     ]
+}
+
+/// A Windows path with native separators — cmd.exe and batch files do not
+/// reliably take `/`.
+fn win_path(path: &Path) -> String {
+    path.display().to_string().replace('/', "\\")
+}
+
+/// `<script>.cmd`: runs `script` under Git Bash, both named by absolute path,
+/// and hands back its exit code. Stdin and stdout pass straight through, so
+/// the hook payload and response are untouched. Named `<script>.cmd` (not
+/// `<stem>.cmd`) so the command keeps the `/hooks/<script>` that marks it as
+/// squeez's own.
+fn launcher_body(bash: &Path, script: &Path) -> String {
+    format!(
+        "@echo off\r\n\"{}\" \"{}\"\r\nexit /b %ERRORLEVEL%\r\n",
+        win_path(bash),
+        win_path(script)
+    )
+}
+
+/// One path is the only shape cmd.exe keeps intact: quoted when it has a
+/// space (cmd leaves exactly two quotes around an existing file alone).
+fn launcher_command(launcher: &Path) -> String {
+    let path = win_path(launcher);
+    if path.contains(' ') {
+        format!("\"{path}\"")
+    } else {
+        path
+    }
+}
+
+/// Git Bash, resolved when setup runs rather than left to the PATH of the
+/// cmd.exe that Codex spawns: PATH first (skipping the WSL launchers), then
+/// Git for Windows' default install locations.
+fn git_bash() -> Option<PathBuf> {
+    crate::commands::wrap::resolve_shell_program("bash")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let roots = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+                .iter()
+                .filter_map(|v| std::env::var_os(v).map(PathBuf::from))
+                .chain(std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Programs")));
+            roots
+                .map(|r| r.join("Git").join("bin").join("bash.exe"))
+                .find(|p| p.is_file())
+        })
 }
 
 pub struct CodexCliAdapter;
@@ -88,17 +154,13 @@ impl CodexCliAdapter {
         settings_json::HookRegistration {
             path: Self::hooks_json_path(),
             root: settings_json::EventRoot::Nested,
-            specs: hook_specs(&Self::hooks_dir()),
+            specs: hook_specs(&Self::hooks_dir(), cfg!(windows)),
         }
     }
 
     fn write_hook_scripts(hooks_dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(hooks_dir)?;
-        for (name, body) in [
-            ("codex-session-start.sh", SESSION_START_SCRIPT),
-            ("codex-pretooluse.sh", PRE_TOOL_USE_SCRIPT),
-            ("codex-posttooluse.sh", POST_TOOL_USE_SCRIPT),
-        ] {
+        for (name, body) in HOOK_SCRIPTS {
             let path = hooks_dir.join(name);
             std::fs::write(&path, body)?;
             #[cfg(unix)]
@@ -107,6 +169,23 @@ impl CodexCliAdapter {
                 let perms = std::fs::Permissions::from_mode(0o755);
                 let _ = std::fs::set_permissions(&path, perms);
             }
+        }
+        Ok(())
+    }
+
+    /// Fails rather than registering commands that cannot spawn: a missing
+    /// interpreter used to surface only as Codex's generic hook failure.
+    fn write_launchers(hooks_dir: &Path) -> std::io::Result<()> {
+        let bash = git_bash().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Git Bash not found (PATH, %ProgramFiles%\\Git) — install Git for Windows \
+                 or set CLAUDE_CODE_GIT_BASH_PATH, then re-run `squeez setup --host=codex`",
+            )
+        })?;
+        for (name, _) in HOOK_SCRIPTS {
+            let launcher = hooks_dir.join(format!("{name}.cmd"));
+            std::fs::write(launcher, launcher_body(&bash, &hooks_dir.join(name)))?;
         }
         Ok(())
     }
@@ -132,6 +211,9 @@ impl HostAdapter for CodexCliAdapter {
 
     fn install(&self, _bin_path: &Path) -> std::io::Result<()> {
         Self::write_hook_scripts(&Self::hooks_dir())?;
+        if cfg!(windows) {
+            Self::write_launchers(&Self::hooks_dir())?;
+        }
         settings_json::install_registration(&self.registration())
     }
 
@@ -239,5 +321,51 @@ mod tests {
         assert!(!out.contains("<!-- squeez:start -->"));
         assert!(out.contains("# repo rules"));
         assert!(out.contains("## after"));
+    }
+
+    #[test]
+    fn launcher_names_git_bash_and_the_script_by_absolute_path() {
+        let body = launcher_body(
+            Path::new("C:/Program Files/Git/bin/bash.exe"),
+            Path::new("C:/Users/me/.codex/squeez/hooks/codex-pretooluse.sh"),
+        );
+        assert_eq!(
+            body,
+            "@echo off\r\n\
+             \"C:\\Program Files\\Git\\bin\\bash.exe\" \"C:\\Users\\me\\.codex\\squeez\\hooks\\codex-pretooluse.sh\"\r\n\
+             exit /b %ERRORLEVEL%\r\n"
+        );
+    }
+
+    /// #278: on Windows the registered command is the launcher alone — no
+    /// `bash` for cmd.exe to look up, no second quoted path for it to mangle —
+    /// and it still carries `/hooks/<script>`, which is how setup, uninstall
+    /// and doctor recognise squeez's own entries.
+    #[test]
+    fn windows_hook_commands_are_the_launchers() {
+        let specs = hook_specs(Path::new("C:/Users/me/.codex/squeez/hooks"), true);
+        for spec in &specs {
+            assert_eq!(
+                spec.command,
+                format!("C:\\Users\\me\\.codex\\squeez\\hooks\\{}.cmd", spec.script)
+            );
+            assert!(settings_json::normalize_sep(&spec.command)
+                .contains(&format!("/hooks/{}", spec.script)));
+        }
+    }
+
+    #[test]
+    fn a_launcher_path_with_a_space_is_quoted_once() {
+        let specs = hook_specs(Path::new("C:/Users/First Last/.codex/squeez/hooks"), true);
+        assert_eq!(
+            specs[0].command,
+            "\"C:\\Users\\First Last\\.codex\\squeez\\hooks\\codex-session-start.sh.cmd\""
+        );
+    }
+
+    #[test]
+    fn unix_hook_commands_stay_bash_plus_script() {
+        let specs = hook_specs(Path::new("/h/.codex/squeez/hooks"), false);
+        assert_eq!(specs[1].command, "bash \"/h/.codex/squeez/hooks/codex-pretooluse.sh\"");
     }
 }

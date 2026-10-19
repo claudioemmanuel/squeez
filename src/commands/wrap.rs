@@ -122,7 +122,7 @@ fn is_cmd_shell(shell: &str) -> bool {
 /// `CLAUDE_CODE_GIT_BASH_PATH` is honoured first: when the host has already
 /// been told where git-bash lives, that is a better answer than any PATH scan.
 #[cfg(windows)]
-fn resolve_shell_program(program: &str) -> Option<String> {
+pub(crate) fn resolve_shell_program(program: &str) -> Option<String> {
     if program == "bash" {
         if let Some(hinted) = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH") {
             let p = std::path::PathBuf::from(hinted);
@@ -140,7 +140,7 @@ fn resolve_shell_program(program: &str) -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn resolve_shell_program(_program: &str) -> Option<String> {
+pub(crate) fn resolve_shell_program(_program: &str) -> Option<String> {
     None
 }
 
