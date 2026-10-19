@@ -426,6 +426,14 @@ impl HostAdapter for ClaudeCodeAdapter {
             .unwrap_or_else(|_| Self::claude_dir().join("squeez"))
     }
 
+    fn native_data_dir(&self) -> PathBuf {
+        Self::claude_dir().join("squeez")
+    }
+
+    fn hook_scripts(&self) -> Vec<(&'static str, &'static str)> {
+        hooks_manifest().to_vec()
+    }
+
     fn capabilities(&self) -> HostCaps {
         HostCaps::BASH_WRAP | HostCaps::SESSION_MEM | HostCaps::BUDGET_HARD
     }

@@ -112,6 +112,18 @@ impl HostAdapter for CopilotCliAdapter {
             .unwrap_or_else(|_| Self::copilot_dir().join("squeez"))
     }
 
+    fn native_data_dir(&self) -> PathBuf {
+        Self::copilot_dir().join("squeez")
+    }
+
+    fn hook_scripts(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("copilot-pretooluse.sh", PRETOOLUSE_SCRIPT),
+            ("copilot-session-start.sh", SESSION_START_SCRIPT),
+            ("copilot-posttooluse.sh", POSTTOOLUSE_SCRIPT),
+        ]
+    }
+
     fn capabilities(&self) -> HostCaps {
         HostCaps::BASH_WRAP | HostCaps::SESSION_MEM | HostCaps::BUDGET_HARD
     }

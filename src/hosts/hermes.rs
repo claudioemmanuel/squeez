@@ -120,6 +120,10 @@ impl HostAdapter for HermesAdapter {
             .unwrap_or_else(|_| Self::hermes_dir().join("squeez"))
     }
 
+    fn native_data_dir(&self) -> PathBuf {
+        Self::hermes_dir().join("squeez")
+    }
+
     fn capabilities(&self) -> HostCaps {
         // Hermes has pre_tool_call (BASH_WRAP) and session start (SESSION_MEM).
         // No programmatic Read/Grep budget injection (BUDGET_HARD) or soft

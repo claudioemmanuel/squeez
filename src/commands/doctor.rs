@@ -6,7 +6,7 @@
 //! embedded sources, hook registration, config state, and tracking freshness.
 
 use crate::config::Config;
-use crate::hosts::claude_code::hooks_manifest;
+use crate::hosts::HostAdapter;
 use crate::hosts::settings_json::{self, Existing, HookRegistration};
 use crate::json_util::JsonValue;
 use crate::session;
@@ -29,23 +29,63 @@ fn fail(msg: impl Into<String>) -> CheckLine {
     CheckLine { line: format!("[FAIL] {}", msg.into()), fail: true }
 }
 
+/// The last two components of `path` — `.gemini/squeez`, `squeez/opencode`.
+/// Host stores are told apart by these rather than by whole paths, which a
+/// hook running under Git Bash may hand over as `/c/Users/…`.
+fn store_tail(path: &Path) -> Vec<String> {
+    let parts: Vec<String> = path
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(p) => Some(p.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    parts[parts.len().saturating_sub(2)..].to_vec()
+}
+
+/// The host whose store `squeez_dir` is (#267): the one whose native store
+/// it matches. Anything else — the default store or a custom `SQUEEZ_DIR` —
+/// is Claude Code's, the adapter that honours `SQUEEZ_DIR` for itself.
+fn store_owner(squeez_dir: &Path) -> Box<dyn HostAdapter> {
+    let tail = store_tail(squeez_dir);
+    crate::hosts::all_hosts()
+        .into_iter()
+        .filter(|h| h.name() != "claude-code")
+        .find(|h| store_tail(&h.native_data_dir()) == tail)
+        .unwrap_or_else(|| Box::new(crate::hosts::ClaudeCodeAdapter))
+}
+
+fn is_claude_code(host: &dyn HostAdapter) -> bool {
+    host.name() == "claude-code"
+}
+
 /// Hook-drift check: installed scripts must match the sources embedded in
 /// this binary. A stale hook means the binary was updated but `squeez setup`
-/// never re-ran (or someone edited the installed copy).
-fn check_hooks_drift(squeez_dir: &Path) -> CheckLine {
+/// never re-ran (or someone edited the installed copy). Judged against the
+/// scripts of the host that owns the store, not always Claude Code's.
+fn check_hooks_drift(squeez_dir: &Path, host: &dyn HostAdapter) -> CheckLine {
+    let scripts = host.hook_scripts();
+    if scripts.is_empty() {
+        return ok(format!("hooks: {} loads squeez as a plugin — no hook scripts to check", host.name()));
+    }
     let mut stale: Vec<&str> = Vec::new();
-    for (name, embedded) in hooks_manifest() {
+    for (name, embedded) in scripts {
         let installed = squeez_dir.join("hooks").join(name);
         match std::fs::read_to_string(&installed) {
             Ok(content) if content == embedded => {}
             _ => stale.push(name),
         }
     }
+    let setup = if is_claude_code(host) {
+        "squeez setup".to_string()
+    } else {
+        format!("squeez setup --host={}", host.name())
+    };
     if stale.is_empty() {
         ok("hooks: installed scripts match this binary")
     } else {
         fail(format!(
-            "hooks: stale or missing ({}) — run `squeez setup`",
+            "hooks: stale or missing ({}) — run `{setup}`",
             stale.join(", ")
         ))
     }
@@ -416,11 +456,14 @@ fn run_with_hosts(
     cfg: &Config,
     host_checks: Vec<CheckLine>,
 ) -> (Vec<String>, bool) {
-    let mut checks = vec![
-        check_hooks_drift(squeez_dir),
-        check_hooks_registered(settings_path),
-        check_hooks_runnable(settings_path),
-    ];
+    let owner = store_owner(squeez_dir);
+    let mut checks = vec![check_hooks_drift(squeez_dir, owner.as_ref())];
+    // Claude Code's settings.json only speaks for Claude Code's store; every
+    // other host's registration is audited by `host_checks`.
+    if is_claude_code(owner.as_ref()) {
+        checks.push(check_hooks_registered(settings_path));
+        checks.push(check_hooks_runnable(settings_path));
+    }
     checks.extend(host_checks);
     checks.extend([
         check_interpreter(),
@@ -468,8 +511,9 @@ fn backticked_cmd(line: &str) -> Option<String> {
 /// Cheap subset for the SessionStart banner (no session-log scan): returns a
 /// single warning line when the pipeline is degraded, or None when healthy.
 pub fn quick_check(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> Option<String> {
-    let degraded = check_hooks_drift(squeez_dir).fail
-        || check_hooks_registered(settings_path).fail
+    let owner = store_owner(squeez_dir);
+    let degraded = check_hooks_drift(squeez_dir, owner.as_ref()).fail
+        || (is_claude_code(owner.as_ref()) && check_hooks_registered(settings_path).fail)
         || check_config(cfg).fail;
     degraded.then(|| "[squeez doctor: pipeline degraded — run 'squeez doctor']".to_string())
 }

@@ -78,6 +78,21 @@ pub trait HostAdapter {
     /// Squeez's per-host state directory (sessions/, memory/, config.ini).
     fn data_dir(&self) -> PathBuf;
 
+    /// The store this host's own hooks or plugin point squeez at: `data_dir`
+    /// without the `SQUEEZ_DIR` override some adapters honour. Every host's
+    /// scripts export `SQUEEZ_DIR`, so doctor can only tell whose store it is
+    /// looking at by comparing against these (#267).
+    fn native_data_dir(&self) -> PathBuf {
+        self.data_dir()
+    }
+
+    /// Hook scripts this host installs under `<data_dir>/hooks`, as
+    /// (file name, embedded source), for doctor's drift check. Empty for hosts
+    /// that load squeez as a plugin and have no scripts to drift.
+    fn hook_scripts(&self) -> Vec<(&'static str, &'static str)> {
+        Vec::new()
+    }
+
     /// Bring a store from an older location into [`Self::data_dir`]. Runs
     /// before setup writes a default `config.ini` and before `init` reads one,
     /// so a moved store keeps the user's config. No-op for hosts whose store
