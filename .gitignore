@@ -16,3 +16,6 @@ docs/
 
 # compress-md backups (generated when squeez compresses a markdown file)
 *.original.md
+
+# Python bytecode (from running the Hermes plugin tests)
+__pycache__/
