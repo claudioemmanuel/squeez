@@ -1156,17 +1156,84 @@ fn fixtures_dir() -> PathBuf {
 fn find_binary() -> Option<PathBuf> {
     // Prefer the dev build, then the installed binary.
     let exe = std::env::current_exe().ok()?;
-    // If we ARE the squeez binary, return our own path
-    if exe.file_name().map(|n| n == "squeez").unwrap_or(false) {
+    // If we ARE the squeez binary, return our own path. Compared by stem: on
+    // Windows the file is `squeez.exe`, and matching the whole name silently
+    // dropped every wrap scenario from the suite there.
+    if exe.file_stem().map(|n| n == "squeez").unwrap_or(false) {
         return Some(exe);
     }
     // Fallback: check installed location
     let home = crate::session::home_dir();
-    let installed = PathBuf::from(format!("{}/.claude/squeez/bin/squeez", home));
+    let installed = PathBuf::from(format!(
+        "{}/.claude/squeez/bin/squeez{}",
+        home,
+        std::env::consts::EXE_SUFFIX
+    ));
     if installed.exists() {
         return Some(installed);
     }
     None
+}
+
+/// `path` as it can be written into a shell command line. A Windows path's
+/// backslashes would be eaten by the shell, and the `\\?\` prefix
+/// `canonicalize` adds turns into `//?/…`, which bash takes for a network
+/// share and waits on.
+fn shell_path(path: &std::path::Path) -> String {
+    let text = path.display().to_string();
+    #[cfg(windows)]
+    let text = if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        format!("//{}", unc.replace('\\', "/"))
+    } else {
+        text.strip_prefix(r"\\?\").unwrap_or(&text).replace('\\', "/")
+    };
+    // wrap runs this as a shell command, not an argv array. Treat fixture paths
+    // as data (including spaces, quotes, dollar signs and command substitutions).
+    format!("'{}'", text.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(test)]
+mod review_path_tests {
+    use super::*;
+
+    #[test]
+    fn review_shell_path_quotes_spaces_and_shell_metacharacters() {
+        assert_eq!(shell_path(std::path::Path::new("a b/'$(echo injected);.txt")),
+            "'a b/'\"'\"'$(echo injected);.txt'");
+    }
+
+    #[test]
+    fn review_shell_path_is_literal_when_executed_by_bash() {
+        let dir = std::env::temp_dir().join(format!("squeez-bench-path-review-{}-{}",
+            std::process::id(), std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a b'$(echo injected);.txt");
+        std::fs::write(&path, "LITERAL FIXTURE CONTENT\n").unwrap();
+        #[cfg(windows)]
+        let bash = std::path::PathBuf::from(std::env::var_os("ProgramFiles")
+            .unwrap_or_else(|| "C:/Program Files".into())).join("Git/bin/bash.exe");
+        #[cfg(not(windows))]
+        let bash = std::path::PathBuf::from("bash");
+        let result = std::process::Command::new(bash).args(["-c", &format!("cat {}", shell_path(&path))])
+            .output().expect("benchmark path test requires the same bash as wrap");
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        assert_eq!(result.stdout, b"LITERAL FIXTURE CONTENT\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn review_shell_path_preserves_unix_backslashes() {
+        assert_eq!(shell_path(std::path::Path::new(r"/tmp/a\b.txt")), "'/tmp/a\\b.txt'");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn review_shell_path_handles_extended_drive_and_unc() {
+        assert_eq!(shell_path(std::path::Path::new(r"\\?\C:\a b\x.txt")), "'C:/a b/x.txt'");
+        assert_eq!(shell_path(std::path::Path::new(r"\\?\UNC\server\share\x.txt")), "'//server/share/x.txt'");
+    }
 }
 
 fn make_large_claude_md() -> String {
@@ -2118,7 +2185,7 @@ fn run_wrap(scenario: &Scenario, calls: usize, iterations: usize) -> ScenarioRes
             let t0 = Instant::now();
             let output = std::process::Command::new(&binary)
                 .arg("wrap")
-                .arg(format!("cat {}", input_file.display()))
+                .arg(format!("cat {}", shell_path(&input_file)))
                 .env("SQUEEZ_DIR", &iter_state_dir)
                 .output();
             let elapsed = t0.elapsed().as_micros() as u64;
