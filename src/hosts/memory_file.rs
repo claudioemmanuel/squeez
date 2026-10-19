@@ -805,8 +805,8 @@ mod tests {
     /// otherwise the test above proves nothing. Unguarded writers damage the
     /// file two ways: the wipe (one reads the file while another has it
     /// truncated, and writes the block alone) and a torn file (two truncating
-    /// writes interleave). The wipe is the reported failure, so that is the
-    /// one this test insists on seeing.
+    /// writes interleave, or a reader catches one half-written). The wipe is
+    /// the reported failure, so that is the one this test insists on seeing.
     #[test]
     fn legacy_inject_loses_content_under_the_same_load() {
         let rules = big_rules();
@@ -821,7 +821,9 @@ mod tests {
                 continue;
             }
             let after = std::fs::read_to_string(&path).unwrap_or_default();
-            if after.contains("## END SENTINEL") {
+            // A half-written file (cut at a page boundary, so no sentinel) is
+            // damage too, but not the wipe: only the block survives a wipe.
+            if after.contains("## END SENTINEL") || after.len() >= 1024 {
                 torn += 1;
                 continue;
             }
@@ -832,7 +834,6 @@ mod tests {
                 after.len(),
                 rules.len()
             );
-            assert!(after.len() < 1024, "a wipe leaves the squeez block and nothing else");
             assert!(after.starts_with(BLOCK_START));
             break;
         }
