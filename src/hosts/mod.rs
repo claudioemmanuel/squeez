@@ -16,6 +16,7 @@ pub mod codex;
 pub mod copilot;
 pub mod gemini;
 pub mod hermes;
+pub mod memory_file;
 pub mod memory_size;
 pub mod opencode;
 pub mod pi;

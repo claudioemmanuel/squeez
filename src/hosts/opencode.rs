@@ -20,7 +20,7 @@ use crate::config::Config;
 use crate::memory::Summary;
 use crate::session::home_dir;
 
-use super::{memory_size, HostAdapter, HostCaps};
+use super::{memory_file, memory_size, HostAdapter, HostCaps};
 
 const PLUGIN_FILENAME: &str = "squeez.js";
 
@@ -81,9 +81,10 @@ impl HostAdapter for OpenCodeAdapter {
         // Strip the squeez block from AGENTS.md (leave the rest of the file intact).
         let agents = Self::agents_md_path();
         if agents.exists() {
-            let existing = std::fs::read_to_string(&agents).unwrap_or_default();
-            let cleaned = strip_squeez_block(&existing);
-            let _ = std::fs::write(&agents, cleaned);
+            if let Ok(file) = memory_file::open(&agents) {
+                let cleaned = strip_squeez_block(file.existing());
+                let _ = file.commit(&cleaned);
+            }
         }
         Ok(())
     }
@@ -96,7 +97,8 @@ impl HostAdapter for OpenCodeAdapter {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let file = memory_file::open(&path)?;
+        let existing = file.existing().to_string();
 
         let mut block = String::from("<!-- squeez:start -->\n");
         if let Some(banner) =
@@ -133,7 +135,8 @@ impl HostAdapter for OpenCodeAdapter {
 
         let cleaned = strip_squeez_block(&existing);
         let contents = format!("{}\n{}", block, cleaned.trim_start());
-        std::fs::write(&path, contents)
+        // Unchanged content is not rewritten; see `MemoryFile::commit`.
+        file.commit(&contents)
     }
 }
 
