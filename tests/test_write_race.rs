@@ -43,18 +43,20 @@ fn state_dir(root: &Path, n: usize) -> PathBuf {
     state
 }
 
-/// The OpenCode adapter reads `config.ini` next to `AGENTS.md`, so every
-/// writer in a round shares it. A threshold that changes each round renders a
-/// block the file does not carry yet: every round replaces the file while the
-/// other writers contend for it.
+/// Every writer in a round shares the OpenCode store's `config.ini`
+/// (`$XDG_STATE_HOME/squeez/opencode`; the legacy binary read it from
+/// `<XDG_CONFIG_HOME>/opencode/squeez`, so both get it). A threshold that
+/// changes each round renders a block the file does not carry yet: every round
+/// replaces the file while the other writers contend for it.
 fn write_config(root: &Path, round: usize) {
-    let dir = root.join("config/opencode/squeez");
-    std::fs::create_dir_all(&dir).unwrap();
     let ini = format!(
         "auto_compress_md = false\ncompact_threshold_tokens = {}\n",
         100_000 + round * 8_000
     );
-    std::fs::write(dir.join("config.ini"), ini).unwrap();
+    for dir in [root.join("xdg-state/squeez/opencode"), root.join("config/opencode/squeez")] {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.ini"), &ini).unwrap();
+    }
 }
 
 fn spawn_init(bin: &str, root: &Path, state: &Path) -> Child {
@@ -64,6 +66,7 @@ fn spawn_init(bin: &str, root: &Path, state: &Path) -> Child {
         .env("HOME", &home)
         .env("USERPROFILE", &home)
         .env("XDG_CONFIG_HOME", root.join("config"))
+        .env("XDG_STATE_HOME", root.join("xdg-state"))
         .env("LOCALAPPDATA", state)
         .env("XDG_DATA_HOME", state)
         .env("SQUEEZ_DIR", home.join(".claude").join("squeez"))

@@ -47,6 +47,66 @@ impl OpenCodeAdapter {
     fn agents_md_path() -> PathBuf {
         Self::opencode_config_dir().join("AGENTS.md")
     }
+
+    /// Where squeez kept OpenCode's state before #270: inside the config tree
+    /// OpenCode watches, so every session/memory write was a config event.
+    fn legacy_data_dir() -> PathBuf {
+        Self::opencode_config_dir().join("squeez")
+    }
+}
+
+/// `$XDG_STATE_HOME/squeez/opencode`, default `~/.local/state/squeez/opencode`
+/// on every platform. Outside OpenCode's watched config tree (#270), and
+/// derived the same way by `opencode-plugin/squeez.js` (`SQUEEZ_DIR`), which
+/// must stay in step with this.
+pub fn state_dir() -> PathBuf {
+    let base = std::env::var("XDG_STATE_HOME")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| format!("{}/.local/state", home_dir()));
+    PathBuf::from(base).join("squeez").join("opencode")
+}
+
+/// Move `legacy` to `target` when only the legacy store exists. When both do,
+/// carry over just a `config.ini` the new store lacks: a missing config is not
+/// neutral (the defaults turn `auto_compress_md` on). Best effort — a failed
+/// move leaves the legacy store where it was.
+fn migrate(legacy: &Path, target: &Path) {
+    if !legacy.is_dir() {
+        return;
+    }
+    if !target.exists() {
+        if let Some(parent) = target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::rename(legacy, target).is_ok() {
+            return;
+        }
+        // Across filesystems a rename fails: copy, then drop the old store
+        // only if the copy is whole.
+        if copy_dir(legacy, target).is_ok() {
+            let _ = std::fs::remove_dir_all(legacy);
+        }
+        return;
+    }
+    let config = target.join("config.ini");
+    if !config.exists() {
+        let _ = std::fs::copy(legacy.join("config.ini"), config);
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), dest)?;
+        }
+    }
+    Ok(())
 }
 
 impl HostAdapter for OpenCodeAdapter {
@@ -59,7 +119,11 @@ impl HostAdapter for OpenCodeAdapter {
     }
 
     fn data_dir(&self) -> PathBuf {
-        Self::opencode_config_dir().join("squeez")
+        state_dir()
+    }
+
+    fn migrate_data_dir(&self) {
+        migrate(&Self::legacy_data_dir(), &state_dir());
     }
 
     fn capabilities(&self) -> HostCaps {
@@ -163,6 +227,74 @@ mod tests {
         assert!(!out.contains("<!-- squeez:start -->"));
         assert!(out.contains("# other rules"));
         assert!(out.contains("## remainder"));
+    }
+
+    fn tmp(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "squeez-oc-migrate-{tag}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn migrate_moves_the_whole_legacy_store() {
+        let root = tmp("move");
+        let legacy = root.join("config/opencode/squeez");
+        std::fs::create_dir_all(legacy.join("memory")).unwrap();
+        std::fs::write(legacy.join("config.ini"), "auto_compress_md = false\n").unwrap();
+        std::fs::write(legacy.join("memory/summaries.jsonl"), "{}\n").unwrap();
+        let target = root.join("state/squeez/opencode");
+
+        migrate(&legacy, &target);
+
+        assert!(!legacy.exists(), "nothing may keep writing into the watched tree");
+        assert_eq!(
+            std::fs::read_to_string(target.join("config.ini")).unwrap(),
+            "auto_compress_md = false\n"
+        );
+        assert!(target.join("memory/summaries.jsonl").exists());
+    }
+
+    /// The defaults turn `auto_compress_md` on, so a new store that lacks the
+    /// user's config must not silently start from them.
+    #[test]
+    fn migrate_carries_config_into_an_existing_store_that_lacks_one() {
+        let root = tmp("config");
+        let legacy = root.join("legacy");
+        let target = root.join("target");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(target.join("sessions")).unwrap();
+        std::fs::write(legacy.join("config.ini"), "lang = pt-BR\n").unwrap();
+
+        migrate(&legacy, &target);
+
+        assert_eq!(std::fs::read_to_string(target.join("config.ini")).unwrap(), "lang = pt-BR\n");
+    }
+
+    #[test]
+    fn migrate_never_overwrites_the_new_store_config() {
+        let root = tmp("keep");
+        let legacy = root.join("legacy");
+        let target = root.join("target");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(legacy.join("config.ini"), "old\n").unwrap();
+        std::fs::write(target.join("config.ini"), "new\n").unwrap();
+
+        migrate(&legacy, &target);
+
+        assert_eq!(std::fs::read_to_string(target.join("config.ini")).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn migrate_without_a_legacy_store_creates_nothing() {
+        let root = tmp("none");
+        let target = root.join("target");
+        migrate(&root.join("absent"), &target);
+        assert!(!target.exists());
     }
 
     #[test]

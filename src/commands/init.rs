@@ -96,6 +96,7 @@ pub fn run_for_host(host_name: &str) -> i32 {
             return 1;
         }
     };
+    adapter.migrate_data_dir();
     let data_dir = adapter.data_dir();
     let sessions = data_dir.join("sessions");
     let mem = data_dir.join("memory");

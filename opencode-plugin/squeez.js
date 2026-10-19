@@ -68,9 +68,11 @@ const POSIX_SHELLS = ["bash", "sh", "zsh", "dash", "ksh"];
 
 // This host's squeez state directory. The OpenCode adapter
 // (`src/hosts/opencode.rs` → `data_dir()`) keeps OpenCode's call log, memory
-// and config under `$XDG_CONFIG_HOME/opencode/squeez` (default
-// `~/.config/opencode/squeez`), the same directory `squeez init
+// and config under `$XDG_STATE_HOME/squeez/opencode` (default
+// `~/.local/state/squeez/opencode`), the same directory `squeez init
 // --host=opencode` writes and the AGENTS.md memory block is rendered from.
+// Not under `~/.config/opencode`: OpenCode watches that tree, and every
+// session/memory write there was a config event (#270).
 // Every child below has to be pointed at it: without it `wrap` and
 // `track-result` fall back to the Claude Code default (`~/.claude/squeez`), so
 // the call log lands in one store and the session memory in another and no
@@ -84,7 +86,7 @@ const POSIX_SHELLS = ["bash", "sh", "zsh", "dash", "ksh"];
 // Forward slashes on every platform, like SQUEEZ_CMD: Git Bash runs the
 // wrapper on Windows and the binary accepts them.
 const SQUEEZ_DIR =
-  `${process.env.XDG_CONFIG_HOME || `${HOME}/.config`}/opencode/squeez`.replace(/\\/g, "/");
+  `${process.env.XDG_STATE_HOME || `${HOME}/.local/state`}/squeez/opencode`.replace(/\\/g, "/");
 
 // The shell OpenCode hands the command to, as a bare lowercase name: its
 // `shell` config key when set, else $SHELL. Empty when neither names one.

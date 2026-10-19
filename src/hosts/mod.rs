@@ -78,6 +78,12 @@ pub trait HostAdapter {
     /// Squeez's per-host state directory (sessions/, memory/, config.ini).
     fn data_dir(&self) -> PathBuf;
 
+    /// Bring a store from an older location into [`Self::data_dir`]. Runs
+    /// before setup writes a default `config.ini` and before `init` reads one,
+    /// so a moved store keeps the user's config. No-op for hosts whose store
+    /// never moved.
+    fn migrate_data_dir(&self) {}
+
     /// What this host supports natively.
     fn capabilities(&self) -> HostCaps;
 
