@@ -13,6 +13,10 @@ const { readState, writeState, currentRank, resetXp, todayIso } = require('./lib
 const { renderCard } = require('./lib/art');
 const { TOKENS_PER_XP } = require('./lib/squeez');
 const { RANKS, MAX_RANK_INDEX, daysBetween } = require('./lib/engine');
+const { currentLang, messages, archetypeLabel, rankLabel } = require('./lib/i18n');
+
+const LANG = currentLang();
+const MSG = messages(LANG);
 
 function card(state, rank) {
   return renderCard({
@@ -24,11 +28,12 @@ function card(state, rank) {
     xp: state.xp,
     shiny: state.shiny,
     ansi: false, // output goes to the conversation, not the terminal
+    lang: LANG,
   });
 }
 
 function br(n) {
-  return Math.round(n).toLocaleString('en-US');
+  return Math.round(n).toLocaleString(MSG.numberLocale);
 }
 
 /** ISO date `days` days from now, without depending on a date library. */
@@ -52,26 +57,26 @@ function paceLines(state, rank) {
   const fromAction = Math.max(0, state.xp - granted);
 
   const lines = [
-    `Pace: ${perDay.toFixed(1)} XP/day (${state.xp} XP in ${days} ${days === 1 ? 'day' : 'days'} since ${since})`,
-    `  squeez savings: ${granted} XP · action: ${fromAction} XP`,
+    MSG.pace({ perDay: perDay.toFixed(1), xp: state.xp, days, since }),
+    MSG.paceSplit({ granted, fromAction }),
   ];
 
   if (rank.index >= MAX_RANK_INDEX) {
-    lines.push('Next rank: none — Legendary I is the top.');
+    lines.push(MSG.topRank);
     return lines;
   }
 
   const next = RANKS[rank.index + 1];
   const missing = next.xpRequired - state.xp;
-  const eta = perDay > 0 ? `~${isoInDays(missing / perDay)}` : 'never at this pace';
-  lines.push(`Next rank: ${next.label} in ${br(missing)} XP (${eta})`);
+  const eta = perDay > 0 ? `~${isoInDays(missing / perDay)}` : MSG.neverAtPace;
+  lines.push(MSG.nextRank({ label: rankLabel(next, LANG), missing: br(missing), eta }));
   return lines;
 }
 
 function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const state = readState();
-  const rank = currentRank(state);
+  const rank = currentRank(state, LANG);
 
   switch (cmd) {
     case 'stats': {
@@ -80,12 +85,12 @@ function main() {
       const nextXpAt = (Math.floor(lifetime / TOKENS_PER_XP) + 1) * TOKENS_PER_XP;
       console.log(
         [
-          `${state.name} — ${state.archetype} · ${rank.label}${state.shiny ? ' · shiny ✦' : ''}`,
+          `${state.name} — ${archetypeLabel(state.archetype, LANG)} · ${rank.label}${state.shiny ? ' · shiny ✦' : ''}`,
           `XP: ${state.xp}`,
           ...paceLines(state, rank),
-          `Accumulated squeez savings: ${br(lifetime)} net tokens`,
-          `Next savings XP in: ${br(nextXpAt - lifetime)} tokens (rate ${br(TOKENS_PER_XP)}:1)`,
-          `Created: ${state.createdAt || '?'}`,
+          MSG.savingsTotal(br(lifetime)),
+          MSG.savingsNext({ left: br(nextXpAt - lifetime), rate: br(TOKENS_PER_XP) }),
+          MSG.created(state.createdAt || '?'),
         ].join('\n')
       );
       return;
@@ -94,25 +99,25 @@ function main() {
       // No XP effect, by design (inherited from the pet_buddy MCP).
       state.lastSessionDate = todayIso();
       writeState(state);
-      console.log(`${state.name} wags its tail, happy. (no XP effect)`);
+      console.log(MSG.pet(state.name));
       return;
     }
     case 'rename': {
       const name = rest.join(' ').trim();
       if (!name) {
-        console.error('usage: buddy-cli.js rename <name>');
+        console.error(MSG.renameUsage);
         process.exitCode = 1;
         return;
       }
       state.name = name.slice(0, 40);
       writeState(state);
-      console.log(`From now on it answers to ${state.name}.`);
+      console.log(MSG.renamed(state.name));
       return;
     }
     case 'reset': {
       const had = state.xp;
       writeState(resetXp(state, 'manual'));
-      console.log(`XP zeroed (was ${had}). ${state.name} is still the same duck — only the score went back to the start.`);
+      console.log(MSG.reset({ had, name: state.name }));
       return;
     }
     case 'card':

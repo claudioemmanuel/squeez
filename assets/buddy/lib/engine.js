@@ -9,6 +9,8 @@
  * "emergent". Only the final comment text (outside this file) is LLM-generated.
  */
 
+const { rankLabel } = require('./i18n');
+
 const STAT_NAMES = ['DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK'];
 
 // ---------------------------------------------------------------------------
@@ -81,13 +83,15 @@ function generateStats(identity) {
 // Decision tree: stats -> archetype
 // ---------------------------------------------------------------------------
 
+// Language-neutral ids: these are what state.json persists. Display labels per
+// language live in lib/i18n.js.
 const ARCHETYPES = {
-  MANDAO: 'Bossy',
-  RECLAMAO: 'Grumbler',
-  CAOTICO: 'Chaotic',
-  FISCAL: 'Inspector/Guardian',
-  SABIO: 'Sage',
-  MOTIVADOR: 'Motivator',
+  MANDAO: 'bossy',
+  RECLAMAO: 'grumbler',
+  CAOTICO: 'chaotic',
+  FISCAL: 'inspector',
+  SABIO: 'sage',
+  MOTIVADOR: 'motivator',
 };
 
 /**
@@ -126,15 +130,15 @@ function buildBuddy(identity) {
 // Ranking (XP -> rank), 5 colors x 3 sub-levels = 15 ranks
 // ---------------------------------------------------------------------------
 
-const RANK_COLORS = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+const RANK_COLORS = ['common', 'uncommon', 'rare', 'epic', 'legendary']; // ids, see lib/i18n.js
 const SUB_LEVELS = ['III', 'II', 'I']; // III is the lowest within the color
 
 const RANK_HEX = {
-  Common: '#9CA3AF',
-  Uncommon: '#34D399',
-  Rare: '#60A5FA',
-  Epic: '#C084FC',
-  Legendary: '#FBBF24',
+  common: '#9CA3AF',
+  uncommon: '#34D399',
+  rare: '#60A5FA',
+  epic: '#C084FC',
+  legendary: '#FBBF24',
 };
 
 /**
@@ -175,7 +179,7 @@ const RANK_THRESHOLDS = [
 ];
 
 const RANKS = RANK_COLORS.flatMap((color) =>
-  SUB_LEVELS.map((sub) => ({ color, sub, label: `${color} ${sub}` }))
+  SUB_LEVELS.map((sub) => ({ color, sub, label: rankLabel({ color, sub }, 'en') }))
 ).map((r, i) => ({ ...r, index: i, xpRequired: RANK_THRESHOLDS[i], hex: RANK_HEX[r.color] }));
 
 const MAX_RANK_INDEX = RANKS.length - 1;

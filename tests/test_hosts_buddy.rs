@@ -72,6 +72,7 @@ fn materialize_writes_tree_version_and_exec_shims() {
             "lib/engine.js",
             "lib/art.js",
             "lib/squeez.js",
+            "lib/i18n.js",
             "hooks/session-start.js",
             "hooks/post-tool-use.js",
             "hooks/stop.js",
@@ -224,6 +225,24 @@ fn buddy_off_strips_entries_and_statusline() {
         assert!(s.contains("hooks/posttooluse.sh"));
         // `/buddy` command removed with the toggle.
         assert!(!home.join(".claude/commands/buddy.md").exists());
+    });
+}
+
+#[test]
+fn buddy_command_follows_lang() {
+    if !python3_available() {
+        return;
+    }
+    with_home(|home| {
+        let cmd = home.join(".claude/commands/buddy.md");
+        ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
+        let en = std::fs::read_to_string(&cmd).unwrap();
+        assert!(en.contains("The user wants to interact"), "default is English: {en}");
+
+        write_config(home, "lang = pt-BR\n");
+        ClaudeCodeAdapter.install(&home.join("bin/squeez")).unwrap();
+        let pt = std::fs::read_to_string(&cmd).unwrap();
+        assert!(pt.contains("O usuário quer interagir"), "pt-BR template: {pt}");
     });
 }
 

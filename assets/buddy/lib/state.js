@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { buildBuddy, rankIndexFromXp, rankFromIndex, applyDecay, daysBetween } = require('./engine');
+const { archetypeId, intensityId, rankLabel, currentLang } = require('./i18n');
 
 const STATE_DIR = process.env.CLAUDE_BUDDY_HOME || path.join(os.homedir(), '.claude-buddy');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
@@ -85,30 +86,18 @@ function resetXp(state, reason) {
   return state;
 }
 
-// Portuguese text values persisted by pre-translation state files. These are
-// legacy DATA keys, not user-facing text: mapping them keeps an existing duck's
-// identity intact while every label renders in English.
-const LEGACY_ARCHETYPES = {
-  'Mandão': 'Bossy',
-  'Reclamão': 'Grumbler',
-  'Caótico': 'Chaotic',
-  'Fiscal/Guardião': 'Inspector/Guardian',
-  'Sábio': 'Sage',
-  'Motivador': 'Motivator',
-};
-const LEGACY_INTENSITIES = { leve: 'mild', moderado: 'moderate', intenso: 'intense' };
-
-/** Translates legacy Portuguese text values in place; true when anything changed. */
-function migrateLegacyText(state) {
-  let changed = false;
-  if (LEGACY_ARCHETYPES[state.archetype]) {
-    state.archetype = LEGACY_ARCHETYPES[state.archetype];
-    changed = true;
-  }
-  if (LEGACY_INTENSITIES[state.intensity]) {
-    state.intensity = LEGACY_INTENSITIES[state.intensity];
-    changed = true;
-  }
+/**
+ * Rewrites archetype/intensity to their language-neutral ids in place; true
+ * when anything changed. State files written before the buddy followed `lang`
+ * carry Portuguese labels ('Reclamão', 'intenso') and must load as the same
+ * duck under any language.
+ */
+function canonicalizeLabels(state) {
+  const archetype = archetypeId(state.archetype);
+  const intensity = intensityId(state.intensity);
+  const changed = archetype !== state.archetype || intensity !== state.intensity;
+  state.archetype = archetype;
+  state.intensity = intensity;
   return changed;
 }
 
@@ -119,12 +108,10 @@ function readState() {
   if ((state.schemaVersion || 1) < SCHEMA_VERSION) {
     delete state.hasRecentError; // trigger removed, see hooks/post-tool-use.js
     resetXp(state, 'migration');
-    migrateLegacyText(state);
+    canonicalizeLabels(state);
     return writeState(state);
   }
-  // Legacy (pre-translation) state files carry Portuguese archetype/intensity
-  // values; translate them in place once so the same duck renders in English.
-  if (migrateLegacyText(state)) return writeState(state);
+  if (canonicalizeLabels(state)) return writeState(state);
   return state;
 }
 
@@ -162,11 +149,11 @@ function touchSession() {
   return writeState(state);
 }
 
-/** Effective rank (already accounting for decay), ready to render. */
-function currentRank(state) {
+/** Effective rank (already accounting for decay), labeled in `lang`, ready to render. */
+function currentRank(state, lang = currentLang()) {
   const idleDays = daysBetween(state.lastSessionDate, todayIso());
-  const idx = applyDecay(state.xp, idleDays);
-  return rankFromIndex(idx);
+  const rank = rankFromIndex(applyDecay(state.xp, idleDays));
+  return { ...rank, label: rankLabel(rank, lang) };
 }
 
 module.exports = {

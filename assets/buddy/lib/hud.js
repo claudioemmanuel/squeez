@@ -9,6 +9,7 @@ const path = require('path');
 
 const { ansiFg, hexToRgb, ANSI_RESET } = require('./art');
 const { configuredContextWindow } = require('./squeez');
+const { currentLang, messages } = require('./i18n');
 
 const DIM = '\x1b[2m';
 const BAR_CELLS = 9;
@@ -36,12 +37,12 @@ function bar(percent) {
 }
 
 /** "2h 4m" / "3d 5h" / "now" from a reset ISO. */
-function untilReset(iso) {
+function untilReset(iso, lang = currentLang()) {
   if (!iso) return '';
   const target = new Date(iso).getTime();
   if (!Number.isFinite(target)) return '';
   const left = target - Date.now();
-  if (left <= 0) return 'now';
+  if (left <= 0) return messages(lang).now;
   const minutes = Math.floor(left / 60000);
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
@@ -154,8 +155,8 @@ function compactTokens(n) {
   return String(n);
 }
 
-function meter(label, percent, suffix, ansi) {
-  if (percent == null) return `${label.padEnd(3)}${dim('no data', ansi)}`;
+function meter(label, percent, suffix, ansi, lang) {
+  if (percent == null) return `${label.padEnd(3)}${dim(messages(lang).noData, ansi)}`;
   const hex = heatHex(percent);
   const head = `${label.padEnd(3)}${String(percent).padStart(3)}% `;
   const tail = suffix ? ` ${dim(suffix, ansi)}` : '';
@@ -179,30 +180,31 @@ function money(value, currency) {
  * With no windows AND no spend the honest placeholder stays — better to say
  * "no data" than to make things up.
  */
-function usageRows(usage, ansi) {
+function usageRows(usage, ansi, lang) {
   const hasWindows = usage && (usage.fiveHour != null || usage.sevenDay != null);
   if (!hasWindows && usage && usage.spend != null) {
     const suffix = [money(usage.spendUsed, usage.spendCurrency), money(usage.spendLimit, usage.spendCurrency)]
       .filter(Boolean)
       .join('/');
     return [
-      meter('$', usage.spend, suffix, ansi),
+      meter('$', usage.spend, suffix, ansi, lang),
       usage.extraUsage != null
-        ? meter('+', usage.extraUsage, 'extra', ansi)
-        : meter('7d', null, '', ansi),
+        ? meter('+', usage.extraUsage, 'extra', ansi, lang)
+        : meter('7d', null, '', ansi, lang),
     ];
   }
   return [
-    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt) : '', ansi),
-    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt) : '', ansi),
+    meter('5h', usage ? usage.fiveHour : null, usage ? untilReset(usage.fiveHourResetsAt, lang) : '', ansi, lang),
+    meter('7d', usage ? usage.sevenDay : null, usage ? untilReset(usage.sevenDayResetsAt, lang) : '', ansi, lang),
   ];
 }
 
 /**
  * Builds the 4 lines of the right column.
- * `input` is the host JSON; `usage` comes from lib/usage.js (may be null).
+ * `input` is the host JSON; `usage` comes from lib/usage.js (may be null);
+ * `rank.label` comes already localized (lib/state.js currentRank).
  */
-function buildHudLines({ input, usage, state, rank, ansi = true }) {
+function buildHudLines({ input, usage, state, rank, ansi = true, lang = currentLang() }) {
   const cwd = (input.workspace && input.workspace.current_dir) || input.cwd || process.cwd();
   const project = path.basename(cwd);
   const branch = gitBranch(cwd);
@@ -227,13 +229,13 @@ function buildHudLines({ input, usage, state, rank, ansi = true }) {
 
   const xp = `XP ${state.xp}`;
   const tail = [
-    meter('ctx', ctxPct, ctxSuffix, ansi),
+    meter('ctx', ctxPct, ctxSuffix, ansi, lang),
     dim('·', ansi),
     paint(`${rank.label}`, rank.hex, ansi),
     dim(`· ${xp}`, ansi),
   ].join(' ');
 
-  const [first, second] = usageRows(usage, ansi);
+  const [first, second] = usageRows(usage, ansi, lang);
 
   return [head, first, second, tail];
 }

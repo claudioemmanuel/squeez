@@ -12,6 +12,7 @@ const { renderDuckArt, renderStatusline, ansiFg, hexToRgb, ANSI_RESET } = requir
 const { stageFromRank } = require('../lib/engine');
 const { buildHudLines } = require('../lib/hud');
 const { getUsage } = require('../lib/usage');
+const { currentLang } = require('../lib/i18n');
 
 const SHINY_CYAN = '#22D3EE';
 const GUTTER = 11; // fixed width of the duck column (SIDE_TEMPLATE)
@@ -26,13 +27,14 @@ function readStdin() {
 
 function render(input, usage, ansi = !process.env.NO_COLOR) {
   const state = readState();
-  const rank = currentRank(state);
+  const lang = currentLang();
+  const rank = currentRank(state, lang);
 
   const duckHex = state.shiny ? SHINY_CYAN : rank.hex;
   const art = renderDuckArt(state.archetype, stageFromRank(rank.index)).map((line) =>
     ansi ? ansiFg(hexToRgb(duckHex)) + line + ANSI_RESET : line
   );
-  const hud = buildHudLines({ input, usage, state, rank, ansi });
+  const hud = buildHudLines({ input, usage, state, rank, ansi, lang });
 
   const lines = art.map((duckLine, i) => `${duckLine} ${hud[i] || ''}`.trimEnd());
 

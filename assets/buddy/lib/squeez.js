@@ -31,11 +31,11 @@ function squeezDataDir() {
 }
 
 /**
- * `context_window_tokens` from config.ini, or 0 when not pinned. Same semantics
- * as the Rust parser (`Config::from_str`): skips empty lines and `#`, cuts at
- * the first `=`, trims both sides.
+ * Raw value of `key` in config.ini, or null when absent. Same semantics as the
+ * Rust parser (`Config::from_str`): skips empty lines and `#`, cuts at the
+ * first `=`, trims both sides.
  */
-function configuredContextWindow() {
+function configValue(key) {
   try {
     const raw = fs.readFileSync(path.join(squeezDataDir(), 'config.ini'), 'utf8');
     for (const line of raw.split('\n')) {
@@ -43,13 +43,23 @@ function configuredContextWindow() {
       if (!s || s.startsWith('#')) continue;
       const eq = s.indexOf('=');
       if (eq < 0) continue;
-      if (s.slice(0, eq).trim() !== 'context_window_tokens') continue;
-      return Number(s.slice(eq + 1).trim()) || 0;
+      if (s.slice(0, eq).trim() !== key) continue;
+      return s.slice(eq + 1).trim();
     }
   } catch {
     /* no config.ini */
   }
-  return 0;
+  return null;
+}
+
+/** `context_window_tokens` from config.ini, or 0 when not pinned. */
+function configuredContextWindow() {
+  return Number(configValue('context_window_tokens')) || 0;
+}
+
+/** `lang` from config.ini, raw (lib/i18n.js normalizes it), or null. */
+function configuredLang() {
+  return configValue('lang');
 }
 
 function readCurrentSession() {
@@ -114,4 +124,4 @@ function applySqueezSavings(state) {
   return rebase + gain;
 }
 
-module.exports = { applySqueezSavings, configuredContextWindow, TOKENS_PER_XP };
+module.exports = { applySqueezSavings, configuredContextWindow, configuredLang, TOKENS_PER_XP };

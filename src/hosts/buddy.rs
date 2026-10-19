@@ -14,6 +14,7 @@ const LIB_ART: &str = include_str!("../../assets/buddy/lib/art.js");
 const LIB_SQUEEZ: &str = include_str!("../../assets/buddy/lib/squeez.js");
 const LIB_USAGE: &str = include_str!("../../assets/buddy/lib/usage.js");
 const LIB_HUD: &str = include_str!("../../assets/buddy/lib/hud.js");
+const LIB_I18N: &str = include_str!("../../assets/buddy/lib/i18n.js");
 const HOOK_SESSION_START: &str = include_str!("../../assets/buddy/hooks/session-start.js");
 const HOOK_POST_TOOL_USE: &str = include_str!("../../assets/buddy/hooks/post-tool-use.js");
 const HOOK_STOP: &str = include_str!("../../assets/buddy/hooks/stop.js");
@@ -35,7 +36,7 @@ fn shim(target: &str) -> String {
 }
 
 /// Embedded buddy sources keyed by path relative to `<data_dir>/buddy/`.
-pub fn buddy_manifest() -> [(&'static str, &'static str); 11] {
+pub fn buddy_manifest() -> [(&'static str, &'static str); 12] {
     [
         ("lib/state.js", LIB_STATE),
         ("lib/engine.js", LIB_ENGINE),
@@ -43,6 +44,7 @@ pub fn buddy_manifest() -> [(&'static str, &'static str); 11] {
         ("lib/squeez.js", LIB_SQUEEZ),
         ("lib/usage.js", LIB_USAGE),
         ("lib/hud.js", LIB_HUD),
+        ("lib/i18n.js", LIB_I18N),
         ("hooks/session-start.js", HOOK_SESSION_START),
         ("hooks/post-tool-use.js", HOOK_POST_TOOL_USE),
         ("hooks/stop.js", HOOK_STOP),

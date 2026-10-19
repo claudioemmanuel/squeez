@@ -10,6 +10,7 @@
  */
 
 const { touchSession, currentRank } = require('../lib/state');
+const { currentLang, messages, archetypeLabel, intensityLabel } = require('../lib/i18n');
 const { renderCard } = require('../lib/art');
 
 function readStdin() {
@@ -24,7 +25,9 @@ function readStdin() {
 function main() {
   readStdin(); // reserved for when we want to read accountUuid/session id from here
   const state = touchSession();
-  const rank = currentRank(state);
+  const lang = currentLang();
+  const msg = messages(lang);
+  const rank = currentRank(state, lang);
 
   const card = renderCard({
     name: state.name,
@@ -35,13 +38,19 @@ function main() {
     xp: state.xp,
     shiny: state.shiny,
     ansi: false, // plain text, meant for the context, not the terminal
+    lang,
   });
 
   const additionalContext = [
-    `You have a companion named ${state.name} (archetype: ${state.archetype}, intensity: ${state.intensity}, rank: ${rank.label}).`,
-    'When the user calls the companion by name directly in the conversation, let it reply in first person, in the tone of its archetype, and you (Claude) stay out of that speech.',
-    'Otherwise, do not mention the companion unless it has something relevant to comment about what is happening in the session.',
-    `Current card:\n${card}`,
+    msg.intro({
+      name: state.name,
+      archetype: archetypeLabel(state.archetype, lang),
+      intensity: intensityLabel(state.intensity, lang),
+      rank: rank.label,
+    }),
+    msg.talkRule,
+    msg.quietRule,
+    msg.currentCard(card),
   ].join('\n');
 
   const output = {

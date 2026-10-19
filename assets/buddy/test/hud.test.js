@@ -61,7 +61,7 @@ test('reset formata dias/horas/minutos e nunca fica negativo', () => {
   assert.match(untilReset(inMinutes(45)), /^4[45]m$/); // floor: o relógio anda durante o teste
   assert.match(untilReset(inMinutes(125)), /^2h \d+m$/);
   assert.match(untilReset(inMinutes(60 * 30)), /^1d \d+h$/);
-  assert.strictEqual(untilReset(inMinutes(-5)), 'now');
+  assert.strictEqual(untilReset(inMinutes(-5), 'en'), 'now');
   assert.strictEqual(untilReset(null), '');
   assert.strictEqual(untilReset('não é data'), '');
 });
@@ -158,7 +158,7 @@ test('configuredContextWindow lê context_window_tokens do config.ini', () => {
   }
 });
 
-const HUD_ARGS = { state: { xp: 10 }, rank: { label: 'Common I', hex: '#4ADE80' }, ansi: false };
+const HUD_ARGS = { state: { xp: 10 }, rank: { label: 'Common I', hex: '#4ADE80' }, ansi: false, lang: 'en' };
 const hudRows = (usage) =>
   buildHudLines({ input: { model: { id: 'claude-sonnet-5' } }, usage, ...HUD_ARGS });
 

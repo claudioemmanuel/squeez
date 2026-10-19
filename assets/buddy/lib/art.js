@@ -1,6 +1,7 @@
 'use strict';
 
 const { ARCHETYPES, stageFromRank } = require('./engine');
+const { archetypeId, archetypeLabel, currentLang } = require('./i18n');
 
 // ---------------------------------------------------------------------------
 // Face: eyebrow + eye, exactly 2 columns.
@@ -27,7 +28,7 @@ const SLOT_KITS = {
 };
 
 function kitFor(archetype) {
-  return SLOT_KITS[archetype] || SLOT_KITS[ARCHETYPES.SABIO];
+  return SLOT_KITS[archetypeId(archetype)] || SLOT_KITS[ARCHETYPES.SABIO];
 }
 
 /** Replaces the face slot ({F} = eyebrow+eye) in a template line. */
@@ -114,11 +115,12 @@ const ANSI_RESET = '\x1b[0m';
 const SHINY_PALETTE = ['#22D3EE', '#F472B6']; // alternating cyan / pink
 
 /**
- * Renders the full (multi-line) card with name, rank and color.
+ * Renders the full (multi-line) card with name, rank and color. `rankLabel`
+ * comes already localized; the archetype is labeled here in `lang`.
  * `rankHex` comes from the ranking engine (lib/engine.js RANKS[i].hex) and
  * `rankIndex` picks the art stage (lib/engine.js stageFromRank).
  */
-function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, shiny, ansi = true }) {
+function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, shiny, ansi = true, lang = currentLang() }) {
   const stage = stageFromRank(rankIndex);
   const bodyLines = fillBody(archetype, stage);
   const lines = [
@@ -126,7 +128,7 @@ function renderCard({ name, archetype, rankLabel, rankHex, rankIndex = 0, xp, sh
     '',
     ...bodyLines,
     '',
-    `${archetype} · ${rankLabel}${shiny ? ' · shiny ✦' : ''}`,
+    `${archetypeLabel(archetype, lang)} · ${rankLabel}${shiny ? ' · shiny ✦' : ''}`,
     `XP: ${xp}`,
   ];
 
