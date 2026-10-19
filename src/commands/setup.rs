@@ -87,6 +87,7 @@ fn write_default_config(data_dir: &std::path::Path, home: &str) -> std::io::Resu
 
 fn install_one(adapter: &dyn HostAdapter, bin_path: &std::path::Path) -> Result<String, String> {
     let home = crate::session::home_dir();
+    adapter.migrate_data_dir();
     let data = adapter.data_dir();
     let created = write_default_config(&data, &home)
         .map_err(|e| format!("config.ini: {e}"))?;

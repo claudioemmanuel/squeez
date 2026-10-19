@@ -20,9 +20,10 @@ async function loadPlugin({ platform, home, shell }) {
   Object.defineProperty(process, "platform", { value: platform });
   process.env.HOME = home;
   delete process.env.USERPROFILE;
-  // The plugin resolves this host's state directory from XDG_CONFIG_HOME when
+  // The plugin resolves this host's state directory from XDG_STATE_HOME when
   // it is set; a developer's own setting would move every expectation.
   delete process.env.XDG_CONFIG_HOME;
+  delete process.env.XDG_STATE_HOME;
   if (shell === undefined) delete process.env.SHELL;
   else process.env.SHELL = shell;
   try {
@@ -122,7 +123,7 @@ async function wrap(hooks, command, tool = "bash") {
 
 const slashed = (p) => p.replace(/\\/g, "/");
 // The state directory the OpenCode adapter hands this host (`data_dir()`).
-const stateDir = (home) => `${slashed(home)}/.config/opencode/squeez`;
+const stateDir = (home) => `${slashed(home)}/.local/state/squeez/opencode`;
 const TRICKY = `Write-Output "it's"; Get-ChildItem |\n  Select-Object -First 1`;
 
 test("non-Windows keeps the POSIX wrapper byte for byte", async () => {
@@ -187,7 +188,7 @@ test("Windows home with backslashes is written with forward slashes", async () =
   await hooks.config({ shell: "bash" });
   const wrapped = await wrap(hooks, "ls");
   assert.ok(!wrapped.includes("\\"), wrapped);
-  assert.ok(wrapped.includes("Users/me/.config/opencode/squeez"), wrapped);
+  assert.ok(wrapped.includes("Users/me/.local/state/squeez/opencode"), wrapped);
   assert.ok(wrapped.includes("Users/me/.claude/squeez/bin/squeez.exe"), wrapped);
 });
 

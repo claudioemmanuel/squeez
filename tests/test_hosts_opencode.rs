@@ -42,13 +42,35 @@ fn opencode_capabilities_full_parity() {
     assert!(caps.contains(HostCaps::BUDGET_HARD));
 }
 
+/// #270: state lives outside the config tree OpenCode watches.
 #[test]
-fn opencode_data_dir_respects_xdg_config_home() {
+fn opencode_data_dir_is_outside_the_watched_config_tree() {
     with_xdg(|home| {
-        let a = OpenCodeAdapter;
-        let d = a.data_dir();
-        assert!(d.starts_with(home), "data_dir {:?} not under {:?}", d, home);
-        assert!(d.ends_with("opencode/squeez"), "unexpected suffix: {:?}", d);
+        let state = home.join("state");
+        std::env::set_var("XDG_STATE_HOME", &state);
+        let d = OpenCodeAdapter.data_dir();
+        std::env::remove_var("XDG_STATE_HOME");
+        assert_eq!(d, state.join("squeez").join("opencode"));
+        assert!(!d.starts_with(home.join("opencode")), "data_dir {:?} is in the config tree", d);
+    });
+}
+
+#[test]
+fn opencode_migrate_moves_the_legacy_store_out_of_the_config_tree() {
+    with_xdg(|home| {
+        let state = home.join("state");
+        std::env::set_var("XDG_STATE_HOME", &state);
+        let legacy = home.join("opencode").join("squeez");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("config.ini"), "auto_compress_md = false\n").unwrap();
+        OpenCodeAdapter.migrate_data_dir();
+        let d = OpenCodeAdapter.data_dir();
+        std::env::remove_var("XDG_STATE_HOME");
+        assert!(!legacy.exists());
+        assert_eq!(
+            std::fs::read_to_string(d.join("config.ini")).unwrap(),
+            "auto_compress_md = false\n"
+        );
     });
 }
 
