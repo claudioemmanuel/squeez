@@ -259,6 +259,26 @@ fn python3_missing() -> bool {
         .unwrap_or(true)
 }
 
+/// #278: same str-without-`text=True` TypeError as Codex's PostToolUse hook —
+/// swallowed by the bare `except`, so `track-result` never ran.
+#[test]
+fn gemini_after_tool_hands_the_payload_to_track_result() {
+    if python3_missing() {
+        return;
+    }
+    with_home(|home| {
+        let bin = fake_squeez(home);
+        let log = home.join("track.log");
+        std::fs::write(&bin, format!("#!/bin/sh\necho \"$*\" > '{0}'\ncat >> '{0}'\n", log.display())).unwrap();
+        let payload = r#"{"tool_name":"run_shell_command","tool_response":{"llmContent":"café ok"}}"#;
+        let out = run_hook("gemini-after-tool.sh", home, payload);
+        assert!(out.status.success());
+        let got = std::fs::read_to_string(&log).expect("track-result must be invoked");
+        assert!(got.starts_with("track-result run_shell_command\n"), "got: {got}");
+        assert!(got.contains(payload), "payload must reach track-result: {got}");
+    });
+}
+
 // ── #145: gemini-before-tool.sh must strip --no-squeez, not leak it ───────
 
 #[test]
