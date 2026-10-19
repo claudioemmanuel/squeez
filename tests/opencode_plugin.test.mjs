@@ -20,6 +20,9 @@ async function loadPlugin({ platform, home, shell }) {
   Object.defineProperty(process, "platform", { value: platform });
   process.env.HOME = home;
   delete process.env.USERPROFILE;
+  // The plugin resolves this host's state directory from XDG_CONFIG_HOME when
+  // it is set; a developer's own setting would move every expectation.
+  delete process.env.XDG_CONFIG_HOME;
   if (shell === undefined) delete process.env.SHELL;
   else process.env.SHELL = shell;
   try {
@@ -68,6 +71,24 @@ function recordingHome() {
   return { home, log: join(bin, "calls.log") };
 }
 
+// A home whose squeez records the state directory each call was handed.
+function envHome() {
+  const home = mkdtempSync(join(tmpdir(), "squeez-plugin-"));
+  const bin = join(home, ".claude", "squeez", "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "squeez"),
+    [
+      "#!/bin/sh",
+      `if [ "$1" = "budget-params" ]; then printf '{"limit":200}'; fi`,
+      `printf '%s|%s\\n' "$*" "$SQUEEZ_DIR" >> "$(dirname "$0")/env.log"`,
+      "",
+    ].join("\n"),
+  );
+  chmodSync(join(bin, "squeez"), 0o755);
+  return { home, log: join(bin, "env.log") };
+}
+
 // The plugin does not wait for its children, so the log is polled.
 async function calls(log, count) {
   let lines = [];
@@ -100,6 +121,8 @@ async function wrap(hooks, command, tool = "bash") {
 }
 
 const slashed = (p) => p.replace(/\\/g, "/");
+// The state directory the OpenCode adapter hands this host (`data_dir()`).
+const stateDir = (home) => `${slashed(home)}/.config/opencode/squeez`;
 const TRICKY = `Write-Output "it's"; Get-ChildItem |\n  Select-Object -First 1`;
 
 test("non-Windows keeps the POSIX wrapper byte for byte", async () => {
@@ -107,7 +130,8 @@ test("non-Windows keeps the POSIX wrapper byte for byte", async () => {
   const hooks = await loadHooks({ platform: "linux", home, shell: "/bin/zsh" });
   assert.equal(
     await wrap(hooks, "echo 'a b'"),
-    `${home}/.claude/squeez/bin/squeez wrap 'echo '\\''a b'\\'''`,
+    `SQUEEZ_DIR='${stateDir(home)}' ` +
+      `${home}/.claude/squeez/bin/squeez wrap 'echo '\\''a b'\\'''`,
   );
 });
 
@@ -116,14 +140,15 @@ test("Windows defaults to a PowerShell wrapper with an encoded command", async (
   const hooks = await loadHooks({ platform: "win32", home });
   const wrapped = await wrap(hooks, TRICKY);
   const m = wrapped.match(
-    /^& '(.+)' wrap 'powershell\.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)'$/,
+    /^\$env:SQUEEZ_DIR='(.+)'; & '(.+)' wrap 'powershell\.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ([A-Za-z0-9+/=]+)'$/,
   );
   assert.ok(m, wrapped);
-  assert.equal(m[1], `${slashed(home)}/.claude/squeez/bin/squeez.exe`);
+  assert.equal(m[1], stateDir(home));
+  assert.equal(m[2], `${slashed(home)}/.claude/squeez/bin/squeez.exe`);
   // The progress stream is silenced, or every command's output starts with a
   // `#< CLIXML` block.
   assert.equal(
-    Buffer.from(m[2], "base64").toString("utf16le"),
+    Buffer.from(m[3], "base64").toString("utf16le"),
     `$ProgressPreference = 'SilentlyContinue'; ${TRICKY}`,
   );
 });
@@ -140,14 +165,20 @@ test("Windows with shell=bash gets a quoted forward-slash POSIX wrapper", async 
   await hooks.config({ shell: "bash" });
   assert.equal(
     await wrap(hooks, "echo 'a b'"),
-    `'${slashed(home)}/.claude/squeez/bin/squeez.exe' wrap 'echo '\\''a b'\\'''`,
+    `SQUEEZ_DIR='${stateDir(home)}' ` +
+      `'${slashed(home)}/.claude/squeez/bin/squeez.exe' wrap 'echo '\\''a b'\\'''`,
   );
 });
 
 test("Windows falls back to $SHELL when the config names no shell", async () => {
-  const hooks = await loadHooks({ platform: "win32", home: fakeHome(), shell: "/usr/bin/bash" });
+  const home = fakeHome();
+  const hooks = await loadHooks({ platform: "win32", home, shell: "/usr/bin/bash" });
   await hooks.config({});
-  assert.match(await wrap(hooks, "ls"), /^'.+squeez\.exe' wrap 'ls'$/);
+  assert.equal(
+    await wrap(hooks, "ls"),
+    `SQUEEZ_DIR='${stateDir(home)}' ` +
+      `'${slashed(home)}/.claude/squeez/bin/squeez.exe' wrap 'ls'`,
+  );
 });
 
 test("Windows home with backslashes is written with forward slashes", async () => {
@@ -156,6 +187,7 @@ test("Windows home with backslashes is written with forward slashes", async () =
   await hooks.config({ shell: "bash" });
   const wrapped = await wrap(hooks, "ls");
   assert.ok(!wrapped.includes("\\"), wrapped);
+  assert.ok(wrapped.includes("Users/me/.config/opencode/squeez"), wrapped);
   assert.ok(wrapped.includes("Users/me/.claude/squeez/bin/squeez.exe"), wrapped);
 });
 
@@ -179,7 +211,11 @@ test("2.x setup wraps through the shell the event names", async () => {
   const linux = await loadSetup({ platform: "linux", home, shell: "/bin/zsh" });
   const e = { command: "echo 'a b'", shell: "/bin/zsh" };
   await linux["shell.create.before"](e);
-  assert.equal(e.command, `${home}/.claude/squeez/bin/squeez wrap 'echo '\\''a b'\\'''`);
+  assert.equal(
+    e.command,
+    `SQUEEZ_DIR='${stateDir(home)}' ` +
+      `${home}/.claude/squeez/bin/squeez wrap 'echo '\\''a b'\\'''`,
+  );
 
   const windows = await loadSetup({ platform: "win32", home: fakeHome() });
   const pwsh = { command: "Get-Date", shell: "C:\\Program Files\\PowerShell\\7\\pwsh.exe" };
@@ -283,5 +319,28 @@ test("1.x tool.execute.after sends what the tool read", NEEDS_SH, async () => {
     'track-result bash|{"tool_name":"Bash"}',
     'track-result grep|{"tool_name":"grep","tool_input":{"pattern":"x","path":"src"},"tool_result":{}}',
     'track-result read|{"tool_name":"read","tool_input":{"file_path":"/tmp/a.rs"},"tool_result":{"content":"fn main"}}',
+  ]);
+});
+
+test("2.x children are handed this host's state directory", NEEDS_SH, async () => {
+  const { home, log } = envHome();
+  const hooks = await loadSetup({ platform: "linux", home }, [
+    { type: "session.execution.started", data: { sessionID: "s1" } },
+    { type: "shell.exited", data: { id: "sh1", status: "exited", exit: 0 } },
+  ]);
+  await hooks["tool.execute.before"]({ tool: "read", input: { filePath: "/tmp/a.rs" } });
+  await hooks["tool.execute.after"]({
+    tool: "read",
+    input: { path: "/tmp/a.rs" },
+    status: "completed",
+    result: { content: [{ type: "text", text: "fn main" }] },
+  });
+
+  const dir = stateDir(home);
+  assert.deepEqual(await calls(log, 4), [
+    `budget-params Read|${dir}`,
+    `init --host=opencode|${dir}`,
+    `track-result bash|${dir}`,
+    `track-result read|${dir}`,
   ]);
 });
