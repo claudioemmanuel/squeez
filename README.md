@@ -321,7 +321,8 @@ squeez benchmark [--json] [--output <file>] [--scenario <name>] [--iterations <n
 squeez mcp                               # JSON-RPC 2.0 MCP server over stdin/stdout
 squeez protocol                          # print the auto-teach payload (markers + protocol)
 squeez update [--check] [--insecure]     # self-update
-squeez init [--copilot]                  # session-start hook (called by hook, not manually)
+squeez init [--copilot|--host=<name>]    # session-start hook (called by hook, not manually)
+            [--session-id=<id>] [--cwd=<dir>] [--stdin]   # record the host session (#286)
 squeez calibrate                         # auto-tune config from benchmarks
 squeez budget-params <tool>              # output JSON budget patch for tool
 squeez compact-summary [--session-start] # re-inject session state after /compact (called by SessionStart hook)

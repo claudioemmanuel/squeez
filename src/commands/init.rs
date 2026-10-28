@@ -7,8 +7,75 @@ use crate::{
     session::{self, CurrentSession},
 };
 
+/// What the host told us about the session it is starting (#286). Both
+/// fields are optional: a host that sends nothing leaves them empty.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct HostSession {
+    pub id: String,
+    pub cwd: String,
+}
+
+impl HostSession {
+    /// From a host's session-start payload: Claude Code (and Gemini CLI)
+    /// send `{"session_id": "...", "cwd": "...", ...}` on the hook's stdin.
+    pub fn from_payload(payload: &str) -> Self {
+        Self {
+            id: json_util::extract_str(payload, "session_id").unwrap_or_default(),
+            cwd: json_util::extract_str(payload, "cwd").unwrap_or_default(),
+        }
+    }
+}
+
+/// Flags accepted by `squeez init`, in any order:
+/// `--copilot` / `--host=<name>` pick the host; `--session-id=<id>` and
+/// `--cwd=<dir>` carry the host session (#286); `--stdin` reads them from the
+/// host's session-start payload instead. Reading stdin is opt-in so a host
+/// whose hook leaves stdin open cannot hang session start.
+pub struct InitArgs {
+    pub host: Option<String>,
+    pub session: HostSession,
+}
+
+pub fn parse_args(args: &[String]) -> InitArgs {
+    let mut out = InitArgs {
+        host: None,
+        session: HostSession::default(),
+    };
+    for a in args {
+        if a == "--copilot" {
+            out.host = Some("copilot".to_string());
+        } else if let Some(h) = a.strip_prefix("--host=") {
+            out.host = Some(h.to_string());
+        } else if let Some(id) = a.strip_prefix("--session-id=") {
+            out.session.id = id.to_string();
+        } else if let Some(cwd) = a.strip_prefix("--cwd=") {
+            out.session.cwd = cwd.to_string();
+        } else if a == "--stdin" {
+            let from_stdin = HostSession::from_payload(&read_stdin_payload());
+            if out.session.id.is_empty() {
+                out.session.id = from_stdin.id;
+            }
+            if out.session.cwd.is_empty() {
+                out.session.cwd = from_stdin.cwd;
+            }
+        }
+    }
+    out
+}
+
+fn read_stdin_payload() -> String {
+    use std::io::{IsTerminal, Read};
+    let mut stdin = std::io::stdin();
+    if stdin.is_terminal() {
+        return String::new();
+    }
+    let mut payload = String::new();
+    let _ = stdin.read_to_string(&mut payload);
+    payload
+}
+
 /// Entry point called from main.rs: `squeez init`
-pub fn run() -> i32 {
+pub fn run(host: &HostSession) -> i32 {
     let cfg = Config::load();
     let sessions = session::sessions_dir();
     let mem = session::memory_dir();
@@ -19,7 +86,7 @@ pub fn run() -> i32 {
         .as_ref()
         .map(|a| a.injects_persona(&cfg))
         .unwrap_or(false);
-    let code = run_with_dirs_for(&sessions, &mem, &cfg, in_memory_file);
+    let code = run_with_dirs_for_host(&sessions, &mem, &cfg, in_memory_file, host);
     // Delegate host-specific memory injection (CLAUDE.md) to the adapter.
     if let Some(adapter) = adapter {
         let _ = adapter.inject_memory(&cfg, &[]);
@@ -39,7 +106,7 @@ pub fn run() -> i32 {
 /// Same as run() but also injects the memory banner into
 /// ~/.copilot/copilot-instructions.md so Copilot CLI picks it up
 /// at every session start (no hook system required).
-pub fn run_copilot() -> i32 {
+pub fn run_copilot(host: &HostSession) -> i32 {
     let home = crate::session::home_dir();
     // Honour SQUEEZ_DIR override, default to ~/.copilot/squeez
     let base = std::env::var("SQUEEZ_DIR")
@@ -57,7 +124,7 @@ pub fn run_copilot() -> i32 {
         .as_ref()
         .map(|a| a.injects_persona(&cfg))
         .unwrap_or(false);
-    let code = run_with_dirs_for(&sessions, &mem, &cfg, in_memory_file);
+    let code = run_with_dirs_for_host(&sessions, &mem, &cfg, in_memory_file, host);
 
     // Delegate memory injection to the Copilot CLI adapter.
     let summaries = memory::read_last_n(&mem, 3);
@@ -88,7 +155,7 @@ fn load_config_from(base: &str) -> Config {
 /// the adapter.
 ///
 /// Backs `squeez init --host=<name>` in `main.rs`.
-pub fn run_for_host(host_name: &str) -> i32 {
+pub fn run_for_host(host_name: &str, host: &HostSession) -> i32 {
     let adapter = match crate::hosts::find(host_name) {
         Some(a) => a,
         None => {
@@ -104,7 +171,8 @@ pub fn run_for_host(host_name: &str) -> i32 {
     let _ = std::fs::create_dir_all(&mem);
     let cfg = load_config_from(&data_dir.to_string_lossy());
 
-    let code = run_with_dirs_for(&sessions, &mem, &cfg, adapter.injects_persona(&cfg));
+    let code =
+        run_with_dirs_for_host(&sessions, &mem, &cfg, adapter.injects_persona(&cfg), host);
 
     let summaries = memory::read_last_n(&mem, 3);
     let _ = adapter.inject_memory(&cfg, &summaries);
@@ -178,6 +246,24 @@ pub fn run_with_dirs_for(
     config: &Config,
     persona_in_memory_file: bool,
 ) -> i32 {
+    run_with_dirs_for_host(
+        sessions_dir,
+        memory_dir,
+        config,
+        persona_in_memory_file,
+        &HostSession::default(),
+    )
+}
+
+/// As [`run_with_dirs_for`], recording which host session started this one
+/// (#286) in `current.json`, the session log and, on finalize, the summary.
+pub fn run_with_dirs_for_host(
+    sessions_dir: &Path,
+    memory_dir: &Path,
+    config: &Config,
+    persona_in_memory_file: bool,
+    host: &HostSession,
+) -> i32 {
     // 1. Finalise previous session → memory (best-effort)
     if let Some(prev) = CurrentSession::load(sessions_dir) {
         finalize(&prev, sessions_dir, memory_dir, config);
@@ -194,6 +280,8 @@ pub fn run_with_dirs_for(
         state_warned: false,
         start_ts: now,
         overhead_tokens: 0,
+        host_session_id: host.id.clone(),
+        cwd: host.cwd.clone(),
     };
     new.save(sessions_dir);
 
@@ -219,11 +307,19 @@ pub fn run_with_dirs_for(
     let git_log = git(&["log", "--oneline", "-5"]);
     let git_status = git(&["status", "--porcelain"]);
     if !git_log.is_empty() || !git_status.is_empty() {
+        // The host session id marks where this session begins inside the
+        // hourly log that every session of the hour shares (#286).
+        let host_field = if new.host_session_id.is_empty() {
+            String::new()
+        } else {
+            format!(",\"host_session_id\":\"{}\"", json_util::escape_str(&new.host_session_id))
+        };
         let event = format!(
-            "{{\"type\":\"git_snapshot\",\"log\":\"{}\",\"status\":\"{}\",\"ts\":{}}}",
+            "{{\"type\":\"git_snapshot\",\"log\":\"{}\",\"status\":\"{}\",\"ts\":{}{}}}",
             json_util::escape_str(&git_log),
             json_util::escape_str(&git_status),
             now,
+            host_field,
         );
         session::append_event(sessions_dir, &new.session_file, &event);
     }
@@ -511,6 +607,8 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
             context_reuse_rate_bp: eff.context_reuse_rate_bp,
             budget_utilization_bp: eff.budget_utilization_bp,
             efficiency_overall_bp: eff.overall_bp,
+            host_session_id: prev.host_session_id.clone(),
+            cwd: prev.cwd.clone(),
         },
     );
     memory::prune_old(memory_dir, config.memory_retention_days);

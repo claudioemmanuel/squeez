@@ -149,6 +149,11 @@ pub struct CurrentSession {
     /// ledger. Independent of `tokens_saved` so `net_saved` can go negative
     /// when overhead outweighs compression (E1).
     pub overhead_tokens: u64,
+    /// The host's own id for this session (#286), so a squeez session can be
+    /// tied back to the chat that started it. Empty when the host sent none.
+    pub host_session_id: String,
+    /// Working directory reported by the host at start. Empty when unknown.
+    pub cwd: String,
 }
 
 impl CurrentSession {
@@ -169,12 +174,14 @@ impl CurrentSession {
             state_warned: crate::json_util::map_bool(&map, "state_warned").unwrap_or(false),
             start_ts: crate::json_util::map_u64(&map, "start_ts").unwrap_or(0),
             overhead_tokens: crate::json_util::map_u64(&map, "overhead_tokens").unwrap_or(0),
+            host_session_id: crate::json_util::map_str(&map, "host_session_id").unwrap_or_default(),
+            cwd: crate::json_util::map_str(&map, "cwd").unwrap_or_default(),
         })
     }
 
     pub fn save(&self, sessions_dir: &Path) {
         let json = format!(
-            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"tokens_saved\":{},\"total_calls\":{},\"compact_warned\":{},\"state_warned\":{},\"start_ts\":{},\"overhead_tokens\":{}}}",
+            "{{\"session_file\":\"{}\",\"total_tokens\":{},\"tokens_saved\":{},\"total_calls\":{},\"compact_warned\":{},\"state_warned\":{},\"start_ts\":{},\"overhead_tokens\":{},\"host_session_id\":\"{}\",\"cwd\":\"{}\"}}",
             crate::json_util::escape_str(&self.session_file),
             self.total_tokens,
             self.tokens_saved,
@@ -183,6 +190,8 @@ impl CurrentSession {
             self.state_warned,
             self.start_ts,
             self.overhead_tokens,
+            crate::json_util::escape_str(&self.host_session_id),
+            crate::json_util::escape_str(&self.cwd),
         );
         let path = sessions_dir.join("current.json");
         let tmp = path.with_extension("json.tmp");

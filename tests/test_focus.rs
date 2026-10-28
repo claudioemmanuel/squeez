@@ -81,6 +81,8 @@ fn summary_with_steps(date: &str, steps: &[&str]) -> Summary {
         context_reuse_rate_bp: 0,
         budget_utilization_bp: 0,
         efficiency_overall_bp: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     }
 }
 

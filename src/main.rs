@@ -33,13 +33,11 @@ fn main() {
             std::process::exit(squeez::commands::track::run_agent_cost());
         }
         Some("init") => {
-            let flag = args.get(2).map(String::as_str);
-            let exit_code = match flag {
-                Some("--copilot") => squeez::commands::init::run_copilot(),
-                Some(s) if s.starts_with("--host=") => {
-                    squeez::commands::init::run_for_host(&s["--host=".len()..])
-                }
-                _ => squeez::commands::init::run(),
+            let parsed = squeez::commands::init::parse_args(&args[2..]);
+            let exit_code = match parsed.host.as_deref() {
+                Some("copilot") => squeez::commands::init::run_copilot(&parsed.session),
+                Some(host) => squeez::commands::init::run_for_host(host, &parsed.session),
+                None => squeez::commands::init::run(&parsed.session),
             };
             std::process::exit(exit_code);
         }

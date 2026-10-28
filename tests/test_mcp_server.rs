@@ -151,6 +151,8 @@ fn session_efficiency_exposes_overhead_tokens() {
         state_warned: false,
         start_ts: 1_000,
         overhead_tokens: 777,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     s.save(&sessions);
 
