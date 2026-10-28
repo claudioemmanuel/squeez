@@ -172,9 +172,12 @@ function runSqueez(args, timeoutMs) {
   });
 }
 
-function runInit() {
+function runInit(sessionID) {
   // best-effort and not awaited — don't break the session if squeez init fails
-  runSqueez(["init", "--host=opencode"], 5000).catch(() => {});
+  const args = ["init", "--host=opencode"];
+  // Ties the squeez session back to the OpenCode session that started it (#286).
+  if (typeof sessionID === "string" && sessionID) args.push(`--session-id=${sessionID}`);
+  runSqueez(args, 5000).catch(() => {});
 }
 
 // The budget comes from squeez's config, which rarely changes: ask once per
@@ -282,7 +285,7 @@ async function watchEvents(events) {
         const sessionID = data.sessionID || "";
         if (initialized.has(sessionID)) continue;
         initialized.add(sessionID);
-        runInit();
+        runInit(sessionID);
       } else if (/^shell\.exited(\.\d+)?$/.test(type)) {
         // The event carries { id, exit?, status } and nothing else.
         if (typeof data.id !== "string") continue;

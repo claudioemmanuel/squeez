@@ -53,6 +53,13 @@ pub struct Summary {
     pub budget_utilization_bp: u64,
     /// Weighted overall efficiency in basis points.
     pub efficiency_overall_bp: u64,
+    // ── Host identity (#286) ───────────────────────────────────────────────
+    /// The host's own id for the session this summary came from (Claude
+    /// Code's `session_id`, OpenCode's `sessionID`). Empty when the host sent
+    /// none; readers must tolerate a missing field.
+    pub host_session_id: String,
+    /// Working directory the host reported at session start. Empty when unknown.
+    pub cwd: String,
 }
 
 // ── Phase 3: cross-session search types ────────────────────────────────────
@@ -98,6 +105,15 @@ impl Summary {
         } else {
             self.valid_from
         };
+        // Host identity is written only when known, so lines from hosts that
+        // send none stay byte-identical to the previous format.
+        let mut host = String::new();
+        if !self.host_session_id.is_empty() {
+            host.push_str(&format!(",\"host_session_id\":\"{}\"", escape_str(&self.host_session_id)));
+        }
+        if !self.cwd.is_empty() {
+            host.push_str(&format!(",\"cwd\":\"{}\"", escape_str(&self.cwd)));
+        }
         format!(
             "{{\"date\":\"{}\",\"duration_min\":{},\"tokens_saved\":{},\
 \"files_touched\":{},\"files_committed\":{},\"test_summary\":\"{}\",\
@@ -105,7 +121,7 @@ impl Summary {
 \"valid_from\":{},\"valid_to\":{},\
 \"investigated\":{},\"learned\":{},\"completed\":{},\"next_steps\":{},\
 \"compression_ratio_bp\":{},\"tool_choice_efficiency_bp\":{},\
-\"context_reuse_rate_bp\":{},\"budget_utilization_bp\":{},\"efficiency_overall_bp\":{}}}",
+\"context_reuse_rate_bp\":{},\"budget_utilization_bp\":{},\"efficiency_overall_bp\":{}{}}}",
             escape_str(&self.date),
             self.duration_min,
             self.tokens_saved,
@@ -126,6 +142,7 @@ impl Summary {
             self.context_reuse_rate_bp,
             self.budget_utilization_bp,
             self.efficiency_overall_bp,
+            host,
         )
     }
 
@@ -158,6 +175,9 @@ impl Summary {
             context_reuse_rate_bp: extract_u64(line, "context_reuse_rate_bp").unwrap_or(0),
             budget_utilization_bp: extract_u64(line, "budget_utilization_bp").unwrap_or(0),
             efficiency_overall_bp: extract_u64(line, "efficiency_overall_bp").unwrap_or(0),
+            // #286 fields — optional; absent on older lines and hosts without an id.
+            host_session_id: extract_str(line, "host_session_id").unwrap_or_default(),
+            cwd: extract_str(line, "cwd").unwrap_or_default(),
         })
     }
 
@@ -557,6 +577,8 @@ mod tests {
             context_reuse_rate_bp: 0,
             budget_utilization_bp: 0,
             efficiency_overall_bp: 0,
+            host_session_id: String::new(),
+            cwd: String::new(),
         }
     }
 

@@ -36,6 +36,8 @@ fn sample_summary(date: &str, ts: u64) -> Summary {
         context_reuse_rate_bp: 0,
         budget_utilization_bp: 0,
         efficiency_overall_bp: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     }
 }
 
@@ -97,4 +99,22 @@ fn test_display_line_format() {
     assert!(line.contains("2026-03-22"), "got: {}", line);
     assert!(line.contains("2 file"), "got: {}", line);
     assert!(line.contains("1 commit"), "got: {}", line);
+}
+
+/// #286: host identity is written only when known, so lines from hosts that
+/// send none keep the previous format, and older lines load with it empty.
+#[test]
+fn summary_host_fields_round_trip_and_stay_absent_when_empty() {
+    let mut s = sample_summary("2026-10-28", 1_000);
+    let line = s.to_jsonl_line();
+    assert!(!line.contains("host_session_id"), "{}", line);
+    assert!(!line.contains("\"cwd\""), "{}", line);
+    let back = Summary::from_jsonl_line(&line).unwrap();
+    assert!(back.host_session_id.is_empty() && back.cwd.is_empty());
+
+    s.host_session_id = "ses_01".into();
+    s.cwd = "/w/\"quoted\"".into();
+    let back = Summary::from_jsonl_line(&s.to_jsonl_line()).unwrap();
+    assert_eq!(back.host_session_id, "ses_01");
+    assert_eq!(back.cwd, "/w/\"quoted\"");
 }

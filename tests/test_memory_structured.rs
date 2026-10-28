@@ -36,6 +36,8 @@ fn finalize_session(sessions: &std::path::Path, memory: &std::path::Path, events
         state_warned: false,
         start_ts,
         overhead_tokens: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     prior.save(sessions);
     for ev in events {
@@ -156,6 +158,8 @@ fn test_structured_fields_roundtrip_jsonl() {
         context_reuse_rate_bp: 0,
         budget_utilization_bp: 0,
         efficiency_overall_bp: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     write_summary(&memory, &s);
 
@@ -211,6 +215,8 @@ fn test_display_line_shows_pending() {
         context_reuse_rate_bp: 0,
         budget_utilization_bp: 0,
         efficiency_overall_bp: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     let line = s.display_line();
     assert!(line.contains("2 pending"), "expected '2 pending' in: {}", line);
@@ -246,6 +252,8 @@ fn test_search_history_finds_match() {
             context_reuse_rate_bp: 0,
             budget_utilization_bp: 0,
             efficiency_overall_bp: 0,
+            host_session_id: String::new(),
+            cwd: String::new(),
         },
     );
 
@@ -282,6 +290,8 @@ fn test_search_history_no_match() {
             context_reuse_rate_bp: 0,
             budget_utilization_bp: 0,
             efficiency_overall_bp: 0,
+            host_session_id: String::new(),
+            cwd: String::new(),
         },
     );
 
@@ -317,6 +327,8 @@ fn test_file_history_finds_touched_file() {
             context_reuse_rate_bp: 0,
             budget_utilization_bp: 0,
             efficiency_overall_bp: 0,
+            host_session_id: String::new(),
+            cwd: String::new(),
         },
     );
 

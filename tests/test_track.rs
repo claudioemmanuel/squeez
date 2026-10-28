@@ -23,6 +23,8 @@ fn seed_session(dir: &PathBuf, filename: &str) {
         state_warned: false,
         start_ts: 1_000,
         overhead_tokens: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     s.save(dir);
 }

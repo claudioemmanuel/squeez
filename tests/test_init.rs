@@ -57,6 +57,8 @@ fn test_init_finalizes_prior_session_to_memory() {
         state_warned: false,
         start_ts,
         overhead_tokens: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     prior.save(&sessions);
     squeez::session::append_event(
@@ -120,6 +122,8 @@ fn test_init_empty_session_log_no_panic() {
         state_warned: false,
         start_ts: 1_774_224_000,
         overhead_tokens: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     prior.save(&sessions);
     std::fs::write(sessions.join(prior_file), b"").unwrap();
@@ -204,4 +208,71 @@ fn copy_loaded_in_the_current_session_is_saved() {
         ctx.call_counter
     );
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+// ── #286: the host session a squeez session belongs to ─────────────────────
+
+#[test]
+fn host_session_is_recorded_and_carried_into_the_summary() {
+    use squeez::commands::init::{run_with_dirs_for_host, HostSession};
+    let (sessions, memory) = tmp_dirs("hostsess");
+    let cfg = squeez::config::Config::default();
+    let host = HostSession {
+        id: "9f2c-chat-that-ran-the-release".into(),
+        cwd: "/work/squeez".into(),
+    };
+    run_with_dirs_for_host(&sessions, &memory, &cfg, false, &host);
+
+    let current = squeez::session::CurrentSession::load(&sessions).unwrap();
+    assert_eq!(current.host_session_id, host.id);
+    assert_eq!(current.cwd, host.cwd);
+    // The session-start snapshot marks where this session begins in the
+    // hourly log (cargo test runs inside a git repo, so one is written).
+    let log = std::fs::read_to_string(sessions.join(&current.session_file)).unwrap();
+    assert!(
+        log.contains(r#""type":"git_snapshot""#) && log.contains(&format!(r#""host_session_id":"{}""#, host.id)),
+        "snapshot carries the host id: {}",
+        log
+    );
+
+    // The next start finalizes it: the summary keeps both fields.
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+    let summaries = squeez::memory::read_last_n(&memory, 1);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].host_session_id, host.id);
+    assert_eq!(summaries[0].cwd, host.cwd);
+    // A start without a host id records none.
+    let current = squeez::session::CurrentSession::load(&sessions).unwrap();
+    assert!(current.host_session_id.is_empty());
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
+#[test]
+fn init_args_take_the_host_session_from_flags() {
+    use squeez::commands::init::parse_args;
+    let args: Vec<String> = ["--host=opencode", "--session-id=ses_01", "--cwd=/w"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let parsed = parse_args(&args);
+    assert_eq!(parsed.host.as_deref(), Some("opencode"));
+    assert_eq!(parsed.session.id, "ses_01");
+    assert_eq!(parsed.session.cwd, "/w");
+
+    let parsed = parse_args(&["--copilot".to_string()]);
+    assert_eq!(parsed.host.as_deref(), Some("copilot"));
+    assert!(parsed.session.id.is_empty());
+
+    let parsed = parse_args(&[]);
+    assert_eq!(parsed.host, None);
+}
+
+#[test]
+fn host_session_is_read_from_a_claude_code_session_start_payload() {
+    use squeez::commands::init::HostSession;
+    let payload = r#"{"session_id":"abc-123","transcript_path":"/t.jsonl","cwd":"/Users/me/repo","hook_event_name":"SessionStart","source":"startup"}"#;
+    let host = HostSession::from_payload(payload);
+    assert_eq!(host.id, "abc-123");
+    assert_eq!(host.cwd, "/Users/me/repo");
+    assert_eq!(HostSession::from_payload(""), HostSession::default());
 }
