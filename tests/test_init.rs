@@ -80,6 +80,47 @@ fn test_init_finalizes_prior_session_to_memory() {
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
 
+/// #284: the hourly log is shared by every session started in that hour, so
+/// a summary must count only the events written since its own session began.
+#[test]
+fn finalize_counts_only_events_of_its_own_session() {
+    let (sessions, memory) = tmp_dirs("ownevents");
+    let now = squeez::session::unix_now();
+    let start_ts = now.saturating_sub(600);
+    let file = format!("{}-0.jsonl", squeez::session::unix_to_date(start_ts));
+    let event = |ts: u64, in_tk: u64, path: &str| {
+        format!(
+            r#"{{"type":"bash","in_tk":{},"out_tk":0,"files":["{}"],"errors":[],"git":[],"test_summary":"","ts":{}}}"#,
+            in_tk, path, ts
+        )
+    };
+    // An earlier session of the same hour wrote this one.
+    squeez::session::append_event(&sessions, &file, &event(start_ts - 100, 15_000, "src/old.rs"));
+    // This session wrote these two.
+    squeez::session::append_event(&sessions, &file, &event(start_ts, 300, "src/a.rs"));
+    squeez::session::append_event(&sessions, &file, &event(start_ts + 5, 200, "src/b.rs"));
+    let prior = squeez::session::CurrentSession {
+        session_file: file,
+        total_tokens: 0,
+        tokens_saved: 0,
+        total_calls: 0,
+        compact_warned: false,
+        state_warned: false,
+        start_ts,
+        overhead_tokens: 0,
+    };
+    prior.save(&sessions);
+
+    let cfg = squeez::config::Config::default();
+    squeez::commands::init::run_with_dirs(&sessions, &memory, &cfg);
+
+    let summaries = squeez::memory::read_last_n(&memory, 10);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].tokens_saved, 500, "the earlier session's 15_000 are not ours");
+    assert_eq!(summaries[0].files_touched, vec!["src/a.rs", "src/b.rs"]);
+    let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
+}
+
 #[test]
 fn test_init_no_prior_session_no_crash() {
     let (sessions, memory) = tmp_dirs("noprior");
