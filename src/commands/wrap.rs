@@ -1042,9 +1042,14 @@ pub fn run(cmd_str: &str) -> i32 {
     }
 
     // ── Continuous handler calibration (item 2) ────────────────────────
+    // Keyed by the program that produced the output, not the first word: a
+    // table of `cd`, `export` and `VAR=1` entries says nothing about handlers
+    // and fills up fast (#285).
     if config.handler_stats_enabled {
         let mut stats = crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp);
-        stats.record(cmd_name, input_tokens as u64, emitted_tokens as u64);
+        let name = crate::filter::dispatch_name(&cmd_str);
+        let name = if name.is_empty() { cmd_name } else { name.as_str() };
+        stats.record(name, input_tokens as u64, emitted_tokens as u64);
         stats.save(&sessions_dir_pp);
     }
 

@@ -37,6 +37,8 @@ fn sample_summary(ts: u64) -> Summary {
         context_reuse_rate_bp: 0,
         budget_utilization_bp: 0,
         efficiency_overall_bp: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     }
 }
 

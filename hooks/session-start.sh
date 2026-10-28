@@ -25,12 +25,20 @@ if [ ! -x "$SQUEEZ" ]; then
     [ -n "$_sq" ] && SQUEEZ="$_sq"
 fi
 [ ! -x "$SQUEEZ" ] && exit 0
+# The SessionStart payload on stdin has two readers, so capture it once.
+# Only when stdin is not a terminal: run by hand, there is nothing to read.
+_payload=""
+if [ ! -t 0 ]; then
+    _payload=$(cat 2>/dev/null || true)
+fi
 # After /compact (source=compact on the stdin payload), restore squeez's
 # session state first: it must read the pre-compaction session before init
 # rolls it over, and SessionStart stdout is what reaches the model — PostCompact
-# output does not (#225). Consumes stdin; prints nothing on any other start.
-"$SQUEEZ" compact-summary --session-start 2>/dev/null || true
-"$SQUEEZ" init
+# output does not (#225). Prints nothing on any other start.
+printf '%s' "$_payload" | "$SQUEEZ" compact-summary --session-start 2>/dev/null || true
+# `--stdin` records the payload's session_id and cwd on the new squeez
+# session (#286), so it can be tied back to the chat that started it.
+printf '%s' "$_payload" | "$SQUEEZ" init --stdin
 
 # Hook health check — warn if squeez hooks were removed from settings.json
 # (e.g. by another tool like OMC that overwrites the file on setup).

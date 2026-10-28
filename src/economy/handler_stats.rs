@@ -11,7 +11,10 @@ use std::path::Path;
 
 use crate::json_util;
 
-const MAX_HANDLERS: usize = 64;
+/// Table size. A full table evicts its least-called name for a new one rather
+/// than dropping the new one (#285): the 64 slots filled within weeks on a
+/// real install, and from then on every new command went unaccounted.
+const MAX_HANDLERS: usize = 128;
 
 #[derive(Debug, Clone, Default)]
 pub struct HandlerStats {
@@ -90,7 +93,8 @@ impl HandlerStats {
 
     /// Record one bash invocation's accounting under the given handler name.
     /// Idempotent on the array shape: appends a new slot the first time `name`
-    /// is seen, otherwise increments in place. Caps the table at MAX_HANDLERS.
+    /// is seen, otherwise increments in place. When the table holds
+    /// MAX_HANDLERS names, the least-called one (earliest on a tie) makes room.
     pub fn record(&mut self, name: &str, in_tk: u64, out_tk: u64) {
         if name.is_empty() {
             return;
@@ -102,7 +106,13 @@ impl HandlerStats {
             return;
         }
         if self.names.len() >= MAX_HANDLERS {
-            return; // skip; rare in practice
+            let evict = (0..self.calls.len())
+                .min_by_key(|&i| self.calls[i])
+                .unwrap_or(0);
+            self.names.remove(evict);
+            self.calls.remove(evict);
+            self.in_tokens.remove(evict);
+            self.out_tokens.remove(evict);
         }
         self.names.push(name.to_string());
         self.calls.push(1);
@@ -269,12 +279,32 @@ mod tests {
     }
 
     #[test]
-    fn cap_at_max_handlers() {
+    fn cap_at_max_handlers_keeps_the_newest_name() {
         let mut s = HandlerStats::default();
         for i in 0..(MAX_HANDLERS + 10) {
             s.record(&format!("h{}", i), 100, 10);
         }
         assert_eq!(s.names.len(), MAX_HANDLERS);
+        // #285: the new name is recorded, not silently dropped.
+        assert!(s.names.iter().any(|n| n == &format!("h{}", MAX_HANDLERS + 9)));
+    }
+
+    #[test]
+    fn full_table_evicts_the_least_called_name() {
+        let mut s = HandlerStats::default();
+        for i in 0..MAX_HANDLERS {
+            s.record(&format!("h{}", i), 100, 10);
+            s.record(&format!("h{}", i), 100, 10);
+        }
+        // `rare` has one call; everything else has two.
+        s.record("h0", 100, 10);
+        s.calls[MAX_HANDLERS - 1] = 1;
+        let rare = s.names[MAX_HANDLERS - 1].clone();
+        s.record("new", 50, 5);
+        assert_eq!(s.names.len(), MAX_HANDLERS);
+        assert!(!s.names.contains(&rare), "the least-called name made room");
+        assert!(s.names.contains(&"h0".to_string()), "the most-called one stays");
+        assert_eq!(s.calls[s.names.iter().position(|n| n == "new").unwrap()], 1);
     }
 
     #[test]

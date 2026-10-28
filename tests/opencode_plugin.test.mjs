@@ -274,8 +274,9 @@ test("2.x events track finished shells and init each session once", NEEDS_SH, as
   });
 
   assert.deepEqual(await calls(log, 5), [
-    "init --host=opencode|",
-    "init --host=opencode|",
+    // #286: each init names the OpenCode session that started it.
+    "init --host=opencode --session-id=s1|",
+    "init --host=opencode --session-id=s2|",
     'track-result bash|{"tool_name":"Bash","shell_id":"sh1","shell_status":"exited","exit_code":0}',
     'track-result bash|{"tool_name":"Bash","shell_id":"sh2","shell_status":"killed"}',
     'track-result read|{"tool_name":"read","tool_input":{"file_path":"/tmp/a.rs"},"tool_result":{"content":"fn main"}}',
@@ -340,7 +341,7 @@ test("2.x children are handed this host's state directory", NEEDS_SH, async () =
   const dir = stateDir(home);
   assert.deepEqual(await calls(log, 4), [
     `budget-params Read|${dir}`,
-    `init --host=opencode|${dir}`,
+    `init --host=opencode --session-id=s1|${dir}`,
     `track-result bash|${dir}`,
     `track-result read|${dir}`,
   ]);
