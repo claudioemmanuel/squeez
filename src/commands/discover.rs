@@ -4,7 +4,7 @@
 //! rule (E8's other half) would pay off most.
 //!
 //! Reads `handler_stats.json`, which aggregates {calls, in_tokens,
-//! out_tokens} per command first-word across sessions — the same store
+//! out_tokens} per program across sessions — the same store
 //! `squeez_handler_stats` reads, so this is a filtered, re-ranked view of
 //! data already being collected, not a new collection path.
 
