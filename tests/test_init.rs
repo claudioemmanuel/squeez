@@ -110,6 +110,8 @@ fn finalize_counts_only_events_of_its_own_session() {
         state_warned: false,
         start_ts,
         overhead_tokens: 0,
+        host_session_id: String::new(),
+        cwd: String::new(),
     };
     prior.save(&sessions);
 
