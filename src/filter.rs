@@ -144,7 +144,7 @@ fn detect(cmd: &str) -> (Box<dyn Handler>, &'static str) {
 pub(crate) fn extract_name(cmd: &str) -> String {
     const WRAPPERS: &[&str] =
         &["npx ", "bunx ", "pnpm exec ", "yarn exec ", "sudo ", "time ", "command ", "nice ", "env "];
-    let mut s = cmd.trim();
+    let mut s = skip_state_prefix(cmd);
     loop {
         let before = s;
         // `VAR=value cmd …` — strip every leading assignment.
@@ -165,8 +165,47 @@ pub(crate) fn extract_name(cmd: &str) -> String {
             break;
         }
     }
-    let first = s.split_whitespace().next().unwrap_or("");
+    // `(cd pkg && make)`: the closer is glued to the last word.
+    let first = s
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(|c| c == ')' || c == '}' || c == ';');
     first.rsplit('/').next().unwrap_or(first).to_lowercase()
+}
+
+/// The name `cmd` is dispatched and accounted under: the program of the
+/// segment that produced the output (see [`effective_segment`]).
+pub fn dispatch_name(cmd: &str) -> String {
+    extract_name(effective_segment(cmd))
+}
+
+/// Shell builtins that only set state for the command after them. Agents
+/// start commands with these constantly (`cd pkg && cargo test`,
+/// `export CI=1; npm test`), and none of them is what produced the output.
+const STATE_BUILTINS: &[&str] =
+    &["cd", "export", "set", "unset", "source", ".", "pushd", "popd", "alias"];
+
+/// `cmd` without its leading state-setting segments and subshell openers:
+/// `(cd pkg && cargo test)` starts, for naming purposes, at `cargo`. A command
+/// that is nothing but such a segment (`cd pkg`) is returned trimmed.
+fn skip_state_prefix(cmd: &str) -> &str {
+    let open = |c: char| c == '(' || c == '{' || c.is_whitespace();
+    let mut s = cmd.trim_start_matches(open).trim_end();
+    loop {
+        let first = s.split_whitespace().next().unwrap_or("");
+        if !STATE_BUILTINS.contains(&first) {
+            return s;
+        }
+        let cut = ["&&", ";"]
+            .iter()
+            .filter_map(|sep| s.find(sep).map(|i| i + sep.len()))
+            .min();
+        match cut {
+            Some(end) => s = s[end..].trim_start_matches(open),
+            None => return s,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +219,27 @@ mod tests {
         assert_eq!(extract_name("env NODE_ENV=test jest"), "jest");
         assert_eq!(extract_name("TF_LOG=debug terraform plan"), "terraform");
         assert_eq!(extract_name("/usr/local/bin/cargo test"), "cargo");
+    }
+
+    /// #285: `cd`, `export` and `VAR=1` are not programs — the handler table
+    /// filled with them while the commands they prefixed went unaccounted.
+    #[test]
+    fn state_builtins_and_subshell_openers_are_skipped() {
+        assert_eq!(extract_name("cd pkg && cargo test"), "cargo");
+        assert_eq!(extract_name("export CI=1; npm test"), "npm");
+        assert_eq!(extract_name("(cd pkg && make)"), "make");
+        assert_eq!(extract_name("{ cd a; cd b; git status; }"), "git");
+        assert_eq!(extract_name("X0=1 echo handler 0"), "echo");
+        // Nothing but state: still named after what ran.
+        assert_eq!(extract_name("cd pkg"), "cd");
+        assert_eq!(extract_name("export CI=1"), "export");
+        assert_eq!(handler_name("cd pkg && cargo test"), "test_runner");
+    }
+
+    #[test]
+    fn dispatch_name_follows_the_effective_segment() {
+        assert_eq!(super::dispatch_name("cd pkg && cargo build 2>&1 | grep error"), "grep");
+        assert_eq!(super::dispatch_name("cargo build | tee build.log"), "cargo");
     }
 
     #[test]
