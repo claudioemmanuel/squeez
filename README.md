@@ -19,7 +19,7 @@ End-to-end token optimizer for seven AI CLI hosts — Claude Code, GitHub Copilo
 
 > Latest first. Full history in [CHANGELOG.md](CHANGELOG.md).
 
-### v1.49.0 — session identity, honest per-session stats, Hermes output hook
+### v1.48.25 – v1.49.1 — session identity, honest per-session stats, Hermes output hook
 
 - **Each squeez session knows which host session started it.** `squeez init` takes `--session-id` / `--cwd` (or `--stdin` to read the host's session-start payload); the Claude Code hook and the OpenCode plugin pass them. `current.json`, the finalized summary and the session-start snapshot in the shared hourly log carry `host_session_id`, so a stats panel can label a row "the chat that ran the release" instead of "today 07:10". Optional fields; hosts that send nothing change nothing. (#286)
 - **Summaries count only their own session.** `finalize` summed every event in the hourly log, which every session of that hour shares — a session that ran one `echo` reported the previous session's savings, and summing summaries overcounted ~8×. Events older than the session's start are now skipped. (#284)
