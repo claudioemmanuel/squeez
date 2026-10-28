@@ -8,9 +8,9 @@
 //! discover it. Discovered plugins are opt-in and must be enabled once via
 //! `hermes plugins enable squeez-fallback`.
 //!
-//! Hermes fires `pre_tool_call` and `post_tool_call` hooks for every tool
-//! invocation. The squeez plugin wraps terminal commands via `pre_tool_call`,
-//! similar to Claude Code's PreToolUse hook.
+//! Hermes fires a `transform_terminal_output` hook after every terminal
+//! command. The squeez plugin compresses that output with `squeez filter`,
+//! where Claude Code's PreToolUse hook rewrites the command instead.
 //!
 //! Capability ceiling: `BASH_WRAP | SESSION_MEM`.
 //! Hermes does not expose programmatic Read/Grep budget injection — the
@@ -125,7 +125,7 @@ impl HostAdapter for HermesAdapter {
     }
 
     fn capabilities(&self) -> HostCaps {
-        // Hermes has pre_tool_call (BASH_WRAP) and session start (SESSION_MEM).
+        // Hermes has transform_terminal_output (BASH_WRAP) and session start (SESSION_MEM).
         // No programmatic Read/Grep budget injection (BUDGET_HARD) or soft
         // budget hints via markdown (BUDGET_SOFT).
         HostCaps::BASH_WRAP | HostCaps::SESSION_MEM
@@ -318,6 +318,12 @@ mod tests {
         assert!(HERMES_MANIFEST.contains("name: squeez-fallback"));
         assert!(HERMES_MANIFEST.contains("version:"));
         assert!(HERMES_MANIFEST.contains("description:"));
-        assert!(HERMES_MANIFEST.contains("pre_tool_call"));
+        assert!(HERMES_MANIFEST.contains("transform_terminal_output"));
+    }
+
+    #[test]
+    fn plugin_registers_the_output_hook_not_a_command_rewrite() {
+        assert!(HERMES_PLUGIN.contains("register_hook(\"transform_terminal_output\""));
+        assert!(!HERMES_PLUGIN.contains("squeez wrap {"));
     }
 }

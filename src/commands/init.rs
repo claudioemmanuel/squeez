@@ -451,6 +451,12 @@ fn finalize(prev: &CurrentSession, sessions_dir: &Path, memory_dir: &Path, confi
         if line.trim().is_empty() {
             continue;
         }
+        // The log file is named by the hour and shared by every session that
+        // started in it, so events written before this session began belong
+        // to an earlier one (#284). An event without `ts` is kept as before.
+        if json_util::extract_u64(&line, "ts").map_or(false, |ts| ts < prev.start_ts) {
+            continue;
+        }
         match json_util::extract_str(&line, "type").as_deref() {
             Some("bash") => {
                 total_in += json_util::extract_u64(&line, "in_tk").unwrap_or(0);

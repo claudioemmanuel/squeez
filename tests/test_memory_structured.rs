@@ -41,7 +41,10 @@ fn finalize_session(sessions: &std::path::Path, memory: &std::path::Path, events
     };
     prior.save(sessions);
     for ev in events {
-        squeez::session::append_event(sessions, &session_file, ev);
+        // The fixtures carry a fixed ts; finalize counts only events written
+        // since the session began (#284), so place them inside its window.
+        let ev = ev.replace("\"ts\":1774137601", &format!("\"ts\":{}", start_ts + 1));
+        squeez::session::append_event(sessions, &session_file, &ev);
     }
     let cfg = squeez::config::Config::default();
     squeez::commands::init::run_with_dirs(sessions, memory, &cfg);
