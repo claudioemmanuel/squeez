@@ -11,6 +11,9 @@
 //! Hermes fires a `transform_terminal_output` hook after every terminal
 //! command. The squeez plugin compresses that output with `squeez filter`,
 //! where Claude Code's PreToolUse hook rewrites the command instead.
+//! `on_session_start` runs `squeez init --host=hermes`, and each filtered
+//! output is logged with `squeez track-filter`, since `squeez filter` itself
+//! writes nothing to the session ledger (#292).
 //!
 //! Capability ceiling: `BASH_WRAP | SESSION_MEM`.
 //! Hermes does not expose programmatic Read/Grep budget injection — the

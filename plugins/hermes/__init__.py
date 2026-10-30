@@ -15,6 +15,11 @@ already rewritten are skipped so the first wrapper keeps priority -- set
 SQUEEZ_HERMES_NEVER_WRAP to a comma-separated list of prefixes to declare
 those, e.g. SQUEEZ_HERMES_NEVER_WRAP="foo ,bar ".
 
+On session start the plugin runs `squeez init --host=hermes`, which opens a
+squeez session and writes the persona block into SOUL.md when that file
+exists. Every output that goes through `squeez filter` is then logged with
+`squeez track-filter`, so squeez_session_summary counts what was saved.
+
 Requires: squeez binary in PATH (cargo install squeez or npm install -g squeez)
 or at $SQUEEZ_BIN
 """
@@ -62,8 +67,25 @@ def register(ctx):
     """Register the Hermes output callback."""
     if not _squeez_bin():
         _warn("squeez binary not found; output is left as is until it is installed")
+    ctx.register_hook("on_session_start", _on_session_start)
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("transform_terminal_output", _transform_terminal_output)
+
+
+def _on_session_start(session_id=None, **_kwargs):
+    """Open a squeez session so the outputs compressed in it are counted."""
+    try:
+        exe = _squeez_bin()
+        if not exe:
+            return None
+        cmd = [exe, "init", "--host=hermes", f"--cwd={os.getcwd()}"]
+        if isinstance(session_id, str) and session_id:
+            cmd.append(f"--session-id={session_id}")
+        subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL,
+                       timeout=_TIMEOUT_S, env=_squeez_env())
+    except Exception as exc:  # fail open: compression works without a session
+        _warn(str(exc))
+    return None
 
 
 def _pre_tool_call(tool_name=None, args=None, **_kwargs):
@@ -140,6 +162,22 @@ def _save_raw(command: str, output: str) -> Path:
     return path
 
 
+def _squeez_env() -> dict:
+    env = dict(os.environ)
+    env.setdefault("SQUEEZ_DIR", str(_hermes_home() / "squeez"))
+    return env
+
+
+def _track(exe: str, env: dict, command: str, output: str, emitted_chars: int) -> None:
+    """Log the call to the squeez session; a failure only loses the stat."""
+    try:
+        subprocess.run([exe, "track-filter", command, str(emitted_chars)], input=output,
+                       capture_output=True, text=True, errors="replace",
+                       timeout=_TIMEOUT_S, env=env)
+    except Exception as exc:
+        _warn(f"session stats not recorded: {exc}")
+
+
 def compress(command: object, output: object) -> str | None:
     if os.environ.get("SQUEEZ_OUTPUT_DISABLE") == "1":
         return None
@@ -151,8 +189,7 @@ def compress(command: object, output: object) -> str | None:
     exe = _squeez_bin()
     if not exe:
         return None
-    env = dict(os.environ)
-    env.setdefault("SQUEEZ_DIR", str(_hermes_home() / "squeez"))
+    env = _squeez_env()
     # Filter with squeez — squeez filter picks the handler for the command
     # (a user filter rule first, else the built-in one) and compresses stdin
     proc = subprocess.run([exe, "filter", command], input=output, capture_output=True,
@@ -161,10 +198,13 @@ def compress(command: object, output: object) -> str | None:
     if proc.returncode != 0 or not small.strip():
         return None
     if len(small) > len(output) * (1 - _MIN_SAVING):
+        _track(exe, env, command, output, len(output))
         return None
     path = _save_raw(command, output)
-    return (f"{small}\n[squeez: output compressed {len(output)}→{len(small)} chars. "
-            f"Full output: {path} (read_file it if something you need is missing)]")
+    result = (f"{small}\n[squeez: output compressed {len(output)}→{len(small)} chars. "
+              f"Full output: {path} (read_file it if something you need is missing)]")
+    _track(exe, env, command, output, len(result))
+    return result
 
 
 def _transform_terminal_output(command=None, output=None, **_kw):

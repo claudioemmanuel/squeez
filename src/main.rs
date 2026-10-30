@@ -24,6 +24,12 @@ fn main() {
             let exit_code = squeez::commands::track::run(tool, bytes);
             std::process::exit(exit_code);
         }
+        Some("track-filter") => {
+            let cmd = args.get(2).map(String::as_str).unwrap_or("");
+            let emitted = args.get(3).map(String::as_str).unwrap_or("");
+            let exit_code = squeez::commands::track::run_filter(cmd, emitted);
+            std::process::exit(exit_code);
+        }
         Some("track-spawn") => {
             let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
             let exit_code = squeez::commands::track::run_spawn(tool);
@@ -134,6 +140,7 @@ fn main() {
             eprintln!("       squeez init [--copilot]");
             eprintln!("       squeez track <tool> <bytes>");
             eprintln!("       squeez track-result <tool> (reads stdin)");
+            eprintln!("       squeez track-filter <command> <emitted_chars> (reads original output on stdin)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
             eprintln!("       squeez benchmark [--json] [--showcase] [--output <file>] [--scenario <name>]");
             eprintln!(
