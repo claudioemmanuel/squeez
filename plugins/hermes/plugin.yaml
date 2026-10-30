@@ -3,5 +3,6 @@ version: 2.0.0
 description: "squeez output compression — compresses large terminal output with `squeez filter` after the command runs; the full output is kept on disk, redacted"
 author: squeez
 provides_hooks:
+  - on_session_start
   - pre_tool_call
   - transform_terminal_output

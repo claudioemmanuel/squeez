@@ -806,7 +806,7 @@ pub fn run(cmd_str: &str) -> i32 {
     let test_sum   = extract_test_summary(&combined);
 
     let compact_warning = record_bash_event(
-        cmd_str, input_tokens, emitted_tokens, &files, &errors, &git_events, &test_sum, &config,
+        &sessions_dir_pp, cmd_str, input_tokens, emitted_tokens, &files, &errors, &git_events, &test_sum, &config,
         ctx.real_ctx_tokens, forced_label.as_deref().unwrap_or(""),
     );
 
@@ -1235,7 +1235,11 @@ fn extract_git_events(cmd: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-fn record_bash_event(
+/// Adds one bash call to the session ledger (`current.json` + the JSONL log)
+/// and returns a context-pressure warning when one is due. Shared with
+/// `squeez track-filter`, which logs output a host compressed via `squeez filter`.
+pub(crate) fn record_bash_event(
+    dir: &Path,
     cmd: &str,
     in_tk: usize,
     out_tk: usize,
@@ -1247,8 +1251,7 @@ fn record_bash_event(
     real_ctx_tokens: u64,
     forced: &str,
 ) -> Option<String> {
-    let dir = session::sessions_dir();
-    let mut current = session::CurrentSession::load(&dir)?;
+    let mut current = session::CurrentSession::load(dir)?;
 
     current.total_tokens += out_tk as u64;
     if in_tk > out_tk {
@@ -1267,7 +1270,7 @@ fn record_bash_event(
         json_util::escape_str(forced),
         session::unix_now(),
     );
-    session::append_event(&dir, &current.session_file, &event);
+    session::append_event(dir, &current.session_file, &event);
 
     // Real measured context (CF-1) is authoritative over squeez's own byte
     // counters: total_tokens is a cumulative monotonic sum of all tool I/O, not
@@ -1275,7 +1278,7 @@ fn record_bash_event(
     // and would falsely trip the critical warning. Use the measured value when
     // present. Budget keys off the real window detected from the transcript
     // model id, honoring `context_window_tokens` config first (CF-2).
-    let ctx = crate::context::cache::SessionContext::load(&dir);
+    let ctx = crate::context::cache::SessionContext::load(dir);
     let effective_used = if real_ctx_tokens > 0 {
         real_ctx_tokens
     } else {
@@ -1353,7 +1356,7 @@ fn record_bash_event(
         None
     };
 
-    current.save(&dir);
+    current.save(dir);
     warning
 }
 

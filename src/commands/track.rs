@@ -131,3 +131,69 @@ fn agent_transcript_path(raw: &str) -> Option<String> {
     let stem = parent.strip_suffix(".jsonl")?;
     Some(format!("{}/subagents/agent-{}.jsonl", stem, agent_id))
 }
+
+/// `squeez track-filter <cmd> <emitted_chars>` — log a bash call whose output
+/// a host plugin compressed with `squeez filter` (issue #292).
+///
+/// `squeez wrap` logs every call it runs; `squeez filter` is a pure stdin →
+/// stdout pipe and logs nothing, so a host that compresses in an output hook
+/// (Hermes) saved tokens that `squeez_session_summary` never saw. The plugin
+/// calls this once it knows what it sent the model: the original output on
+/// stdin, the length in chars of the text it emitted as `emitted_chars`. Pass
+/// the original length to record output that was left as is.
+pub fn run_filter(cmd: &str, emitted_chars: &str) -> i32 {
+    let mut raw = String::new();
+    if std::io::Read::read_to_string(&mut std::io::stdin(), &mut raw).is_err() {
+        return 0;
+    }
+    let emitted = emitted_chars.parse::<usize>().unwrap_or(usize::MAX);
+    run_filter_with(cmd, &raw, emitted, &session::sessions_dir(), &Config::load());
+    0
+}
+
+/// Testable version of [`run_filter`]. Tokens use the same estimator as
+/// `squeez wrap`; the emitted side is scaled from the input estimate by the
+/// char ratio, since only the plugin holds the emitted text.
+pub fn run_filter_with(
+    cmd: &str,
+    raw: &str,
+    emitted_chars: usize,
+    sessions_dir: &Path,
+    config: &Config,
+) {
+    if CurrentSession::load(sessions_dir).is_none() {
+        return; // no session initialised — silent no-op, like `track`
+    }
+    let in_tk = if config.class_density {
+        crate::tokens::estimate_classed(raw, config.tokenizer_scale)
+    } else {
+        crate::tokens::estimate_scaled(raw, config.tokenizer_scale)
+    };
+    let raw_chars = raw.chars().count();
+    let out_tk = if emitted_chars >= raw_chars || raw_chars == 0 {
+        in_tk
+    } else {
+        (in_tk as u128 * emitted_chars as u128 / raw_chars as u128) as usize
+    };
+
+    let files = crate::commands::wrap::extract_file_paths(raw);
+    let errors = crate::commands::wrap::extract_errors(raw);
+    let git = crate::commands::wrap::extract_git_events_pub(cmd, raw);
+    let test_sum = crate::commands::wrap::extract_test_summary(raw);
+
+    let real_ctx_tokens = if config.context_cache_enabled {
+        let mut measured = 0;
+        SessionContext::update(sessions_dir, |ctx| {
+            ctx.note_tool_tokens("Bash", in_tk as u64);
+            ctx.note_burn(out_tk as u64);
+            measured = ctx.real_ctx_tokens;
+        });
+        measured
+    } else {
+        SessionContext::load(sessions_dir).real_ctx_tokens
+    };
+    let _ = crate::commands::wrap::record_bash_event(
+        sessions_dir, cmd, in_tk, out_tk, &files, &errors, &git, &test_sum, config,
+        real_ctx_tokens, "",
+    );
+}

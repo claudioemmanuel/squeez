@@ -707,6 +707,13 @@ compressed text ends with its path (`$HERMES_HOME/cache/squeez-raw/`, mode
 terminal tool, run `.venv/bin/python <squeez>/plugins/hermes/tests/e2e_hermes.py`
 from a hermes-agent checkout.
 
+On `on_session_start` the plugin runs `squeez init --host=hermes`, which opens
+a squeez session under `$HERMES_HOME/squeez/` (and writes the persona block
+into `SOUL.md` when that file exists). Each output passed through
+`squeez filter` is then logged with `squeez track-filter`, so
+`squeez_session_summary` reports what Hermes actually saved. Outputs under the
+size threshold are never sent to squeez, so they are not counted.
+
 ### GitHub Copilot CLI
 
 Hooks registered in `~/.copilot/settings.json`. Session memory written to `~/.copilot/copilot-instructions.md` (Copilot CLI reads this automatically). State stored separately at `~/.copilot/squeez/`.
