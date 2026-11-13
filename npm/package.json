@@ -1,7 +1,7 @@
 {
   "name": "squeez",
   "version": "0.4.0",
-  "description": "Hook-based token compressor for Claude Code, Copilot CLI, and OpenCode. Compresses bash output up to 95%, collapses redundant calls, injects caveman persona.",
+  "description": "Zero-runtime-dependency token compressor for 7 AI CLI hosts (Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes). Up to 95% bash compression, reversible via squeez_retrieve, refuses net-loss compressions, cross-call dedup, MCP server. One static binary.",
   "keywords": [
     "claude-code",
     "token-optimizer",

@@ -26,27 +26,34 @@ pub fn run() -> i32 {
         return 0;
     }
 
-    let input = read_stdin();
+    print!("{}", compress(&read_stdin(), &cfg));
+    0
+}
+
+/// The compressed prompt `run` prints: unchanged when disabled or within
+/// budget, else markdown-compressed, else head-truncated with a notice.
+pub fn compress(input: &str, cfg: &Config) -> String {
+    if cfg.agent_prompt_max_tokens == 0 {
+        return input.to_string();
+    }
     let orig_tokens = input.chars().count() / 4;
 
     if orig_tokens <= cfg.agent_prompt_max_tokens {
-        print!("{}", input);
-        return 0;
+        return input.to_string();
     }
 
     // Run markdown compression
     let locale = crate::commands::compress_md::Locale::from_code(&cfg.lang);
-    let result = compress_text_with_locale(&input, Mode::Ultra, locale);
+    let result = compress_text_with_locale(input, Mode::Ultra, locale);
     let compressed = if result.safe {
         result.output
     } else {
-        input.clone()
+        input.to_string()
     };
 
     let compressed_tokens = compressed.chars().count() / 4;
     if compressed_tokens <= cfg.agent_prompt_max_tokens {
-        print!("{}", compressed);
-        return 0;
+        return compressed;
     }
 
     // Head-truncate to budget
@@ -58,8 +65,7 @@ pub fn run() -> i32 {
     );
     let available_chars = max_chars.saturating_sub(notice.len());
     let truncated = char_truncate(&compressed, available_chars);
-    print!("{}{}", truncated, notice);
-    0
+    format!("{}{}", truncated, notice)
 }
 
 fn read_stdin() -> String {

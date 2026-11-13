@@ -301,30 +301,6 @@ fn host_registration_checks() -> Vec<CheckLine> {
         .collect()
 }
 
-/// The hooks drive their JSON handling through Python, so a missing or broken
-/// interpreter makes them no-ops. Probe by EXECUTING each candidate: on Windows
-/// `python3` is usually the Microsoft Store alias stub, which is on PATH and
-/// passes `command -v` but exits non-zero when run (#209).
-fn check_interpreter() -> CheckLine {
-    for candidate in ["python3", "python", "py"] {
-        let runs = crate::spawn::helper(candidate)
-            .args(["-c", ""])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if runs {
-            return ok(format!("interpreter: hooks will use `{candidate}`"));
-        }
-    }
-    fail(
-        "interpreter: no working python on PATH (tried python3, python, py) — \
-         hooks parse their payloads with it, so compression is inert. \
-         Install Python and re-run `squeez doctor`",
-    )
-}
-
 /// Config check: a disabled pipeline is the exact silent-death mode doctor
 /// exists to surface, so it is a FAIL, not a WARN.
 fn check_config(cfg: &Config) -> CheckLine {
@@ -466,7 +442,6 @@ fn run_with_hosts(
     }
     checks.extend(host_checks);
     checks.extend([
-        check_interpreter(),
         check_config(cfg),
         check_freshness(squeez_dir, cfg),
         check_blob_store(squeez_dir),

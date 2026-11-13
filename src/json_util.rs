@@ -597,6 +597,49 @@ pub fn to_pretty(v: &JsonValue) -> String {
     out
 }
 
+/// Serialize on one line with no whitespace — the shape hook stdout uses.
+pub fn to_compact(v: &JsonValue) -> String {
+    let mut out = String::new();
+    write_compact(v, &mut out);
+    out
+}
+
+fn write_compact(v: &JsonValue, out: &mut String) {
+    match v {
+        JsonValue::Null => out.push_str("null"),
+        JsonValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        JsonValue::Num(n) => write_num(*n, out),
+        JsonValue::Str(s) => {
+            out.push('"');
+            escape_strict(s, out);
+            out.push('"');
+        }
+        JsonValue::Arr(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_compact(item, out);
+            }
+            out.push(']');
+        }
+        JsonValue::Obj(fields) => {
+            out.push('{');
+            for (i, (k, val)) in fields.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push('"');
+                escape_strict(k, out);
+                out.push_str("\":");
+                write_compact(val, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
 /// Parses a single JSON value from `input`. Returns `None` on malformed input
 /// rather than panicking — callers should treat that as "not this format" and
 /// fall back to a simpler condenser.
@@ -730,14 +773,29 @@ fn parse_str(c: &[char], pos: &mut usize) -> Option<String> {
                 if *pos + 4 > c.len() {
                     return None;
                 }
-                let hex: String = c[*pos..*pos + 4].iter().collect();
-                let cp = u32::from_str_radix(&hex, 16).ok()?;
+                let cp = hex4(c, *pos)?;
                 *pos += 4;
-                s.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+                // A UTF-16 surrogate pair (`\ud83d\ude00`) is one char; decoding
+                // each half alone turned every escaped emoji into two U+FFFD.
+                let low = (0xD800..0xDC00).contains(&cp)
+                    && matches_lit(c, *pos, "\\u")
+                    && hex4(c, *pos + 2).is_some_and(|l| (0xDC00..0xE000).contains(&l));
+                if low {
+                    let lo = hex4(c, *pos + 2)?;
+                    *pos += 6;
+                    s.push(char::from_u32(0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)).unwrap_or('\u{FFFD}'));
+                } else {
+                    s.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+                }
             }
             other => s.push(other),
         }
     }
+}
+
+fn hex4(c: &[char], at: usize) -> Option<u32> {
+    let hex: String = c.get(at..at + 4)?.iter().collect();
+    u32::from_str_radix(&hex, 16).ok()
 }
 
 fn parse_num(c: &[char], pos: &mut usize) -> Option<JsonValue> {
@@ -776,6 +834,20 @@ mod value_tests {
         let json = r#"{"msg":"line1\nline2 \"quoted\" é"}"#;
         let v = parse_value(json).unwrap();
         assert_eq!(v.get("msg").unwrap().as_str(), Some("line1\nline2 \"quoted\" é"));
+    }
+
+    #[test]
+    fn surrogate_pair_escape_decodes_to_one_char() {
+        let v = parse_value(r#"{"m":"a\ud83d\ude00b \u00e9 \ud800x"}"#).unwrap();
+        assert_eq!(v.get("m").unwrap().as_str(), Some("a😀b é \u{FFFD}x"));
+    }
+
+    #[test]
+    fn compact_round_trips() {
+        let src = r#"{"a":1,"b":[true,null,"x\"y\n"],"c":{},"d":-2.5,"e":"é😀"}"#;
+        let v = parse_value(src).unwrap();
+        assert_eq!(to_compact(&v), src);
+        assert_eq!(parse_value(&to_compact(&v)).unwrap(), v);
     }
 
     #[test]

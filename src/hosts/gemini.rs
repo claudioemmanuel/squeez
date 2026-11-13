@@ -12,10 +12,6 @@
 //! Read/Grep/Glob budget enforcement as soft (hint in GEMINI.md) until we
 //! can empirically confirm the rewrite format. Upstream tracking:
 //!   https://github.com/google-gemini/gemini-cli/issues/25629
-//!
-//! JSON patching of `settings.json` delegates to a python3 subprocess. The
-//! binary already requires python3 for Claude Code and Copilot CLI hook
-//! scripts, so this is an existing runtime dependency, not a new one.
 
 use std::path::{Path, PathBuf};
 
@@ -36,15 +32,6 @@ const HOOK_SCRIPTS: [(&str, &str); 3] = [
     ("gemini-after-tool.sh", AFTER_TOOL_SCRIPT),
 ];
 
-/// Python program used to patch `~/.gemini/settings.json`. Receives the
-/// target path as argv[1] and the squeez-hooks directory as argv[2].
-///
-/// The script:
-/// 1. Loads the existing settings (tolerating missing/malformed files)
-/// 2. Ensures `hooks.{SessionStart,BeforeTool,AfterTool}` arrays exist
-/// 3. Appends squeez matcher objects if no entry already contains "squeez"
-///    in any of its command strings (idempotent on repeated runs)
-/// 4. Writes atomically via a `.tmp` file + `os.replace`
 /// Events squeez registers under `settings["hooks"]` in the Gemini CLI.
 const SQUEEZ_EVENTS: [&str; 3] = ["SessionStart", "BeforeTool", "AfterTool"];
 
