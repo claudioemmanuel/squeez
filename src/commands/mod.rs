@@ -21,6 +21,7 @@ pub mod flag_force;
 pub mod focus;
 pub mod fs;
 pub mod generic;
+pub mod hook;
 pub mod git;
 pub mod init;
 pub mod mcp_server;

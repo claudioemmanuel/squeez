@@ -24,9 +24,6 @@
 //!
 //! Until confirmed, Read/Grep budget enforcement ships as **soft** via a prose
 //! hint in the AGENTS.md block written by `inject_memory`.
-//!
-//! JSON patching of `hooks.json` uses a python3 subprocess, consistent
-//! with every other adapter in this crate.
 
 use std::path::{Path, PathBuf};
 

@@ -28,7 +28,7 @@ Hook-based bash-output compressor for seven CLI agent hosts (Claude Code, Copilo
 
 Claude Code hooks: PreToolUse → wrap / budget / prompt-compress / **agent-spawn ceiling**; SessionStart → init (+ post-compact state restore on `source: compact`); PostToolUse → track-result + `updatedToolOutput` rewrite; SubagentStop → feed sub-agent output into SessionContext + release a spawn slot; PreCompact / PostCompact → log + re-arm.
 
-**Pipeline** (per invocation): `smart_filter` (ANSI/progress/spinners/timestamps) → `dedup` (repeats → `[×N]`) → `grouping` (≥5 siblings → `dir/  N modified`) → `truncation` (head/tail by handler).
+**Pipeline** (generic, per invocation): `smart_filter` (ANSI/progress/spinners/timestamps) → `dedup` (repeats → `[×N]`) → `log_template` (near-identical → `[×N] <template>`) → `truncation::apply_relevant` (top-N by score). `grouping` is `git status` only.
 
 **Handler dispatch:** `src/filter.rs` detects command type → one of 13+ handlers in `src/commands/`. `extract_name()` strips wrappers (npx, bunx, pnpm exec, yarn exec) first. To add one: implement in `src/commands/`, register in `src/commands/mod.rs`, add a dispatch arm in `src/filter.rs`.
 
@@ -44,21 +44,22 @@ Claude Code hooks: PreToolUse → wrap / budget / prompt-compress / **agent-spaw
 | `factsheet.rs` | exact-identifier extraction; 16 facts / 256 chars budget |
 | `intensity.rs` | Full (×0.6) < `ultra_trigger_pct` of budget, else Ultra (×0.3). Budget honors `context_window_tokens` when pinned — **a pin above the real window makes Ultra unreachable** |
 | `transcript.rs` | tail-reads host transcript for real `usage` → `real_ctx_tokens` |
-| `hash.rs` | FNV-1a-64, `shingle_minhash()`, `jaccard()` |
+| `hash.rs` | FNV-1a-64, streamed bottom-k `shingle_minhash()` (keep bit-identical: persisted), `jaccard()` |
 
 Guards: identical image payloads dedup session-long; MCP results are dedup-only; fuzzy dedup suppressed on first re-read after a Write (needs compress-output before track-result in `posttooluse.sh`); repeated quota errors and oversized sub-agent returns queue `[squeez: …]` warnings.
 
-**Known blind spots** (2026-08-21 post-mortem): agent cost is a flat `agent_spawn_cost` estimate regardless of real work; spawns are counted at PostToolUse (on return, not dispatch); `burst_warning()`/`agent_cost_warning()` are only called from `wrap.rs`, so they cannot surface unless a Bash command runs.
+**Hot path is linear**: score/hash each line once, never in a sort comparator. Context Vecs are capped ≤256, so linear scans are fine. Prove perf with `squeez benchmark --json` base vs branch, several runs.
 
 ### Key files
 
 | File | Role |
 |---|---|
 | `src/commands/wrap.rs` | orchestrator: spawn, capture, compress, inject header |
+| `src/commands/hook/` | every host hook's logic (`squeez hook <event>`): Claude pre/post in `mod.rs`, Copilot/Codex/Gemini in `shell.rs`, SubagentStop + settings check in `lifecycle.rs`, `statusline.rs`. `hooks/*.sh` only resolve the binary — **no hook may call an interpreter** (`no_hook_script_runs_python`) |
 | `src/commands/compress_md/` | markdown compressor; `locale.rs` + `locales/{en,pt_br}.rs`; select via `lang=` / `--lang` |
 | `src/commands/init.rs` | session start; delegates memory injection to `HostAdapter.inject_memory()` |
 | `src/hosts/settings_json.rs` | shared JSON settings patcher: safe load, atomic write with `.bak`, idempotent hook add/strip |
-| `src/commands/benchmark.rs` | 22-scenario suite; `--efficiency-proof` reports cache-aware effective costs |
+| `src/commands/benchmark.rs` | 46-scenario suite; `--efficiency-proof` reports cache-aware effective costs |
 | `src/config.rs` | config + `~/.claude/squeez/config.ini` parser; all fields defaulted |
 | `src/tokens.rs` | zero-dep estimates: `estimate`, `estimate_scaled`, `classify` + `estimate_classed` |
 | `src/session.rs` | token accounting; JSONL event log in `~/.claude/squeez/sessions/` |

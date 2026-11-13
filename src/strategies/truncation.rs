@@ -46,15 +46,21 @@ pub fn apply_relevant(lines: Vec<String>, limit: usize, cmd: &str) -> Vec<String
     let total = lines.len();
     let terms = query_terms(cmd);
 
-    // Rank line indices by score (desc), tie-broken by original position so the
-    // selection is deterministic.
-    let mut ranked: Vec<usize> = (0..total).collect();
-    ranked.sort_by(|&a, &b| {
-        score(&lines[b], &terms, b, total)
-            .cmp(&score(&lines[a], &terms, a, total))
-            .then(a.cmp(&b))
-    });
-    let mut keep: Vec<usize> = ranked.into_iter().take(limit).collect();
+    // Score each line once (scoring lowercases the line, so doing it inside the
+    // comparator cost ~2·n·log n allocations), then select the top `limit` by
+    // score desc, tie-broken by original position so the selection is
+    // deterministic. Keys are unique, so selection + sort of the kept slice
+    // equals a full sort: O(n) instead of O(n log n).
+    let scores: Vec<i32> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| score(l, &terms, i, total))
+        .collect();
+    let mut keep: Vec<usize> = (0..total).collect();
+    if limit > 0 {
+        keep.select_nth_unstable_by_key(limit - 1, |&i| (std::cmp::Reverse(scores[i]), i));
+    }
+    keep.truncate(limit);
     keep.sort_unstable();
 
     let dropped = total - keep.len();
@@ -115,6 +121,28 @@ fn query_terms(cmd: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relevant_selection_matches_full_sort() {
+        let lines: Vec<String> = (0..500)
+            .map(|i| match i % 11 {
+                0 => format!("error {i} failed"),
+                3 => format!("fetch TODO item {i}"),
+                5 => String::new(),
+                _ => format!("plain {i}"),
+            })
+            .collect();
+        for limit in [1, 7, 50, 499] {
+            let terms = query_terms("grep TODO");
+            let mut ranked: Vec<usize> = (0..lines.len()).collect();
+            ranked.sort_by_key(|&i| (std::cmp::Reverse(score(&lines[i], &terms, i, lines.len())), i));
+            let mut want: Vec<usize> = ranked.into_iter().take(limit).collect();
+            want.sort_unstable();
+            let want: Vec<String> = want.into_iter().map(|i| lines[i].clone()).collect();
+            let got = apply_relevant(lines.clone(), limit, "grep TODO");
+            assert_eq!(&got[1..], &want[..], "limit {limit}");
+        }
+    }
 
     fn v(n: usize, f: impl Fn(usize) -> String) -> Vec<String> {
         (0..n).map(f).collect()

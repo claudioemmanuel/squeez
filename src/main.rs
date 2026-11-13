@@ -92,6 +92,10 @@ fn main() {
             let rest: Vec<String> = args.iter().skip(2).cloned().collect();
             std::process::exit(squeez::commands::benchmark::run(&rest));
         }
+        Some("hook") => {
+            // Every host hook, in-process (commands/hook/).
+            std::process::exit(squeez::commands::hook::run(&args[2..]));
+        }
         Some("track-result") => {
             let tool = args.get(2).map(String::as_str).unwrap_or("unknown");
             std::process::exit(squeez::commands::track_result::run(tool));
@@ -141,6 +145,7 @@ fn main() {
             eprintln!("       squeez track <tool> <bytes>");
             eprintln!("       squeez track-result <tool> (reads stdin)");
             eprintln!("       squeez track-filter <command> <emitted_chars> (reads original output on stdin)");
+            eprintln!("       squeez hook <event>   (host hook logic; `squeez hook` lists events)");
             eprintln!("       squeez compress-md [--ultra] [--dry-run] [--all] <file>...");
             eprintln!("       squeez benchmark [--json] [--showcase] [--output <file>] [--scenario <name>]");
             eprintln!(

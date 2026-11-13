@@ -1,24 +1,6 @@
 #!/usr/bin/env bash
 # squeez SessionStart hook — runs squeez init, prints memory banner to session context
 
-# Resolve a working Python interpreter.
-#
-# Hardcoding python3 is not safe on Windows: python.org installs ship
-# python.exe with no python3.exe, so the name resolves to the Microsoft Store
-# App Execution Alias under %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is
-# on PATH and passes `command -v`, but exits non-zero when run — which left
-# every squeez hook silently dead (issue #209). Probe by EXECUTING each
-# candidate, not by locating it.
-SQUEEZ_PY=""
-for _c in python3 python py; do
-    if command -v "$_c" >/dev/null 2>&1 && "$_c" -c "" >/dev/null 2>&1; then
-        SQUEEZ_PY="$_c"
-        break
-    fi
-done
-# No interpreter, nothing this hook can parse — leave quietly rather than
-# failing the host's session-start under `set -e`.
-[ -z "$SQUEEZ_PY" ] && exit 0
 SQUEEZ="$HOME/.claude/squeez/bin/squeez"
 if [ ! -x "$SQUEEZ" ]; then
     _sq=$(command -v squeez 2>/dev/null || true)
@@ -40,39 +22,9 @@ printf '%s' "$_payload" | "$SQUEEZ" compact-summary --session-start 2>/dev/null 
 # session (#286), so it can be tied back to the chat that started it.
 printf '%s' "$_payload" | "$SQUEEZ" init --stdin
 
-# Hook health check — warn if squeez hooks were removed from settings.json
+# Hook health check: warn if squeez hooks were removed from settings.json
 # (e.g. by another tool like OMC that overwrites the file on setup).
-_settings="$HOME/.claude/settings.json"
-if [ -f "$_settings" ]; then
-    _has_squeez=$("$SQUEEZ_PY" -c "
-import json, sys
-HOOK_EVENTS = ('PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop')
-try:
-    d = json.load(open(sys.argv[1]))
-    if not isinstance(d, dict):
-        print('ok'); sys.exit(0)
-    # Squeez writes hooks at top-level event keys; some other tools nest under 'hooks.*'.
-    # Check both shapes plus the statusLine slot.
-    candidates = [d.get('hooks', {}) if isinstance(d.get('hooks'), dict) else {}]
-    candidates.append({k: d.get(k) for k in HOOK_EVENTS if k in d})
-    for bucket in candidates:
-        for entries in bucket.values():
-            for e in (entries if isinstance(entries, list) else []):
-                for h in (e.get('hooks', []) if isinstance(e, dict) else []):
-                    if 'squeez' in str(h.get('command', '')):
-                        print('ok'); sys.exit(0)
-    sl = d.get('statusLine', {})
-    if isinstance(sl, dict) and 'squeez' in str(sl.get('command', '')):
-        print('ok'); sys.exit(0)
-    print('missing')
-except Exception:
-    print('ok')
-" "$_settings" 2>/dev/null || echo "ok")
-    if [ "$_has_squeez" = "missing" ]; then
-        printf '\n[squeez] WARNING: hooks not registered in %s\n' "$_settings"
-        printf '[squeez] Another tool may have overwritten your settings. Run: squeez setup\n\n'
-    fi
-fi
+"$SQUEEZ" hook settings-check 2>/dev/null || true
 
 # Rate-limited update check (at most once per day).
 # Outputs a notification when a new squeez version is available.

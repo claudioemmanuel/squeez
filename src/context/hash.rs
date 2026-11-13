@@ -5,7 +5,12 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 pub fn fnv1a_64(bytes: &[u8]) -> u64 {
-    let mut h = FNV_OFFSET;
+    fnv1a_extend(FNV_OFFSET, bytes)
+}
+
+/// Continue an FNV-1a hash over more bytes, so pieces can be hashed as if
+/// concatenated without building the concatenation.
+fn fnv1a_extend(mut h: u64, bytes: &[u8]) -> u64 {
     for &b in bytes {
         h ^= b as u64;
         h = h.wrapping_mul(FNV_PRIME);
@@ -31,27 +36,28 @@ pub const SHINGLE_K: usize = 96;
 /// The bottom-k subset of two sets approximates Jaccard well when k is much
 /// smaller than the universe size, which holds for typical command output.
 pub fn shingle_minhash(text: &str) -> Vec<u64> {
-    let tokens: Vec<&str> = text.split_whitespace().collect();
-    if tokens.len() < 3 {
+    // Bottom-k of the distinct trigram hashes, streamed: a trigram is hashed
+    // byte-for-byte as "w0 w1 w2" without building the string, and only a
+    // hash below the current k-th smallest touches the (≤k) kept set. O(n)
+    // time, O(k) space — the old collect-sort-dedup-truncate was O(n log n)
+    // time and O(n) space for the same result.
+    let mut toks = text.split_whitespace();
+    let (Some(mut a), Some(mut b)) = (toks.next(), toks.next()) else {
         return Vec::new();
+    };
+    let mut kept: Vec<u64> = Vec::with_capacity(SHINGLE_K + 1);
+    for c in toks {
+        let h = [a, " ", b, " ", c].iter().fold(FNV_OFFSET, |h, part| fnv1a_extend(h, part.as_bytes()));
+        (a, b) = (b, c);
+        if kept.len() == SHINGLE_K && h >= kept[SHINGLE_K - 1] {
+            continue;
+        }
+        if let Err(pos) = kept.binary_search(&h) {
+            kept.insert(pos, h);
+            kept.truncate(SHINGLE_K);
+        }
     }
-    let mut hashes: Vec<u64> = Vec::with_capacity(tokens.len().saturating_sub(2));
-    for w in tokens.windows(3) {
-        // Build a trigram with single-space joiner; w has length 3.
-        let mut buf = String::with_capacity(w[0].len() + w[1].len() + w[2].len() + 2);
-        buf.push_str(w[0]);
-        buf.push(' ');
-        buf.push_str(w[1]);
-        buf.push(' ');
-        buf.push_str(w[2]);
-        hashes.push(fnv1a_64(buf.as_bytes()));
-    }
-    hashes.sort_unstable();
-    hashes.dedup();
-    if hashes.len() > SHINGLE_K {
-        hashes.truncate(SHINGLE_K);
-    }
-    hashes
+    kept
 }
 
 /// Jaccard similarity of two **sorted, deduplicated** `u64` slices,
@@ -132,6 +138,33 @@ mod tests {
         let s = shingle_minhash(&text);
         assert!(s.len() <= SHINGLE_K, "got {} shingles", s.len());
         assert!(s.windows(2).all(|w| w[0] < w[1]), "sketch must be sorted+dedup");
+    }
+
+    /// The original collect → sort → dedup → truncate sketch. Sketches are
+    /// persisted in `context.json`, so the streamed version must match it
+    /// exactly or old sessions stop deduping against new calls.
+    fn reference_minhash(text: &str) -> Vec<u64> {
+        let tokens: Vec<&str> = text.split_whitespace().collect();
+        if tokens.len() < 3 {
+            return Vec::new();
+        }
+        let mut hashes: Vec<u64> = tokens
+            .windows(3)
+            .map(|w| fnv1a_64(format!("{} {} {}", w[0], w[1], w[2]).as_bytes()))
+            .collect();
+        hashes.sort_unstable();
+        hashes.dedup();
+        hashes.truncate(SHINGLE_K);
+        hashes
+    }
+
+    #[test]
+    fn shingle_minhash_matches_reference() {
+        let repeated = "same line again\n".repeat(500);
+        let big: String = (0..5000).map(|i| format!("row {} val={} ok\n", i % 300, i % 7)).collect();
+        for text in ["", "a b", "a b c", "a b c d e f g", repeated.as_str(), big.as_str()] {
+            assert_eq!(shingle_minhash(text), reference_minhash(text), "input len {}", text.len());
+        }
     }
 
     #[test]

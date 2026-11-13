@@ -197,9 +197,6 @@ fn codex_install_registers_bash_prefixed_command() {
 // install must now upgrade that command in place instead of leaving it dead.
 #[test]
 fn codex_install_heals_prior_bare_path_command() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         std::fs::create_dir_all(home.join(".codex")).unwrap();
         let hooks_dir = home.join(".codex/squeez/hooks");
@@ -231,7 +228,9 @@ fn fake_squeez(home: &PathBuf) -> PathBuf {
     let bin = home.join(".claude/squeez/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let p = bin.join("squeez");
-    std::fs::write(&p, "#!/bin/sh\nexit 0\n").unwrap();
+    // The scripts only find the binary; the logic is `squeez hook …`, so a
+    // stub would make every script test vacuous. Point at the real one.
+    std::fs::write(&p, format!("#!/bin/sh\nexec '{}' \"$@\"\n", env!("CARGO_BIN_EXE_squeez"))).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -247,6 +246,8 @@ fn run_hook(script: &str, home: &PathBuf, stdin: &str) -> std::process::Output {
         .arg(format!("hooks/{script}"))
         .env("HOME", home)
         .env_remove("USERPROFILE")
+        .env_remove("SQUEEZ_DIR")
+        .env_remove("SQUEEZ_BIN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -263,9 +264,6 @@ fn run_hook(script: &str, home: &PathBuf, stdin: &str) -> std::process::Output {
 
 #[test]
 fn codex_pretooluse_emits_current_hookspecificoutput_shape() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls -la"}}"#;
@@ -285,9 +283,6 @@ fn codex_pretooluse_emits_current_hookspecificoutput_shape() {
 
 #[test]
 fn codex_pretooluse_ignores_non_shell_tool() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"read_file","tool_input":{"path":"/etc/hosts"}}"#;
@@ -299,9 +294,6 @@ fn codex_pretooluse_ignores_non_shell_tool() {
 
 #[test]
 fn codex_posttooluse_is_silent_on_success() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"tool_name":"Bash","tool_result":{"content":"ok"}}"#;
@@ -313,30 +305,26 @@ fn codex_posttooluse_is_silent_on_success() {
 
 /// #278: the payload was handed to `subprocess.run(input=…)` as a str without
 /// `text=True`, so Python 3 raised a TypeError that the bare `except` swallowed
-/// and `track-result` never ran. Proven by what the binary actually received.
+/// and `track-result` never ran. Proven by the state it leaves under Codex's
+/// own SQUEEZ_DIR: the call is counted and the non-ASCII text was measured.
 #[test]
-fn codex_posttooluse_hands_the_payload_to_track_result() {
-    if python3_missing() {
-        return;
-    }
+fn codex_posttooluse_records_the_result_in_codex_state() {
     with_home(|home| {
-        let bin = fake_squeez(home);
-        let log = home.join("track.log");
-        std::fs::write(&bin, format!("#!/bin/sh\necho \"$*\" > '{0}'\ncat >> '{0}'\n", log.display())).unwrap();
+        fake_squeez(home);
         let payload = r#"{"tool_name":"Bash","tool_result":{"content":"café ok"}}"#;
         let out = run_hook("codex-posttooluse.sh", home, payload);
         assert!(out.status.success());
-        let got = std::fs::read_to_string(&log).expect("track-result must be invoked");
-        assert!(got.starts_with("track-result Bash\n"), "got: {got}");
-        assert!(got.contains(payload), "payload must reach track-result: {got}");
+        assert!(out.stdout.is_empty(), "tracking hook must stay silent");
+        let ctx = std::fs::read_to_string(home.join(".codex/squeez/sessions/context.json"))
+            .expect("track-result must write Codex state");
+        assert!(ctx.contains("\"call_counter\":1"), "call not recorded: {ctx}");
+        assert!(!ctx.contains("\"tokens_bash\":0,"), "payload text not measured: {ctx}");
+        assert!(!home.join(".claude/squeez/sessions/context.json").exists(), "leaked into Claude state");
     });
 }
 
 #[test]
 fn codex_session_start_wraps_context_when_present() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let out = run_hook("codex-session-start.sh", home, "");
@@ -355,9 +343,6 @@ fn codex_session_start_wraps_context_when_present() {
 
 #[test]
 fn codex_pretooluse_strips_no_squeez_marker() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"--no-squeez cargo test"}}"#;
@@ -375,9 +360,6 @@ fn codex_pretooluse_strips_no_squeez_marker() {
 
 #[test]
 fn codex_pretooluse_strips_no_squeez_with_extra_space() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"hook_event_name":"PreToolUse","tool_name":"Shell","tool_input":{"command":"--no-squeez  sqlite3 db.sqlite 'SELECT 1'"}}"#;

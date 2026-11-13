@@ -221,7 +221,9 @@ fn fake_squeez(home: &std::path::Path) -> std::path::PathBuf {
     let bin = home.join(".claude/squeez/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let p = bin.join("squeez");
-    std::fs::write(&p, "#!/bin/sh\nexit 0\n").unwrap();
+    // The scripts only find the binary; the logic is `squeez hook …`, so a
+    // stub would make every script test vacuous. Point at the real one.
+    std::fs::write(&p, format!("#!/bin/sh\nexec '{}' \"$@\"\n", env!("CARGO_BIN_EXE_squeez"))).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -237,6 +239,8 @@ fn run_hook(script: &str, home: &std::path::Path, stdin: &str) -> std::process::
         .arg(format!("hooks/{script}"))
         .env("HOME", home)
         .env_remove("USERPROFILE")
+        .env_remove("SQUEEZ_DIR")
+        .env_remove("SQUEEZ_BIN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -251,31 +255,20 @@ fn run_hook(script: &str, home: &std::path::Path, stdin: &str) -> std::process::
     child.wait_with_output().unwrap()
 }
 
-fn python3_missing() -> bool {
-    std::process::Command::new("python3")
-        .arg("--version")
-        .status()
-        .map(|s| !s.success())
-        .unwrap_or(true)
-}
 
 /// #278: same str-without-`text=True` TypeError as Codex's PostToolUse hook —
-/// swallowed by the bare `except`, so `track-result` never ran.
+/// swallowed by the bare `except`, so `track-result` never ran. Proven by the
+/// state it leaves under Gemini's own SQUEEZ_DIR.
 #[test]
-fn gemini_after_tool_hands_the_payload_to_track_result() {
-    if python3_missing() {
-        return;
-    }
+fn gemini_after_tool_records_the_result_in_gemini_state() {
     with_home(|home| {
-        let bin = fake_squeez(home);
-        let log = home.join("track.log");
-        std::fs::write(&bin, format!("#!/bin/sh\necho \"$*\" > '{0}'\ncat >> '{0}'\n", log.display())).unwrap();
+        fake_squeez(home);
         let payload = r#"{"tool_name":"run_shell_command","tool_response":{"llmContent":"café ok"}}"#;
         let out = run_hook("gemini-after-tool.sh", home, payload);
         assert!(out.status.success());
-        let got = std::fs::read_to_string(&log).expect("track-result must be invoked");
-        assert!(got.starts_with("track-result run_shell_command\n"), "got: {got}");
-        assert!(got.contains(payload), "payload must reach track-result: {got}");
+        let ctx = std::fs::read_to_string(home.join(".gemini/squeez/sessions/context.json"))
+            .expect("track-result must write Gemini state");
+        assert!(ctx.contains("\"call_counter\":1"), "call not recorded: {ctx}");
     });
 }
 
@@ -283,9 +276,6 @@ fn gemini_after_tool_hands_the_payload_to_track_result() {
 
 #[test]
 fn gemini_before_tool_strips_no_squeez_marker() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"tool_name":"bash","tool_input":{"command":"--no-squeez cargo test"}}"#;
@@ -301,9 +291,6 @@ fn gemini_before_tool_strips_no_squeez_marker() {
 
 #[test]
 fn gemini_before_tool_strips_no_squeez_with_extra_space() {
-    if python3_missing() {
-        return;
-    }
     with_home(|home| {
         fake_squeez(home);
         let payload = r#"{"tool_name":"run_shell_command","tool_input":{"command":"--no-squeez  echo hi"}}"#;
