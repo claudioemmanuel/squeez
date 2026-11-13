@@ -342,6 +342,8 @@ fn kill_tree(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+/// Ceiling of the exit-poll backoff in `spawn_and_capture`.
+const MAX_EXIT_POLL: Duration = Duration::from_millis(10);
 /// How long the readers get to collect output after a timeout kill.
 const TIMEOUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
 /// Minimum time the readers get to reach EOF after the command exits.
@@ -413,6 +415,11 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
     // Poll for exit with the configured timeout
     let call_start = Instant::now();
     let timeout = Duration::from_secs(timeout_secs);
+    // Exponential backoff, 1ms → 10ms. A fixed 50ms poll made every command
+    // cost up to 50ms (25ms on average) after it had already exited — most
+    // agent Bash calls finish in a few ms. `try_wait` is one non-blocking
+    // waitpid, so 100 wake-ups/s on a long command is negligible CPU.
+    let mut poll = Duration::from_millis(1);
     let exit_code = loop {
         match child.try_wait() {
             Ok(Some(s)) => break s.code().unwrap_or(1),
@@ -446,7 +453,8 @@ fn spawn_and_capture(cmd_str: &str, env_vars: &[(&str, &str)], timeout_secs: u64
                         combined: merge_captured(&stderr_buf, &stdout_buf),
                     };
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(poll);
+                poll = (poll * 2).min(MAX_EXIT_POLL);
             }
             Err(e) => {
                 eprintln!("squeez: wait error: {}", e);
