@@ -1,6 +1,6 @@
 [package]
 name = "squeez"
-version = "1.49.2"
+version = "1.49.3"
 edition = "2021"
 description = "Zero-runtime-dependency token compressor for 7 AI CLI hosts (Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes). Up to 95% bash compression, reversible via squeez_retrieve, refuses net-loss compressions, cross-call dedup, signature-mode code reads, MCP server. One static binary."
 repository = "https://github.com/claudioemmanuel/squeez"
