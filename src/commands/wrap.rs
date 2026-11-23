@@ -544,6 +544,13 @@ pub fn run(cmd_str: &str) -> i32 {
     } else {
         crate::commands::flag_force::ENV_VARS
     };
+    // Tell the command it is running for an agent (AI_AGENT convention),
+    // unless something already did. Inherited by the child process.
+    if flag_force_tier != "off" {
+        if let Some(v) = crate::commands::flag_force::agent_signal(|k| std::env::var(k).ok()) {
+            std::env::set_var("AI_AGENT", v);
+        }
+    }
     let mut spawn_cmd = cmd_str.to_string();
     let mut forced_label: Option<String> = None;
     // `git status --porcelain=v1 -b` is the one injection allowed at the

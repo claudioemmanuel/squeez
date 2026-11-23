@@ -33,6 +33,23 @@ pub const ENV_VARS: &[(&str, &str)] = &[
     ("FORCE_COLOR", "0"),
 ];
 
+/// The `AI_AGENT` value to give a wrapped command, or `None` to leave the
+/// environment alone. `AI_AGENT` / `AGENT` is the emerging convention a CLI
+/// reads to pick agent-friendly output (compact tables, no prompts, no
+/// progress bars): the agents.md `AGENT` proposal, agenthint, DuckDB's CLI
+/// agent mode. An existing value is
+/// never overridden; otherwise the host's own signal is forwarded, and a
+/// wrapped command is by definition run for an agent.
+pub fn agent_signal(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if get("AI_AGENT").is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    let agent = get("AGENT").filter(|v| !v.is_empty());
+    Some(agent.unwrap_or_else(|| {
+        if get("CLAUDECODE").is_some() { "claude-code" } else { "squeez" }.to_string()
+    }))
+}
+
 /// True when `cmd` contains a shell construct that makes it unsafe to
 /// append a flag to the string -- the flag could land on the wrong command
 /// in a pipeline, get redirected away, or run inside an unrelated subshell.
@@ -141,6 +158,18 @@ pub fn looks_like_unrecognized_option(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn agent_signal_never_overrides_and_forwards_the_host() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+        };
+        assert_eq!(agent_signal(env(&[("AI_AGENT", "goose")])), None);
+        assert_eq!(agent_signal(env(&[("AGENT", "amp")])).as_deref(), Some("amp"));
+        assert_eq!(agent_signal(env(&[("CLAUDECODE", "1")])).as_deref(), Some("claude-code"));
+        assert_eq!(agent_signal(env(&[])).as_deref(), Some("squeez"));
+    }
+
     use super::*;
 
     #[test]
