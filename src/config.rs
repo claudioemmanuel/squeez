@@ -164,6 +164,11 @@ pub struct Config {
     /// Images in MCP tool results whose long edge exceeds this are downscaled
     /// to it (image tokens ≈ width × height / 750). 0 = disabled. Default 1024.
     pub image_max_edge: u32,
+    /// Share of the context window in use (0–1) above which a Bash call to a
+    /// program that has averaged `budget_advice_min_tokens` per call gets a
+    /// one-time advisory. 0 = disabled. Default 0.7.
+    pub budget_advice_pct: f32,
+    pub budget_advice_min_tokens: u64,
     /// A handler whose stashed originals are retrieved at least this often per
     /// call (after 5 calls) is compressed one intensity level lighter.
     /// 0 = disabled. Default 0.2.
@@ -348,6 +353,8 @@ impl Default for Config {
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
             image_max_edge: 1024,
+            budget_advice_pct: 0.7,
+            budget_advice_min_tokens: 1500,
             retrieve_soften_rate: 0.2,
             quota_error_threshold: 2,
             doctor_stale_days: 3,
@@ -575,6 +582,10 @@ impl Config {
                     }
                     "retrieve_soften_rate" => {
                         c.retrieve_soften_rate = v.parse().unwrap_or(c.retrieve_soften_rate)
+                    }
+                    "budget_advice_pct" => c.budget_advice_pct = v.parse().unwrap_or(c.budget_advice_pct),
+                    "budget_advice_min_tokens" => {
+                        c.budget_advice_min_tokens = v.parse().unwrap_or(c.budget_advice_min_tokens)
                     }
                     "image_max_edge" => c.image_max_edge = v.parse().unwrap_or(c.image_max_edge),
                     "subagent_result_warn_tokens" => {

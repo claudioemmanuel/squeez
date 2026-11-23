@@ -198,16 +198,28 @@ pub(super) fn pre_bash(d: &mut JsonValue, env: &HookEnv, cfg: &Config) -> Option
     if cmd.starts_with(&env.squeez_bin) {
         return None;
     }
+    // Budget advisor: a nearly full window and a program that has been
+    // expensive here before. Rides with this call's result.
+    let advice = {
+        let n = crate::filter::dispatch_name(&cmd);
+        let n = if n.is_empty() { cmd.split_whitespace().next().unwrap_or("").to_string() } else { n };
+        let mut out = None;
+        isolated(|| {
+            out = crate::economy::budget_advisor::advise_once(&env.sessions_dir, &n, cfg);
+            0
+        });
+        out
+    };
     if let Some(rest) = cmd.strip_prefix("--no-squeez ") {
         input.set("command", JsonValue::Str(rest.to_string()));
-        return Some(allow(input));
+        return Some(with_context(allow(input), advice.as_deref()));
     }
     // Security gate (#150): only rewrite to `squeez wrap …` when squeez deems
     // it safe. Risky (rm -rf, git push --force, …), bypassed, or wrap-disabled
     // commands are left UNTOUCHED — no updatedInput, no permissionDecision — so
     // the host evaluates the user's native deny/ask rules against the original.
     if !cfg.should_wrap_bash(&cmd) {
-        return None;
+        return advice.map(|a| context_only(&a));
     }
     // `--session` keeps the wrap process on this session's context file.
     let session = crate::context::cache::session_key()
@@ -215,7 +227,29 @@ pub(super) fn pre_bash(d: &mut JsonValue, env: &HookEnv, cfg: &Config) -> Option
         .unwrap_or_default();
     let wrapped = format!("{} wrap {}{}", env.squeez_bin, session, shell_quote(&cmd));
     input.set("command", JsonValue::Str(wrapped));
-    Some(allow(input))
+    Some(with_context(allow(input), advice.as_deref()))
+}
+
+/// A PreToolUse output carrying only `additionalContext`: the call is left to
+/// the host's own permission rules.
+fn context_only(text: &str) -> String {
+    json_util::to_compact(&JsonValue::Obj(vec![(
+        "hookSpecificOutput".into(),
+        JsonValue::Obj(vec![
+            ("hookEventName".into(), JsonValue::Str("PreToolUse".into())),
+            ("additionalContext".into(), JsonValue::Str(text.to_string())),
+        ]),
+    )]))
+}
+
+/// Add `additionalContext` to a PreToolUse output built by [`allow`].
+fn with_context(out: String, text: Option<&str>) -> String {
+    let Some(text) = text else { return out };
+    let Some(mut v) = json_util::parse_value(&out) else { return out };
+    if let Some(h) = v.get_mut("hookSpecificOutput") {
+        h.set("additionalContext", JsonValue::Str(text.to_string()));
+    }
+    json_util::to_compact(&v)
 }
 
 /// Read/Grep/Glob: inject the configured limits, never overriding a value the
