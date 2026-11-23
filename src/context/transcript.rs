@@ -275,6 +275,20 @@ pub fn detect_window_in(text: &str) -> Option<u64> {
     None
 }
 
+/// Model id of the most recent main-thread assistant turn in `text`.
+pub fn detect_model_in(text: &str) -> Option<String> {
+    text.lines()
+        .rev()
+        .filter(|l| l.contains("\"type\":\"assistant\"") && !l.contains("\"isSidechain\":true"))
+        .find_map(|l| extract_str(l, "model"))
+        .filter(|m| m.starts_with("claude-"))
+}
+
+/// [`detect_model_in`] over the tail of the transcript at `path`.
+pub fn detect_model(path: &Path) -> Option<String> {
+    detect_model_in(&tail_read(path)?)
+}
+
 /// Detect the host's context window from the transcript at `path`.
 ///
 /// The model-identity record is authoritative and is checked first: in the
@@ -384,6 +398,15 @@ mod tests {
         // Unknown model id (0) defaults to standard, still promotes on ceiling.
         assert_eq!(infer_window(0, 50_000), 200_000);
         assert_eq!(infer_window(0, 250_000), 1_000_000);
+    }
+
+    #[test]
+    fn detect_model_skips_sidechains_and_takes_latest() {
+        let t = "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-sonnet-5-5\"}}\n\
+                 {\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-5-5\"}}\n\
+                 {\"isSidechain\":true,\"type\":\"assistant\",\"message\":{\"model\":\"claude-haiku-5-5\"}}\n";
+        assert_eq!(detect_model_in(t).as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(detect_model_in("{\"type\":\"user\"}"), None);
     }
 
     #[test]

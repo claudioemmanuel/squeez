@@ -62,6 +62,9 @@ pub fn run_with_dir_cfg(tool: &str, raw: &str, sessions_dir: &Path, cfg: &Config
         // context: any context >200K can only be the 1M tier. `transcript_path`
         // is read above, so `real_ctx_tokens` is already current here.
         let model_window = crate::context::transcript::detect_window(path).unwrap_or(0);
+        if let Some(m) = crate::context::transcript::detect_model(path) {
+            ctx.last_model = m;
+        }
         // Monotonic: a window never shrinks mid-session, and real_ctx_tokens
         // fluctuates turn-to-turn (cache dynamics). Once any turn proves the 1M
         // tier (>200K observed), stay there rather than dropping back to 200K.

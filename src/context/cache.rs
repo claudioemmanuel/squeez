@@ -206,6 +206,9 @@ pub struct SessionContext {
     /// window instead of the legacy 112.5K default. `context_window_tokens`
     /// config still overrides it.
     pub real_ctx_window: u64,
+    /// Model id of the latest main-thread assistant turn (`squeez receipt`
+    /// prices savings at this model's input rate).
+    pub last_model: String,
     /// `cache_read_input_tokens` of the latest measured API turn. Used to
     /// compute the cache-read:I/O ratio for context-leak detection (G1).
     /// 0 = not yet measured.
@@ -320,6 +323,7 @@ impl Default for SessionContext {
             read_dedup_call: Vec::new(),
             real_ctx_tokens: 0,
             real_ctx_window: 0,
+            last_model: String::new(),
             real_cache_read_tokens: 0,
             calls_this_minute: 0,
             calls_minute_ts: 0,
@@ -571,6 +575,15 @@ fn read_context_file(path: &Path) -> Option<SessionContext> {
 impl SessionContext {
     pub fn load(sessions_dir: &Path) -> Self {
         Self::load_keyed(sessions_dir, session_key().as_deref())
+    }
+
+    /// The context of this process's session, or — for a process bound to no
+    /// session (a command run by hand) — the most recently written one.
+    pub fn load_current_or_latest(sessions_dir: &Path) -> Self {
+        match session_key() {
+            Some(_) => Self::load(sessions_dir),
+            None => read_context_file(&latest_context_path(sessions_dir)).unwrap_or_default(),
+        }
     }
 
     /// Load the context of session `key` (`None` = the global file). A
@@ -1522,7 +1535,7 @@ impl SessionContext {
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
 \"dedup_floor_call\":{},\
 \"read_dedup_path\":{},\"read_dedup_fp\":{},\"read_dedup_call\":{},\
-\"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
+\"real_ctx_tokens\":{},\"real_ctx_window\":{},\"last_model\":\"{}\",\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
@@ -1577,6 +1590,7 @@ impl SessionContext {
             json_util::u64_array(&self.read_dedup_call),
             self.real_ctx_tokens,
             self.real_ctx_window,
+            json_util::escape_str(&self.last_model),
             self.real_cache_read_tokens,
             self.calls_this_minute,
             self.calls_minute_ts,
@@ -1768,6 +1782,7 @@ impl SessionContext {
         // backward compat with older context.json files.
         c.real_ctx_tokens = json_util::map_u64(&map, "real_ctx_tokens").unwrap_or(0);
         c.real_ctx_window = json_util::map_u64(&map, "real_ctx_window").unwrap_or(0);
+        c.last_model = json_util::map_str(&map, "last_model").unwrap_or_default();
         c.real_cache_read_tokens = json_util::map_u64(&map, "real_cache_read_tokens").unwrap_or(0);
         c.calls_this_minute = json_util::map_u64(&map, "calls_this_minute").unwrap_or(0) as u32;
         c.calls_minute_ts = json_util::map_u64(&map, "calls_minute_ts").unwrap_or(0);
@@ -1934,9 +1949,11 @@ mod tests {
         let mut c = SessionContext::default();
         c.real_ctx_tokens = 286_129;
         c.real_ctx_window = 1_000_000;
+        c.last_model = "claude-opus-5-5".to_string();
         let restored = SessionContext::from_json(&c.to_json());
         assert_eq!(restored.real_ctx_tokens, 286_129);
         assert_eq!(restored.real_ctx_window, 1_000_000);
+        assert_eq!(restored.last_model, "claude-opus-5-5");
     }
 
     #[test]
