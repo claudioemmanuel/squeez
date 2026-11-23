@@ -6,6 +6,7 @@ pub trait Handler {
 
 pub mod compress_output;
 pub mod receipt;
+pub mod discover_suggest;
 pub mod image_diet;
 pub mod build;
 pub mod cloud;

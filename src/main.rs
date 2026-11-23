@@ -135,6 +135,9 @@ fn main() {
             std::process::exit(squeez::economy::budget::run(&rest));
         }
         Some("discover") => {
+            if args.iter().any(|a| a == "--suggest") {
+                std::process::exit(squeez::commands::discover_suggest::run(&args[2..]));
+            }
             std::process::exit(squeez::commands::discover::run());
         }
         Some("filter-test") => {

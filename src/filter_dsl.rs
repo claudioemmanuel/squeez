@@ -321,7 +321,7 @@ fn project_filters_path() -> PathBuf {
     PathBuf::from(".squeez").join("filters.ini")
 }
 
-fn user_filters_path() -> PathBuf {
+pub fn user_filters_path() -> PathBuf {
     crate::session::squeez_dir().join("filters.ini")
 }
 
