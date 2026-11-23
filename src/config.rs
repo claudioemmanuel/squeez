@@ -161,6 +161,10 @@ pub struct Config {
     /// Images in MCP tool results whose long edge exceeds this are downscaled
     /// to it (image tokens ≈ width × height / 750). 0 = disabled. Default 1024.
     pub image_max_edge: u32,
+    /// A handler whose stashed originals are retrieved at least this often per
+    /// call (after 5 calls) is compressed one intensity level lighter.
+    /// 0 = disabled. Default 0.2.
+    pub retrieve_soften_rate: f32,
     /// Occurrence count at which a repeated quota/plan-limit error (e.g.
     /// "rate limit", "upgrade your plan") triggers a stop-retrying warning.
     /// Lower than `nudge_error_threshold` because quota errors are never
@@ -340,6 +344,7 @@ impl Default for Config {
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
             image_max_edge: 1024,
+            retrieve_soften_rate: 0.2,
             quota_error_threshold: 2,
             doctor_stale_days: 3,
             cache_idle_warn_secs: 270,
@@ -562,6 +567,9 @@ impl Config {
                     "amplification_min_call_tokens" => {
                         c.amplification_min_call_tokens =
                             v.parse().unwrap_or(c.amplification_min_call_tokens)
+                    }
+                    "retrieve_soften_rate" => {
+                        c.retrieve_soften_rate = v.parse().unwrap_or(c.retrieve_soften_rate)
                     }
                     "image_max_edge" => c.image_max_edge = v.parse().unwrap_or(c.image_max_edge),
                     "subagent_result_warn_tokens" => {

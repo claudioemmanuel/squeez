@@ -841,7 +841,17 @@ fn tool_retrieve(key: &str, start_line: Option<usize>, count: Option<usize>) -> 
     if key.is_empty() {
         return "squeez_retrieve: missing 'key' — pass the id from a [squeez: ... key=\"<id>\"] marker.".to_string();
     }
-    match crate::context::retrieve::retrieve_checked(key) {
+    let found = crate::context::retrieve::retrieve_checked(key);
+    if matches!(found, RetrieveOutcome::Found(_)) {
+        // The model needed the original: credit the handler that cut it.
+        if let Some(handler) = crate::context::retrieve::take_first_retrieve(key) {
+            let dir = crate::session::sessions_dir();
+            let mut stats = crate::economy::handler_stats::HandlerStats::load(&dir);
+            stats.record_retrieve(&handler);
+            stats.save(&dir);
+        }
+    }
+    match found {
         RetrieveOutcome::Found(original) if start_line.is_none() && count.is_none() => original,
         RetrieveOutcome::Found(original) => slice_lines(&original, start_line, count),
         RetrieveOutcome::NotFound => format!(
