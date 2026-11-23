@@ -27,6 +27,9 @@ pub struct Config {
     /// of `redundancy_cache_enabled` only in the off direction: it requires
     /// that flag too. Kill-switch for the store without a rebuild.
     pub read_dedup_session_long: bool,
+    /// Re-read of a file whose earlier full read is still in context and that
+    /// changed in one small region: send the hunk, not the file (`read_diff`).
+    pub read_diff_enabled: bool,
     pub summarize_threshold_lines: usize,
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
@@ -302,6 +305,7 @@ impl Default for Config {
             context_cache_enabled: true,
             redundancy_cache_enabled: true,
             read_dedup_session_long: true,
+            read_diff_enabled: true,
             summarize_threshold_lines: 300,
             persona: Persona::Ultra,
             focus: Focus::Off,
@@ -449,6 +453,7 @@ impl Config {
                     "context_cache_enabled" => c.context_cache_enabled = v == "true",
                     "redundancy_cache_enabled" => c.redundancy_cache_enabled = v == "true",
                     "read_dedup_session_long" => c.read_dedup_session_long = v == "true",
+                    "read_diff_enabled" => c.read_diff_enabled = v == "true",
                     "summarize_threshold_lines" => {
                         c.summarize_threshold_lines =
                             v.parse().unwrap_or(c.summarize_threshold_lines)

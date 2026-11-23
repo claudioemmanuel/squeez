@@ -2,6 +2,7 @@ pub mod cache;
 pub mod factsheet;
 pub mod hash;
 pub mod intensity;
+pub mod read_diff;
 pub mod redundancy;
 pub mod retrieve;
 pub mod sensitive;

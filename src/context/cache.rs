@@ -194,6 +194,11 @@ pub struct SessionContext {
     pub read_dedup_fp: Vec<u64>,
     /// `call_n` of the FIRST read for each (path, fingerprint) pair.
     pub read_dedup_call: Vec<u64>,
+    /// Latest full read per path (`read_diff`): path, stash id of the content
+    /// the model was shown, and its call number. Parallel, capped.
+    pub read_snap_path: Vec<String>,
+    pub read_snap_blob: Vec<String>,
+    pub read_snap_call: Vec<u64>,
     // ── Real-context tracking (transcript audit CF-1) ──────────────────────
     /// Effective context tokens of the latest API turn, measured from the
     /// host transcript's `message.usage` (input + cache_read + cache_creation).
@@ -321,6 +326,9 @@ impl Default for SessionContext {
             read_dedup_path: Vec::new(),
             read_dedup_fp: Vec::new(),
             read_dedup_call: Vec::new(),
+            read_snap_path: Vec::new(),
+            read_snap_blob: Vec::new(),
+            read_snap_call: Vec::new(),
             real_ctx_tokens: 0,
             real_ctx_window: 0,
             last_model: String::new(),
@@ -938,6 +946,35 @@ impl SessionContext {
     /// is a real change, same content at a different path is a different
     /// answer to a different question. Never cites a call at or below
     /// `dedup_floor_call`.
+    /// The stash id and call of the latest full read of `path` that is still
+    /// in the model's context (above the dedup floor).
+    pub fn read_snap_lookup(&self, path: &str) -> Option<(String, u64)> {
+        let i = self.read_snap_path.iter().rposition(|p| p == path)?;
+        let call = *self.read_snap_call.get(i)?;
+        (call > self.dedup_floor_call).then(|| (self.read_snap_blob.get(i).cloned().unwrap_or_default(), call))
+    }
+
+    /// Remember the content shown for a full read of `path` (one entry per path).
+    pub fn read_snap_record(&mut self, path: &str, blob: &str, call_n: u64) {
+        let n = self.read_snap_path.len().min(self.read_snap_blob.len()).min(self.read_snap_call.len());
+        self.read_snap_path.truncate(n);
+        self.read_snap_blob.truncate(n);
+        self.read_snap_call.truncate(n);
+        if let Some(i) = self.read_snap_path.iter().position(|p| p == path) {
+            self.read_snap_path.remove(i);
+            self.read_snap_blob.remove(i);
+            self.read_snap_call.remove(i);
+        }
+        self.read_snap_path.push(path.to_string());
+        self.read_snap_blob.push(blob.to_string());
+        self.read_snap_call.push(call_n);
+        if self.read_snap_path.len() > 64 {
+            self.read_snap_path.remove(0);
+            self.read_snap_blob.remove(0);
+            self.read_snap_call.remove(0);
+        }
+    }
+
     pub fn read_dedup_lookup(&self, path: &str, fp: u64) -> Option<u64> {
         self.read_dedup_path
             .iter()
@@ -1535,6 +1572,7 @@ impl SessionContext {
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
 \"dedup_floor_call\":{},\
 \"read_dedup_path\":{},\"read_dedup_fp\":{},\"read_dedup_call\":{},\
+\"read_snap_path\":{},\"read_snap_blob\":{},\"read_snap_call\":{},\
 \"real_ctx_tokens\":{},\"real_ctx_window\":{},\"last_model\":\"{}\",\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
@@ -1588,6 +1626,9 @@ impl SessionContext {
             json_util::str_array(&self.read_dedup_path),
             json_util::u64_array(&self.read_dedup_fp),
             json_util::u64_array(&self.read_dedup_call),
+            json_util::str_array(&self.read_snap_path),
+            json_util::str_array(&self.read_snap_blob),
+            json_util::u64_array(&self.read_snap_call),
             self.real_ctx_tokens,
             self.real_ctx_window,
             json_util::escape_str(&self.last_model),
@@ -1777,6 +1818,9 @@ impl SessionContext {
         c.read_dedup_path = rd_path.iter().take(rd_len).cloned().collect();
         c.read_dedup_fp = rd_fp.iter().take(rd_len).copied().collect();
         c.read_dedup_call = rd_call.iter().take(rd_len).copied().collect();
+        c.read_snap_path = json_util::map_str_array(&map, "read_snap_path");
+        c.read_snap_blob = json_util::map_str_array(&map, "read_snap_blob");
+        c.read_snap_call = json_util::map_u64_array(&map, "read_snap_call");
 
         // Real-context + pending warnings + image dedup — optional for
         // backward compat with older context.json files.

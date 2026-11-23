@@ -277,6 +277,20 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         }
     }
 
+    // Diff on re-read: the earlier full read of this path is still in the
+    // model's context and the file changed in one small region.
+    let full_read_path = if tool == "Read" && cfg.read_diff_enabled && cfg.redundancy_cache_enabled {
+        full_read_path(raw)
+    } else {
+        None
+    };
+    if let Some(ref path) = full_read_path {
+        if let Some(note) = read_diff_note(&mut ctx, path, &content, &lines, tool, raw, cfg) {
+            ctx.save(sessions_dir);
+            return Some(note);
+        }
+    }
+
     // Redundancy check: if we've seen this content before, replace with a note.
     if cfg.redundancy_cache_enabled {
         if let Some(hit) = context::redundancy::check(&ctx, &lines) {
@@ -346,10 +360,63 @@ pub fn compute_rewrite(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         if let Some((path, fp)) = read_dedup_key {
             ctx.read_dedup_record(&path, fp, call_n);
         }
+        if let Some(path) = full_read_path.filter(|_| lines.len() >= context::read_diff::MIN_LINES) {
+            if let Some(blob) = context::retrieve::store(&content) {
+                ctx.read_snap_record(&path, &blob, call_n);
+            }
+        }
         ctx.save(sessions_dir);
     }
 
     rewritten
+}
+
+/// The file path of a Read that returned the whole file (no offset/limit,
+/// every line), or `None` for a partial read — a diff against a slice would
+/// misstate what the model has seen.
+fn full_read_path(raw: &str) -> Option<String> {
+    let d = crate::json_util::parse_value(raw)?;
+    let input = d.get("tool_input")?;
+    if input.get("offset").is_some() || input.get("limit").is_some() {
+        return None;
+    }
+    let file = d.get("tool_response").or_else(|| d.get("tool_result"))?.get("file")?;
+    let num = file.get("numLines").and_then(|v| v.as_u64());
+    let total = file.get("totalLines").and_then(|v| v.as_u64());
+    if matches!((num, total), (Some(n), Some(t)) if n < t) {
+        return None;
+    }
+    input.get("file_path")?.as_str().map(str::to_string)
+}
+
+/// The hunk note for a re-read of `path`, recording the new snapshot, or
+/// `None` to send the file in full.
+fn read_diff_note(
+    ctx: &mut context::cache::SessionContext,
+    path: &str,
+    content: &str,
+    lines: &[String],
+    tool: &str,
+    raw: &str,
+    cfg: &Config,
+) -> Option<String> {
+    let (blob, prev_call) = ctx.read_snap_lookup(path)?;
+    let old = context::retrieve::retrieve(&blob)?;
+    let d = context::read_diff::region_diff(&old, content)?;
+    let key = context::retrieve::store(content)?;
+    let note = format!(
+        "[squeez: {path} is unchanged since Read #{prev_call} except the hunk below \
+         (now lines {}–{}); full file: squeez_retrieve key=\"{key}\"]\n{}",
+        d.new_start,
+        d.new_start + d.new_len.saturating_sub(1),
+        d.hunk.trim_end()
+    );
+    if !marker_wins(&note, content, cfg) {
+        return None;
+    }
+    let call_n = context::redundancy::record(ctx, &dedup_label(tool, raw), lines);
+    ctx.read_snap_record(path, &key, call_n);
+    Some(note)
 }
 
 /// Session-long exact-hash dedup for image payloads. Returns the replacement
