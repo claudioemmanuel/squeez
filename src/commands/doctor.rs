@@ -421,6 +421,27 @@ fn check_blob_store(squeez_dir: &Path) -> CheckLine {
     ))
 }
 
+/// Host-contract canary: payloads the hooks received without the fields they
+/// read in the last 7 days (see `hook::canary`). A host update that renames a
+/// field makes squeez fail open in silence; this is where that becomes loud.
+fn check_host_contract(squeez_dir: &Path) -> CheckLine {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let hits = crate::commands::hook::canary::recent(&squeez_dir.join("sessions"), now - 7 * 86400);
+    match hits.last() {
+        None => ok("host contract: every hook payload had the expected fields (7 days)"),
+        Some((_, event, problem)) => warn(format!(
+            "host contract: {} payload mismatch(es) in 7 days, latest {}: {} — \
+             the host changed its hook format; run `squeez update`",
+            hits.len(),
+            event,
+            problem
+        )),
+    }
+}
+
 /// Full doctor report. Returns the printable lines and whether any check FAILed.
 pub fn run_with(squeez_dir: &Path, settings_path: &Path, cfg: &Config) -> (Vec<String>, bool) {
     run_with_hosts(squeez_dir, settings_path, cfg, Vec::new())
@@ -444,6 +465,7 @@ fn run_with_hosts(
     checks.extend([
         check_config(cfg),
         check_freshness(squeez_dir, cfg),
+        check_host_contract(squeez_dir),
         check_blob_store(squeez_dir),
     ]);
     let has_fail = checks.iter().any(|c| c.fail);

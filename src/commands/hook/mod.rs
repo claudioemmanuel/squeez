@@ -26,6 +26,7 @@ use crate::economy::budget;
 use crate::json_util::{self, JsonValue};
 use crate::session;
 
+pub mod canary;
 pub mod lifecycle;
 pub mod shell;
 pub mod statusline;
@@ -162,7 +163,14 @@ pub fn pre_tool_use(raw: &str, env: &HookEnv, cfg: &Config) -> Option<String> {
     if raw.trim().is_empty() {
         return None;
     }
-    let mut d = json_util::parse_value(raw)?;
+    let parsed = json_util::parse_value(raw);
+    if let Some(problem) = canary::mismatch("pre-tool-use", raw, parsed.as_ref()) {
+        isolated(|| {
+            canary::record(&env.sessions_dir, "pre-tool-use", &problem, env.now);
+            0
+        });
+    }
+    let mut d = parsed?;
     let tool = d
         .get("tool_name")
         .and_then(JsonValue::as_str)
@@ -364,6 +372,12 @@ pub fn post_tool_use(raw: &str, env: &HookEnv, cfg: &Config) {
         .to_string();
     let size = parsed.as_ref().map(response_len).unwrap_or(0);
     let dir = &env.sessions_dir;
+    if let Some(problem) = canary::mismatch("post-tool-use", raw, parsed.as_ref()) {
+        isolated(|| {
+            canary::record(dir, "post-tool-use", &problem, env.now);
+            0
+        });
+    }
 
     isolated(|| track::run_with_dir(&tool, &size.to_string(), dir));
     if rewritable(&tool) {
