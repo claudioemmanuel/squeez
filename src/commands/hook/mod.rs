@@ -26,6 +26,7 @@ use crate::economy::budget;
 use crate::json_util::{self, JsonValue};
 use crate::session;
 
+pub mod canary;
 pub mod lifecycle;
 pub mod shell;
 pub mod statusline;
@@ -111,6 +112,14 @@ pub fn run(args: &[String]) -> i32 {
     if std::io::stdin().read_to_string(&mut raw).is_err() {
         return 0;
     }
+    // Claude Code events carry the host session id: bind this process to that
+    // session's context file. Other hosts' wrap commands carry no id, so they
+    // stay on the global file.
+    if matches!(event, "pre-tool-use" | "post-tool-use" | "subagent-stop" | "session-context") {
+        if let Some(id) = json_util::extract_str(&raw, "session_id") {
+            crate::context::cache::set_session_key(&id);
+        }
+    }
     let env = HookEnv::from_process();
     let cfg = Config::load();
     let out = match event {
@@ -162,7 +171,14 @@ pub fn pre_tool_use(raw: &str, env: &HookEnv, cfg: &Config) -> Option<String> {
     if raw.trim().is_empty() {
         return None;
     }
-    let mut d = json_util::parse_value(raw)?;
+    let parsed = json_util::parse_value(raw);
+    if let Some(problem) = canary::mismatch("pre-tool-use", raw, parsed.as_ref()) {
+        isolated(|| {
+            canary::record(&env.sessions_dir, "pre-tool-use", &problem, env.now);
+            0
+        });
+    }
+    let mut d = parsed?;
     let tool = d
         .get("tool_name")
         .and_then(JsonValue::as_str)
@@ -182,20 +198,58 @@ pub(super) fn pre_bash(d: &mut JsonValue, env: &HookEnv, cfg: &Config) -> Option
     if cmd.starts_with(&env.squeez_bin) {
         return None;
     }
+    // Budget advisor: a nearly full window and a program that has been
+    // expensive here before. Rides with this call's result.
+    let advice = {
+        let n = crate::filter::dispatch_name(&cmd);
+        let n = if n.is_empty() { cmd.split_whitespace().next().unwrap_or("").to_string() } else { n };
+        let mut out = None;
+        isolated(|| {
+            out = crate::economy::budget_advisor::advise_once(&env.sessions_dir, &n, cfg);
+            0
+        });
+        out
+    };
     if let Some(rest) = cmd.strip_prefix("--no-squeez ") {
         input.set("command", JsonValue::Str(rest.to_string()));
-        return Some(allow(input));
+        return Some(with_context(allow(input), advice.as_deref()));
     }
     // Security gate (#150): only rewrite to `squeez wrap …` when squeez deems
     // it safe. Risky (rm -rf, git push --force, …), bypassed, or wrap-disabled
     // commands are left UNTOUCHED — no updatedInput, no permissionDecision — so
     // the host evaluates the user's native deny/ask rules against the original.
     if !cfg.should_wrap_bash(&cmd) {
-        return None;
+        return advice.map(|a| context_only(&a));
     }
-    let wrapped = format!("{} wrap {}", env.squeez_bin, shell_quote(&cmd));
+    // `--session` keeps the wrap process on this session's context file.
+    let session = crate::context::cache::session_key()
+        .map(|k| format!("--session {k} "))
+        .unwrap_or_default();
+    let wrapped = format!("{} wrap {}{}", env.squeez_bin, session, shell_quote(&cmd));
     input.set("command", JsonValue::Str(wrapped));
-    Some(allow(input))
+    Some(with_context(allow(input), advice.as_deref()))
+}
+
+/// A PreToolUse output carrying only `additionalContext`: the call is left to
+/// the host's own permission rules.
+fn context_only(text: &str) -> String {
+    json_util::to_compact(&JsonValue::Obj(vec![(
+        "hookSpecificOutput".into(),
+        JsonValue::Obj(vec![
+            ("hookEventName".into(), JsonValue::Str("PreToolUse".into())),
+            ("additionalContext".into(), JsonValue::Str(text.to_string())),
+        ]),
+    )]))
+}
+
+/// Add `additionalContext` to a PreToolUse output built by [`allow`].
+fn with_context(out: String, text: Option<&str>) -> String {
+    let Some(text) = text else { return out };
+    let Some(mut v) = json_util::parse_value(&out) else { return out };
+    if let Some(h) = v.get_mut("hookSpecificOutput") {
+        h.set("additionalContext", JsonValue::Str(text.to_string()));
+    }
+    json_util::to_compact(&v)
 }
 
 /// Read/Grep/Glob: inject the configured limits, never overriding a value the
@@ -364,6 +418,12 @@ pub fn post_tool_use(raw: &str, env: &HookEnv, cfg: &Config) {
         .to_string();
     let size = parsed.as_ref().map(response_len).unwrap_or(0);
     let dir = &env.sessions_dir;
+    if let Some(problem) = canary::mismatch("post-tool-use", raw, parsed.as_ref()) {
+        isolated(|| {
+            canary::record(dir, "post-tool-use", &problem, env.now);
+            0
+        });
+    }
 
     isolated(|| track::run_with_dir(&tool, &size.to_string(), dir));
     if rewritable(&tool) {

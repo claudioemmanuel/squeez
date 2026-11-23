@@ -5,7 +5,12 @@ fn main() {
             println!("squeez {}", env!("CARGO_PKG_VERSION"));
         }
         Some("wrap") => {
-            let cmd = args[2..].join(" ");
+            let mut rest = &args[2..];
+            if rest.first().map(String::as_str) == Some("--session") && rest.len() > 2 {
+                squeez::context::cache::set_session_key(&rest[1]);
+                rest = &rest[2..];
+            }
+            let cmd = rest.join(" ");
             if cmd.is_empty() {
                 eprintln!("squeez wrap: no command given");
                 std::process::exit(1);
@@ -109,6 +114,15 @@ fn main() {
             // to session memory + the protocol payload. See `commands/mcp_server.rs`.
             std::process::exit(squeez::commands::mcp_server::run());
         }
+        Some("export") => {
+            std::process::exit(squeez::commands::export::run(&args[2..]));
+        }
+        Some("gateway-sim") => {
+            std::process::exit(squeez::commands::gateway_sim::run(&args[2..]));
+        }
+        Some("receipt") => {
+            std::process::exit(squeez::commands::receipt::run(&args[2..]));
+        }
         Some("doctor") => {
             std::process::exit(squeez::commands::doctor::run());
         }
@@ -127,7 +141,13 @@ fn main() {
             std::process::exit(squeez::economy::budget::run(&rest));
         }
         Some("discover") => {
+            if args.iter().any(|a| a == "--suggest") {
+                std::process::exit(squeez::commands::discover_suggest::run(&args[2..]));
+            }
             std::process::exit(squeez::commands::discover::run());
+        }
+        Some("filters") => {
+            std::process::exit(squeez::commands::filter_packs::run(&args[2..]));
         }
         Some("filter-test") => {
             std::process::exit(squeez::filter_dsl::run_cli());

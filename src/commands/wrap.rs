@@ -507,6 +507,23 @@ pub fn run(cmd_str: &str) -> i32 {
         .unwrap_or(0);
     let (mut ctx, intensity, eff_cfg) =
         context::pre_pass(&config, &sessions_dir_pp, used_tokens);
+    // The program whose output this is, as handler stats key it (#285).
+    let handler_name = {
+        let n = crate::filter::dispatch_name(cmd_str);
+        if n.is_empty() { cmd_str.split_whitespace().next().unwrap_or("cmd").to_string() } else { n }
+    };
+    // A handler whose originals the model keeps retrieving cut too much:
+    // compress its output one level lighter.
+    let (intensity, eff_cfg) = match crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp)
+        .retrieve_rate(&handler_name)
+    {
+        // f32 0.2 widens to 0.2000000029: compare with a tolerance.
+        Some(rate) if config.retrieve_soften_rate > 0.0 && rate + 1e-6 >= config.retrieve_soften_rate as f64 => {
+            let lighter = context::intensity::Intensity::lighter(intensity);
+            (lighter, context::intensity::scale(&config, lighter))
+        }
+        _ => (intensity, eff_cfg),
+    };
 
     // Optional cross-call hint for raw cat/head/tail of seen files
     if let Some(hint) = context::cache::raw_read_hint(&ctx, cmd_str) {
@@ -527,6 +544,13 @@ pub fn run(cmd_str: &str) -> i32 {
     } else {
         crate::commands::flag_force::ENV_VARS
     };
+    // Tell the command it is running for an agent (AI_AGENT convention),
+    // unless something already did. Inherited by the child process.
+    if flag_force_tier != "off" {
+        if let Some(v) = crate::commands::flag_force::agent_signal(|k| std::env::var(k).ok()) {
+            std::env::set_var("AI_AGENT", v);
+        }
+    }
     let mut spawn_cmd = cmd_str.to_string();
     let mut forced_label: Option<String> = None;
     // `git status --porcelain=v1 -b` is the one injection allowed at the
@@ -767,7 +791,10 @@ pub fn run(cmd_str: &str) -> i32 {
     let (retrieve_marker, stash_refused) = if stash_eligible && !net_win_gate {
         context::retrieve::prune(config.retrieve_ttl_days.saturating_mul(86_400));
         match context::retrieve::store_guarded(&combined) {
-            Ok(id) => (Some(retrieve_marker_text(orig_line_count, &id)), None),
+            Ok(id) => {
+                context::retrieve::record_origin(&id, &handler_name);
+                (Some(retrieve_marker_text(orig_line_count, &id)), None)
+            }
             Err(reason) => (None, Some(reason)),
         }
     } else {
@@ -1055,9 +1082,7 @@ pub fn run(cmd_str: &str) -> i32 {
     // and fills up fast (#285).
     if config.handler_stats_enabled {
         let mut stats = crate::economy::handler_stats::HandlerStats::load(&sessions_dir_pp);
-        let name = crate::filter::dispatch_name(&cmd_str);
-        let name = if name.is_empty() { cmd_name } else { name.as_str() };
-        stats.record(name, input_tokens as u64, emitted_tokens as u64);
+        stats.record(&handler_name, input_tokens as u64, emitted_tokens as u64);
         stats.save(&sessions_dir_pp);
     }
 

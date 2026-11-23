@@ -11,223 +11,158 @@
 [![DCO](https://img.shields.io/badge/contributions-DCO_signed--off-green.svg)](CONTRIBUTING.md#license--contributor-sign-off)
 [![Changelog](https://img.shields.io/badge/changelog-📋-blue.svg)](CHANGELOG.md)
 
-End-to-end token optimizer for seven AI CLI hosts — Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, OpenAI Codex CLI, Pi, and Hermes. Compresses bash output up to **95%**, collapses redundant calls, preserves exact identifiers through every summary, refuses net-loss compressions, and injects a terse prompt persona — automatically, with zero new runtime dependencies. Compression is **reversible** (what a large compression drops is stashed, one `squeez_retrieve` away) and **cheap**: one static binary, a pipeline linear in output size with fixed-size caches (see [Benchmarks](#benchmarks)).
+**squeez decides what tool output reaches your AI coding agent's context — and shows you what that saved.**
 
----
+It sits in the hooks of seven agent CLIs (Claude Code, GitHub Copilot CLI, OpenCode, Gemini CLI, OpenAI Codex CLI, Pi, Hermes) and compresses command output, re-reads, screenshots and repeated results before the model reads them. Compression is **reversible** (anything dropped is one `squeez_retrieve` away), **refuses net-loss rewrites**, and fails open. One static Rust binary, zero runtime dependencies.
 
-## 📰 What's new
-
-> Latest first. Full history in [CHANGELOG.md](CHANGELOG.md).
-
-### v1.48.25 – v1.49.1 — session identity, honest per-session stats, Hermes output hook
-
-- **Each squeez session knows which host session started it.** `squeez init` takes `--session-id` / `--cwd` (or `--stdin` to read the host's session-start payload); the Claude Code hook and the OpenCode plugin pass them. `current.json`, the finalized summary and the session-start snapshot in the shared hourly log carry `host_session_id`, so a stats panel can label a row "the chat that ran the release" instead of "today 07:10". Optional fields; hosts that send nothing change nothing. (#286)
-- **Summaries count only their own session.** `finalize` summed every event in the hourly log, which every session of that hour shares — a session that ran one `echo` reported the previous session's savings, and summing summaries overcounted ~8×. Events older than the session's start are now skipped. (#284)
-- **Handler stats name the program, not the first word.** `cd pkg && cargo test` is `cargo`, `export CI=1; npm test` is `npm`, `(cd x && make)` is `make`; `VAR=1` prefixes and subshell openers no longer take slots. A full table evicts its least-called name instead of silently dropping new ones (64 → 128 slots). The same fix routes `cd pkg && cargo test` to the test-runner handler. (#285)
-- **Hermes compresses output instead of rewriting commands.** The plugin moved from `pre_tool_call` + `squeez wrap` (which had to skip every piped or chained command) to Hermes's `transform_terminal_output` hook: the command runs unchanged, its output goes through `squeez filter`, and the full output is kept on disk, redacted, with its path appended. Contributed by [@fire](https://github.com/fire). (#275)
-
-### v1.47 – v1.48 — agent metering, `squeez doctor`, Windows and OpenCode 2.x
-
-- **Sub-agent cost is measured, not estimated** — the real token usage of a sub-agent replaces the flat `agent_spawn_cost` guess; a spawn ceiling is enforced at `PreToolUse` and the metering blind spot (spawns counted only on return) is closed.
-- **Re-read amplification** — output that the session history says will be re-read many times is compressed harder.
-- **`squeez doctor`** — self-health check: hook drift and registration per host, config sanity, tracking freshness; each store judged by the host that owns it.
-- **Post-compact state comes back from `SessionStart`**, not `PostCompact` (Claude Code does not deliver PostCompact output to the model).
-- **1M-window models** (Fable / Mythos) are detected from the transcript's model-identity record, so budgets, intensity and the banner stop assuming 200K; `context_window_tokens` pins it when detection is not possible.
-- **Windows** — helper processes spawn without a console window, `bash.exe` from WindowsApps is recognized as the WSL launcher and skipped, the post-exit drain is bounded, MSYS children are killed on timeout, and Codex/Gemini hook commands are bash-prefixed so they actually run.
-- **OpenCode 2.x** — the plugin tracks shell completions, runs `init` once per session, builds the wrap command for the shell OpenCode runs (PowerShell / pwsh / bash), starts no child process synchronously, and keeps runtime state in `$XDG_STATE_HOME/squeez/opencode` out of the watched config tree.
-- **Correctness** — JSON escapes decode on read (backslashes no longer double per save), concurrent `init` cannot corrupt an instruction file, every session starts with its own counters, the persona is taught once per session, and `wrap` fails open when the stash is refused rather than compressing lossily.
-
-### v1.46.0 — shipped filter pack + native `git status`
-
-The filter DSL could always cover the long tail `GenericHandler` can't compress — it just shipped empty, so every user started from a blank `filters.ini`. This release fills it, adds a native `git status` path, and makes two guards that were only ever measured in benchmarks run for real.
-
-- **41 built-in filter rules** (`assets/filters_builtin.ini`) — `pip`/`uv`/`poetry`, `bundle`/`composer`/`rubocop`/`phpstan`, `dotnet`/`swift`/`gcc`, `mypy`/`basedpyright`/`golangci-lint`, `shellcheck`/`hadolint`/`yamllint`/`markdownlint`/`pre-commit`, `systemctl`/`journalctl`/`rsync`/`ping`/`ansible-playbook` and more. Every rule ships an inline self-test that CI gates on. Project and user rules still shadow any built-in; `builtin_filters = false` turns the pack off.
-- **`git status` reads as porcelain** — re-run as `git status --porcelain=v1 -b` and rendered as a working-tree summary. Exact paths are never collapsed to counts, raw porcelain codes never reach the model, and in-progress rebase/merge/bisect (which porcelain omits) is read from `.git/` markers instead of a second `git status`.
-- **The preservation guard actually runs.** `economy::preservation` used to execute only in `benchmark`. It now scores anchor survival at wrap time on ≥90%-reduction calls; below the floor the verbatim original is stashed and the header carries `[anchors: N%]`.
-- **The net-win gate counts its own marker.** The ~40-token retrieve marker was appended *after* the gate decided the call was a win, so a call saving 25 tokens could ship a 40-token marker and still claim a win. It is now inside the arithmetic.
-- **Dispatch blind spots closed** — `TF_LOG=debug terraform plan` and `npx terraform plan` reach the terraform branch; wrappers peel in a loop (`sudo npx vitest`); a pipeline ending in a transforming stage (`cargo build | grep error`) dispatches on that stage.
-- **Benchmarks grew to 46 scenarios**, six of them covering the new rule pack, so the pack's contribution is measured rather than asserted.
+```text
+$ squeez receipt
+squeez receipt — last 7 day(s)
+  sessions          27 (9951 min)
+  tokens avoided    323,964  (squeez chars/4 estimate)
+  cost avoided      ≥ $1.30  at claude-opus-5-5 input $4.00/MTok (floor: cache re-reads not counted)
+  context avoided   0.3 × 1000K-token windows
+```
 
 ---
 
 ## Install
 
-Three methods — all produce the same result (binary at `~/.claude/squeez/bin/squeez`, hooks registered).
-
-### curl (recommended)
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/claudioemmanuel/squeez/main/install.sh | sh   # recommended
+npm install -g squeez        # or: npx squeez — pre-built binary, Node ≥ 16
+cargo install squeez         # build from source, Rust stable
 ```
 
-> **Windows:** requires [Git Bash](https://git-scm.com/downloads). Run the command above inside Git Bash — PowerShell/CMD are not supported.
-
-### npm / npx
+Each puts the binary at `~/.claude/squeez/bin/squeez` and runs `squeez setup`, which registers the hooks in every host CLI it detects. Restart your CLI afterwards. Windows needs [Git Bash](https://git-scm.com/downloads).
 
 ```bash
-# Install globally
-npm install -g squeez
-
-# Or run once without installing
-npx squeez
+squeez setup --host=claude-code,codex   # register only these hosts (or SQUEEZ_HOSTS=…)
+squeez uninstall [--host=<slug>]        # remove hooks; sessions and config.ini are kept
+squeez update [--check]                 # self-update, SHA256-verified
+squeez doctor                           # health check: hooks, registration, config, host contract
 ```
 
-Downloads the correct pre-built binary for your platform (macOS universal, Linux x86_64/aarch64, Windows x86_64). Requires Node ≥ 16.
-
-### cargo (build from source)
-
-```bash
-cargo install squeez
-```
-
-Builds from [crates.io](https://crates.io/crates/squeez). Requires Rust stable. On Windows you also need [MSVC C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-
----
-
-### Supported hosts
-
-`squeez setup` auto-detects every CLI present on disk and registers the hooks. `squeez uninstall` removes them. Session data and `config.ini` are preserved so reinstall is lossless.
-
-| Host | Memory file | Bash wrap | Session memory | Budget inject (Read/Grep) | Notes |
-|---|---|---|---|---|---|
-| **Claude Code** | `~/.claude/CLAUDE.md` | ✅ native | ✅ native | ✅ native | Restart Claude Code to pick up hooks |
-| **Copilot CLI** | `~/.copilot/copilot-instructions.md` | ✅ native | ✅ native | ✅ native | Restart Copilot CLI after setup |
-| **OpenCode** | `~/.config/opencode/AGENTS.md` | ✅ native | ✅ native | ✅ native | Plugin at `~/.config/opencode/plugins/squeez.js`; MCP tool calls skip hooks (upstream sst/opencode#2319) |
-| **Gemini CLI** | `~/.gemini/GEMINI.md` | ✅ native | ✅ native | 🟡 soft via `GEMINI.md` | `BeforeTool` rewrite schema pending upstream docs ([google-gemini/gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
-| **Codex CLI** | `~/.codex/AGENTS.md` | ✅ native | ✅ native | 🟡 soft via `AGENTS.md` | `apply_patch` hooks landed in 0.123.0 ([#18391](https://github.com/openai/codex/pull/18391)); `updatedInput` + `read_file`/`grep` hook surface still pending ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) |
-| **Pi** | `~/.pi/agent/skills/squeez/SKILL.md` | ✅ native | ✅ via skill | ✅ native | TypeScript extension at `~/.pi/agent/extensions/squeez/index.ts`; restart Pi after setup |
-| **Hermes** | `~/.hermes/profiles/default/SOUL.md` | ✅ output hook (`transform_terminal_output`) | ✅ native | ❌ no budget surface | Python plugin (`__init__.py` + `plugin.yaml`) at `$HERMES_HOME/plugins/squeez-fallback/`; opt-in — enable once with `hermes plugins enable squeez-fallback` |
-
-### Manage
-
-```bash
-squeez setup                  # register into every detected host
-squeez setup --host=<slug>    # register into one host
-squeez uninstall              # remove squeez entries from every detected host
-squeez uninstall --host=<slug>
-```
-
-Slugs: `claude-code` / `copilot` / `opencode` / `gemini` / `codex` / `pi` / `hermes`.
-
-After install, restart the CLI you use to pick up the new hooks.
-
-### Uninstall
-
-```bash
-squeez uninstall              # preserves session data + config.ini
-bash ~/.claude/squeez/uninstall.sh   # (legacy) full wipe, if the script exists
-```
-
-### Self-update
-
-```bash
-squeez update             # download latest binary + verify SHA256
-squeez update --check     # check for update without installing
-squeez update --insecure  # skip checksum (not recommended)
-```
+| Host | Bash | Read/Grep limits | Session memory | Notes |
+|---|---|---|---|---|
+| **Claude Code** | ✅ wrap | ✅ hard | ✅ | Output rewrite for Read/Grep/MCP, sub-agent metering, compaction recovery |
+| **Copilot CLI** | ✅ wrap | ✅ hard | ✅ | Memory in `~/.copilot/copilot-instructions.md` |
+| **OpenCode** | ✅ wrap | ✅ hard | ✅ | Plugin `~/.config/opencode/plugins/squeez.js`; MCP calls skip hooks (sst/opencode#2319) |
+| **Gemini CLI** | ✅ wrap | 🟡 soft (GEMINI.md) | ✅ | Rewrite schema pending ([gemini-cli#25629](https://github.com/google-gemini/gemini-cli/issues/25629)) |
+| **Codex CLI** | ✅ wrap | 🟡 soft (AGENTS.md) | ✅ | `read_file`/`grep` hooks pending ([codex#18491](https://github.com/openai/codex/issues/18491)) |
+| **Pi** | ✅ wrap | ✅ hard | ✅ via skill | Extension `~/.pi/agent/extensions/squeez/` |
+| **Hermes** | ✅ output hook | ❌ | ✅ | Opt-in: `hermes plugins enable squeez-fallback` |
 
 ---
 
 ## What it does
 
-| Feature | Description |
-|---------|-------------|
-| **Bash compression** | Intercepts every command via `PreToolUse` hook, applies smart filter → dedup → log-template → relevance-truncation. Up to 95% reduction. (Per-dir grouping stays reserved for `git status`, where the path list is the payload.) |
-| **Reversible compression** | When a large output is compressed, the verbatim original is stashed in a content-addressed blob and a `[squeez: … call squeez_retrieve with key="<id>"]` marker is emitted. The model recovers any dropped detail via the `squeez_retrieve` MCP tool — so compression can be aggressive without losing information. TTL-pruned, zero-dep. |
-| **Log-template compaction** | Collapses near-identical log lines that differ only by a timestamp, id, hex hash, or `1ms`-style value into one `[×N] <template>` line — what `dedup` (exact-only) leaves on the table. |
-| **Relevance-aware truncation** | When the generic handler must truncate, it keeps the highest-relevance lines (error/signal words + terms drawn from the command) instead of a blind head — so a buried error survives. Each line is scored once and the top N selected in linear time. |
-| **Context engine** | Cross-call redundancy with two paths: exact-hash match (FNV-1a, fast) **and** fuzzy trigram-shingle Jaccard ≥0.85 (whitespace, timestamps, single-line edits no longer defeat dedup). The sketch is built in one streamed pass — O(n) time, O(k) memory, no per-trigram allocation. |
-| **Summarize fallback** | Outputs exceeding 500 lines are replaced with a ≤40-line dense summary (top errors, files, test result, tail). **Benign outputs get 2× the threshold** so successful builds stay verbatim. |
-| **Identifier factsheet** | Exact identifiers in the region a summary drops — git SHAs, UUIDs, ticket codes, versions, large ids — ride along in every dense summary (`ids_preserved:` / `"ids":[...]`). Deterministic, budget-capped (16 facts / 256 chars), so lossy summarization never silently loses a hash or ticket number. |
-| **Net-win gate** | The `# squeez` header itself costs ~15–25 tokens. When applied compression saves less than `net_win_min_tokens` (default 24), the call becomes a verbatim passthrough with zero savings recorded — no net-loss invocations. |
-| **Adaptive intensity** | Truly adaptive: **Full** (×0.6 limits) below 80% of token budget, **Ultra** (×0.3) above. Used to be always-Ultra; now actually responds to session pressure. |
-| **MCP server** | `squeez mcp` runs a JSON-RPC 2.0 server over stdio exposing 18 tools (16 read-only session-memory queries, `squeez_retrieve` to expand a compressed output, `squeez_stash_search` to find one by meaning) so any MCP-compatible LLM can query session memory directly. Hand-rolled, no `mcp.server` dependency. |
-| **Built-in filter pack** | 41 shipped filter-DSL rules (`assets/filters_builtin.ini`) covering the long tail with no dedicated handler — `pip`/`uv`/`poetry`, `bundle`/`composer`/`rubocop`/`phpstan`, `dotnet`/`swift`/`gcc`, `mypy`/`basedpyright`/`golangci-lint`, `shellcheck`/`hadolint`/`yamllint`/`markdownlint`/`pre-commit`, `systemctl`/`journalctl`/`rsync`/`ping`/`ansible-playbook`, and more. Every rule carries an inline self-test that `squeez filter-test` and CI gate on. A project or user rule of the same name shadows a built-in; `builtin_filters = false` turns the pack off. |
-| **`git status` porcelain** | `git status` is re-run as `git status --porcelain=v1 -b` and rendered as a working-tree summary (branch, ahead/behind, staged/unstaged/untracked/conflicted). Exact paths are preserved, never collapsed to counts, and raw porcelain codes never reach the model. In-progress rebase/merge/bisect/cherry-pick — which porcelain omits — is read from `.git/` markers rather than a second `git status` run. Yields to any output flag you passed yourself; degrades to raw output on an unrecognized shape. |
-| **Preservation guard** | On calls that reduce by ≥90%, the surviving fraction of navigation anchors (file paths, `file:line` refs, error markers, test verdicts) is scored at wrap time. Below `preservation_floor` (0.70) the verbatim original is stashed even outside the usual size gates and the header carries `[anchors: N%]` — so over-compression costs a marker, not a re-investigation. |
-| **Config CLI + `/squeez`** | `squeez config get/set/list/reset/path` reads and writes `config.ini` safely (schema validation, comment-preserving writes). `squeez setup` installs a `/squeez` slash command that drives it in natural language from inside the session. |
-| **Post-compact re-injection** | After `/compact`, the `SessionStart` hook (`source: compact`) re-injects squeez's tracked session state (recent files, error snippets, git refs, retrievable blob ids), capped at 4000 chars — so concrete state survives compaction instead of being re-discovered. |
-| **Bash-wrap safety** | Risky commands (`rm -rf`, `git push --force`, `npm publish`, … — configurable `bash_risk_patterns`) and bypassed commands run **unwrapped**, so the host's native permission rules evaluate the original command. `wrap_bash = false` disables wrapping entirely. See [SECURITY.md](SECURITY.md). |
-| **Token estimate** | Compression-timing decisions use a content-class calibrated estimate: output is classified Dense/Prose/Mixed and counted at chars/2.0, chars/3.7, or the code- and CJK-aware char-class estimator — dense tool output really runs ~1.9 chars/token in production, not chars/4. Flat legacy path stays available via `class_density = false`. |
-| **Auto-teach payload** | `squeez protocol` (or the `squeez_protocol` MCP tool) prints a 2.4 KB self-describing payload — the LLM learns squeez's markers and protocol on first call. |
-| **Caveman persona** | Injects an ultra-terse prompt at session start so the model responds with fewer tokens. |
-| **ADHD focus mode** | `focus = adhd` shapes output *structure* rather than length: next action first, numbered steps, one-line state restatement, advisories capped at 5, `squeez doctor` sorted failures-first with a single closing command. Stacks with any persona. |
-| **Memory-file compression** | `squeez compress-md` compresses CLAUDE.md / AGENTS.md / copilot-instructions.md in-place — pure Rust, zero LLM. i18n-aware: set `lang = pt` (or `--lang pt`) for pt-BR article/filler/phrase dropping and Unicode-correct matching. |
-| **Session memory** | On `SessionStart`, injects a structured summary of the previous session: files investigated, learned facts (errors + git events), completed work (builds, test passes), and next steps (unresolved errors, failing tests). Summaries carry temporal validity (`valid_from`/`valid_to`) and, when the host provides one, the id and working directory of the host session they came from (`host_session_id`/`cwd`). |
-| **Token tracking** | Every `PostToolUse` result (Bash, Read, Grep, Glob, Monitor, SubagentStop) feeds a `SessionContext` so squeez knows what the agent has already seen. Read/Grep/Glob/Monitor outputs are also rewritten via `updatedToolOutput` (Claude Code v2.1.119+) when content is redundant or oversized. |
-| **Token economy** | Sub-agent cost measured from the host transcript's real `usage` (the flat `agent_spawn_cost` estimate is only the fallback), spawns counted at dispatch with a ceiling, burn rate prediction (`[budget: ~N calls left]`), session efficiency scoring, tool result size budgets. |
-| **Auto-calibration** | `squeez calibrate` runs benchmarks on install and generates an optimized `config.ini` (aggressive / balanced / conservative profiles). |
+**Compresses what the agent reads**
+
+- **Bash output** — every safe command runs through `squeez wrap`: a handler for 60+ programs (git, cargo, npm, pytest, jest, tsc, kubectl, terraform, …), 41 shipped filter rules, then smart-filter → dedup → log-template → relevance truncation. Risky commands (`rm -rf`, `git push --force`, …) run unwrapped under the host's own permission rules.
+- **Re-reads** — a file read again unchanged collapses to `identical to Read #N`; read again after a small edit, it comes back as one diff hunk against the earlier read.
+- **Screenshots** — images in MCP results with a long edge above 1024 px are downscaled with `sips`/ImageMagick (image tokens scale with pixel area); the full-size file is kept and named.
+- **Repeats** — exact and fuzzy (MinHash ≥ 0.85) dedup across recent calls; repeated skill injections and identical images collapse session-long.
+- **Huge outputs** — over 500 lines become a ≤40-line summary that still carries every exact id (SHAs, UUIDs, tickets, versions).
+
+**Never loses what matters**
+
+- **Reversible** — dropped content is stashed; `squeez_retrieve` expands it, `squeez_stash_search` finds it by meaning.
+- **Learns from its mistakes** — when the model retrieves a program's originals often, that program is compressed one level lighter.
+- **Guards** — net-win gate (no rewrite that costs more than it saves), anchor-preservation guard, secret-looking content is never stashed.
+- **Fails open and speaks up** — any error means raw output; a host that changes its hook format is reported (`[squeez: host payload changed …]`, `squeez doctor`) instead of failing silently.
+
+**Watches the budget**
+
+- **Adaptive intensity** — Full below 80% of the window, Ultra above, from the context size measured in the host transcript (200K and 1M windows).
+- **Budget advisor** — in a nearly full window, a call to a program that has been expensive before gets a one-line advisory naming both numbers.
+- **Sub-agents** — real token cost measured from the transcript; a ceiling on concurrent spawns.
+- **Per-session state** — concurrent sessions keep separate counters and dedup history.
+
+**Shows the result**
+
+- `squeez receipt` — tokens avoided, priced at the model the session ran on, as text or a shareable table.
+- `squeez export` — content-free metrics as JSON or OTLP for a team's own backend.
+- **Session memory** — each session starts with the previous sessions *in the same repository*, from any installed host.
 
 ---
 
-## How squeez compares
+## Commands
 
-There are now several token-reduction tools targeting AI coding CLIs. They make different bets — the right one depends on what you care about: zero deps, lossless filtering, structural reformatting, or task-conditioned ML.
+```bash
+squeez receipt [--days N] [--model ID] [--format md]   # what squeez saved, in tokens, dollars and windows
+squeez export [--format json|otlp] [--days N] [--out F] [--endpoint http://…/v1/metrics] [--no-handlers]
+squeez discover                                       # programs squeez compresses poorly, by tokens emitted
+squeez discover --suggest "<cmd>" [-] [--apply]       # propose a filter rule from that program's real output
+squeez filters add <dir|file.ini|git-url> | list | remove <name>   # install shareable rule packs
+squeez filter-test                                    # run every filter rule's inline tests
+squeez gateway-sim [--days N] [transcript.jsonl…]     # what an API-level gateway would add (read-only)
+squeez doctor | prune | calibrate                     # health check · clean the stash · tune config
+squeez config get|set|list|reset|path                 # or /squeez in natural language inside the session
+squeez wrap <cmd> · squeez filter <hint>              # compress a command / stdin by hand
+squeez compress-md [--ultra] [--lang pt] <file>       # compress CLAUDE.md / AGENTS.md prose
+squeez benchmark [--json] [--efficiency-proof]        # reproduce the numbers below
+squeez mcp                                            # MCP server: 18 tools over stdio
+```
 
-| Tool | Approach | Hosts | Deps | Key wins | Trade-off |
-|------|----------|-------|------|----------|-----------|
-| **squeez** (this project) | Hook + filter pipeline + context engine (MinHash dedup, log-template, relevance truncation, summarize + identifier factsheet, adaptive intensity, net-win gate) + **reversible compression** (retrieve) + MCP server | Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi, Hermes | **Zero runtime deps** (`libc` only on Unix) | Up to 95% on bash; cross-call dedup; reversible `squeez_retrieve`; exact ids (SHAs/UUIDs/tickets) survive every summary; signature-mode for source files; TOON re-encoder (incl. nested JSON); 18 MCP tools; post-compact state re-injection; cache-aware savings proof; enterprise (Bedrock/Vertex) USD-saved estimate | Heuristic, not ML — no per-task understanding |
-| [chopratejas/headroom](https://github.com/chopratejas/headroom) | Library + **HTTP proxy** + MCP; compresses tool output, logs, RAG chunks **and conversation history** at the API layer with real tokenizers and ML (Kompress/Magika) | Any (OpenAI/Anthropic/Bedrock/Vertex via proxy) | Python + Rust; PyTorch/HF models | 60-95%; reaches conversation history (the biggest sink) via the proxy; reversible CCR; image compression | Heavier (proxy + ML deps); not a zero-dep drop-in hook. squeez adopts its reversible-retrieve and post-compact ideas within the zero-dep hook model. |
-| [teamchong/pxpipe](https://github.com/teamchong/pxpipe) | **Local API proxy** that renders bulky request context (system prompt, tool docs, old history, big tool_results) as dense **PNG images** — image tokens are priced by pixel area, so dense text packs ~3.1 chars/image-token vs ~1 as text | Claude Code (`/v1/messages`), Codex (`/v1/responses`) | Node/pnpm; canvas at build time | ~59–70% end-to-end bill cut on Fable 5 traffic; reaches surfaces hooks can't (system prompt, tool docs, history); rigorous per-request `count_tokens` counterfactual measurement | **Lossy**: exact-string recall from images fails on most models (0/15 verbatim on Opus 4.8; silent confabulation, not errors) — default scope is Fable 5 only. Complementary to squeez, not competing: squeez compresses losslessly at the hook layer *before* content enters context; pxpipe cheapens what remains on the wire. They stack — squeez v1.35.0's factsheet, class-density and cache-aware accounting are ported from its measurement discipline. |
-| [rtk-ai/rtk](https://github.com/rtk-ai/rtk) | Hook proxy that **rewrites bash commands** (`git status` → `rtk git status`), then compresses 100+ command outputs | Claude Code, Cursor | Zero deps (Rust) | 60-90% on 100+ commands; `rtk read -l aggressive` for signature mode | Rewriting a command changes what runs, not just how its output is printed. Compression also has a floor: on low-entropy content there is little to remove, and a transformed format can cost more than it saves. |
-| [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez) | **Task-conditioned ML** (Qwen 2B / ModernBERT 150M) — pipe tool output + task description, get back only relevant lines | Any (CLI tool) | Python, PyTorch / vLLM server | 92% compression, F1 0.80; task-aware (same log slices kept differently per query) | Requires running an LLM locally; not zero-dep. Same project name, different design. |
-| [ojuschugh1/sqz](https://github.com/ojuschugh1/sqz) | CLI context compressor | Any | Python | Single-command compression | Lower coverage than the others. |
-| [LLMLingua-2](https://github.com/microsoft/LLMLingua) (Microsoft) | Neural prompt compressor that removes 50-80% of a prompt while preserving meaning | API / library | Python, transformers | Strong on long static prompts | Latency + model dep; not a CLI hook. |
-| [TOON](https://github.com/toon-format/toon) | Schema-aware JSON replacement (`users[100]{id,name,role}:`) — ~40% fewer tokens on arrays of uniform objects | Library, not a CLI | TypeScript SDK | Lossless on the right shape; squeez [embeds a TOON encoder](https://github.com/jhonatanjunio/squeez/pull/4) for `gh`/`kubectl`/`aws`/`gcloud`/`az` JSON outputs | Only helps on uniform JSON shapes. |
+Prefix a command with `--no-squeez` to run it untouched.
 
-**Why squeez is the safe default for a CLI hook** — it combines properties the other approaches trade away:
+A wrapped command prints one header line:
 
-- **Nothing to run beside it.** No model, no proxy in front of your API traffic, no daemon. The compressor is one static Rust binary (`libc` only on Unix); every hook script only finds that binary and runs `squeez hook <event>`, so no hook needs Python or any other interpreter (the Hermes plugin is Python because Hermes is).
-- **Lossless where it matters, reversible everywhere else.** Exact identifiers survive every summary; what a large compression drops is stashed and one `squeez_retrieve` away.
-- **Refuses net-loss compressions.** The net-win gate passes output through verbatim when compressing would cost more than it saves, and the preservation guard keeps the original when navigation anchors don't survive.
-- **Fails open.** Risky and bypassed commands run unwrapped under the host's own permission rules; if squeez can't stash or compress safely, you get the raw output.
-- **Cheap per call.** Linear-time pipeline, fixed-size caches, command exit detected within ~10 ms — `squeez benchmark` reproduces the [Benchmarks](#benchmarks) on your machine.
-- **Seven hosts, one config.** Same pipeline and session memory on Claude Code, Copilot CLI, OpenCode, Gemini CLI, Codex CLI, Pi and Hermes.
+```text
+# squeez [git log] 2692→289 tokens (-89%) 0.2ms [adaptive: Full]
+```
 
-If you can run an LLM next to your shell and want task-aware filtering, KRLabsOrg/squeez is worth a look as a complement. The two squeez projects share a name but are independent.
+### Filter rules
+
+The DSL covers what no handler does. Layers, most specific first: `./.squeez/filters.ini` (project) > `~/.claude/squeez/filters.ini` (user) > installed packs (`filters.d/`) > the shipped pack. Every rule carries `test_input`/`test_expect`; a pack installs only when all its tests pass.
+
+```ini
+[filter "mix compile"]
+strip_lines_containing = "Compiling "
+test_input  = "Compiling 3 files (.ex)\nerror: undefined function foo/0"
+test_expect = "error: undefined function foo/0"
+```
+
+`squeez discover --suggest "bazel test"` writes such a rule for you from stashed output (or `bazel test 2>&1 | squeez discover --suggest "bazel test" -`), measured on the samples and appended only with `--apply`.
+
+### MCP tools
+
+`claude mcp add squeez -- ~/.claude/squeez/bin/squeez mcp` exposes 18 read-only tools: `squeez_retrieve` and `squeez_stash_search` (expand or find a stashed original), session memory (`squeez_recent_calls`, `squeez_seen_files`, `squeez_seen_errors`, `squeez_seen_error_details`, `squeez_prior_summaries`, `squeez_search_history`, `squeez_file_history`, `squeez_session_detail`), accounting (`squeez_session_summary`, `squeez_session_stats`, `squeez_session_efficiency`, `squeez_context_pressure`, `squeez_agent_costs`, `squeez_handler_stats`, `squeez_enterprise_savings`) and `squeez_protocol`, which teaches the model squeez's markers.
 
 ---
 
-## Scope & Limits
+## Configuration
 
-squeez optimizes what it can reach — the surfaces exposed by each host's hook API. It cannot fix token leaks outside those surfaces.
+`~/.claude/squeez/config.ini` (other hosts: their own squeez dir; `squeez config path` prints it; `SQUEEZ_DIR` overrides). Every key is optional.
 
-### Coverage table
+```ini
+# Compression
+max_lines                = 200      # generic truncation limit
+bypass                   = docker exec, psql, mysql, ssh   # never wrapped
+wrap_bash                = true
+builtin_filters          = true     # the 41-rule shipped pack
+image_max_edge           = 1024     # downscale MCP images above this long edge (0 = off)
+read_diff_enabled        = true     # re-read after a small edit → one diff hunk
+retrieve_soften_rate     = 0.2      # retrieves per call that make a program compress lighter (0 = off)
 
-| Surface | How | When | Supported hosts |
-|---|---|---|---|
-| **Bash stdout/stderr** | `PreToolUse` wraps command w/ the filter pipeline (smart-filter → dedup → log-template → relevance-truncation; original stashed for `squeez_retrieve`). Risky/bypassed commands run unwrapped under native permission rules. | Every Bash invocation | all 7 (Hermes filters the output after the run instead of wrapping) |
-| **Read / Grep / Glob limits** | `PreToolUse` injects `limit` / `head_limit` per `read_max_lines` / `grep_max_results` | Every Read/Grep/Glob call | Claude Code, Copilot, OpenCode (hard); Gemini + Codex soft via GEMINI.md / AGENTS.md |
-| **Read / Grep / Glob / Monitor output rewrite** | `PostToolUse` runs `squeez compress-output` and returns `updatedToolOutput` when content is redundant or oversized | Claude Code v2.1.119+ | Claude Code |
-| **Agent / Task prompt** | `PreToolUse` compresses `tool_input.prompt` (markdown-aware, via `compress-prompt`) | When prompt > `agent_prompt_max_tokens` | Claude Code (post–v1.8.0) |
-| **Sub-agent output** | `SubagentStop` hook feeds `last_assistant_message` into SessionContext for cross-call dedup | On every sub-agent completion | Claude Code |
-| **Compaction lifecycle** | `PreCompact` / `PostCompact` log the event; `SessionStart` (`source: compact`) re-injects tracked session state (files, errors, git refs, retrievable blob ids) so it survives compaction | On context compaction | Claude Code |
-| **Session memory** | `SessionStart` injects prior session summary + file-access cache | Once per session start | all 7 |
-| **Markdown viewing** | Bash handler routes `.md` reads through `compress-md` when `auto_compress_md=true` | Viewer commands on .md paths | all 7 |
+# Context and budget
+adaptive_intensity       = true     # Full < 80% of the window, Ultra above
+context_window_tokens    = 0        # 0 = detect from the transcript
+budget_advice_pct        = 0.7      # advise before expensive calls above this share used (0 = off)
+budget_advice_min_tokens = 1500
 
-### What squeez CANNOT compress
+# Output and memory
+persona                  = ultra    # off | lite | full | ultra — terse prompt persona
+focus                    = off      # off | adhd — action-first output structure
+auto_compress_md         = true
+buddy                    = true     # the status-line companion
+lang                     = en       # en | pt
+memory_retention_days    = 30
+flag_force               = env      # env | full | off — formatting env vars (NO_COLOR, AI_AGENT, …)
+```
 
-**Agent/Task returned output.** No hook API surface exists to rewrite an Agent's return value. `PostToolUse updatedToolOutput` (Claude Code v2.1.119+) covers built-in tools (Read, Grep, Glob, Monitor) but not the Agent/Task result. Workaround: keep agent prompts compact (squeez compresses at dispatch time via PreToolUse), and use `squeez_agent_costs` MCP tool to monitor spawn overhead.
-
-**Skills & slash-command files.** Claude Code loads these into the system prompt before any hook fires. squeez has no visibility into session-start system prompt construction.
-
-**User's top-level prompt.** squeez runs per tool call, not on user turns.
-
-**Tools whose host doesn't expose PreToolUse / BeforeTool.** E.g. Codex `apply_patch` hooks landed in 0.123.0, but `updatedInput` is explicitly unsupported and `read_file`/`grep` still have no hook surface ([openai/codex#18491](https://github.com/openai/codex/issues/18491)) — so Read/Grep caps for Codex are soft hints in AGENTS.md, not hard injections.
-
-### Secondary wins (not compression, but token-saving)
-
-- **Cross-call redundancy dedup** — exact-hash and fuzzy-trigram collapsing across 16 recent calls (see [Context engine](#what-it-does))
-- **Skill re-injection dedup** — when the same skill body is injected by the Skill tool more than once in a session, the repeat collapses to `[squeez: identical to Skill #N]`. Keyed by body hash in a session-long store (not the 16-call window), so it fires even when injections recur far apart
-- **File-access cache** — subsequent Bash commands trimmed when re-reading a file squeez has already fingerprinted
-- **Burn-rate warnings** — `[budget: ~N calls left]` nudges so the user changes behavior before context pressure spikes
-
-### Reducing overall session cost
-
-squeez cannot automate these, but you can:
-- Fewer Agent/Task dispatches per session → use `squeez_agent_costs` to track, then refactor tasks to batch work
-- Smaller prompts injected into agents → squeez compresses them at dispatch, but smaller is better
-- Shorter CLAUDE.md / AGENTS.md files → run `squeez compress-md --ultra` to drop abbreviations and filler
+All keys and defaults: [`src/config.rs`](src/config.rs).
 
 ---
 
@@ -308,484 +243,56 @@ Measured on macOS (Apple Silicon). Token count = `chars / 4` (matches Claude's ~
 | 10,000 calls / day | $1800.00 | **$1641.06 (91%)** |
 <!-- BENCHMARK:END -->
 
-### Independently verified with a real tokenizer
-
-The table above uses `chars / 4` for reproducibility (no vocab, no deps). A fair
-objection: *"that's a made-up unit — show me the reduction under a real byte-pair
-tokenizer."* So `bench/verify_tokens.py` re-tokenizes every fixture — the raw
-output **and** the squeez-compressed output — with `cl100k_base` (the real GPT-4
-family BPE tokenizer, via `tiktoken`) and compares against `chars/4`:
-
-| Model | Aggregate reduction (22 filter/markdown fixtures) |
-|-------|--------------------------------------------------|
-| **Real BPE (`cl100k_base`)** | **83.5%** — 112,557 tk → 18,590 tk |
-| `chars / 4` (benchmark unit) | 83.0% |
-| **Divergence** | **0.5 pts** → the reported reduction is *not* a token-model artifact |
-
-Reduction ratios are near model-invariant, so a real tokenizer confirms the
-claim rather than inflating it. Reproduce end-to-end:
-
-```bash
-cargo build --release
-pip install tiktoken
-python3 bench/verify_tokens.py          # human-readable table
-python3 bench/verify_tokens.py --json   # machine-readable (see bench/verify_tokens.json)
-```
-
-Nothing is cherry-picked: fixtures that squeez can't help (e.g. `kubectl_pods`,
-a 61-line output below the truncation threshold) stay in the aggregate at 0%.
+`chars / 4` is checked against a real BPE tokenizer: `python3 bench/verify_tokens.py` re-tokenizes every fixture with `cl100k_base` — 83.5% reduction vs 83.0% under `chars/4`, a 0.5-point gap. Fixtures squeez cannot help (e.g. `kubectl_pods`) stay in the aggregate at 0%.
 
 ---
 
-## Commands
+## Scope and limits
 
-```bash
-squeez wrap <cmd>                        # compress a command's output end-to-end
-squeez filter <hint>                     # compress stdin (piped usage)
-squeez config <get|set|list|reset|path>  # inspect/change config.ini (also via the /squeez skill)
-squeez compress-md [--ultra] [--dry-run] [--all] <file>...   # compress markdown files
-squeez benchmark [--json] [--output <file>] [--scenario <name>] [--iterations <n>]
-squeez mcp                               # JSON-RPC 2.0 MCP server over stdin/stdout
-squeez protocol                          # print the auto-teach payload (markers + protocol)
-squeez update [--check] [--insecure]     # self-update
-squeez init [--copilot|--host=<name>]    # session-start hook (called by hook, not manually)
-            [--session-id=<id>] [--cwd=<dir>] [--stdin]   # record the host session (#286)
-squeez calibrate                         # auto-tune config from benchmarks
-squeez doctor                            # self-health check: hooks, registration, config, tracking freshness
-squeez discover                          # rank commands where a filter-DSL rule would pay off most
-squeez filter-test                       # run the inline self-tests of every filter-DSL rule
-squeez prune                             # on-demand cleanup of the stash blob store + session memory
-squeez setup / uninstall [--host=<slug>] # register / remove hooks (see Manage above)
-squeez budget-params <tool>              # output JSON budget patch for tool
-squeez compact-summary [--session-start] # re-inject session state after /compact (called by SessionStart hook)
-squeez --version
-```
+squeez sees only what each host's hooks expose.
 
-### Escape hatch — bypass compression for one command
+| Surface | Covered on |
+|---|---|
+| Bash output | all 7 hosts |
+| Read / Grep / Glob output, MCP results and images | Claude Code (`updatedToolOutput`, v2.1.119+) |
+| Read / Grep limits | Claude Code, Copilot, OpenCode, Pi (hard); Gemini, Codex (soft hints) |
+| Agent/Task prompt (compressed at dispatch), sub-agent cost | Claude Code |
+| Session memory | all 7 hosts |
 
-```bash
---no-squeez git log --all --graph
-```
+It cannot touch the system prompt, skills loaded at session start, the user's own prompt, or a sub-agent's returned text. `squeez gateway-sim` measures what an API-level proxy would add on your own transcripts before you consider one.
 
-Prefix any command with `--no-squeez` to run it raw without squeez touching it.
+### Compared with
 
-### `squeez wrap`
-
-Runs a command, compresses its output, and prints a savings header:
-
-```
-# squeez [git log] 2692→289 tokens (-89%) 0.2ms [adaptive: Ultra]
-```
-
-`wrap` re-executes the command through a shell: `sh -c` on Unix, and on
-Windows `bash -c`, then `sh -c`, when one of them resolves on `PATH` — every
-agent host writes its terminal commands for bash there, so re-running them
-under `cmd.exe` corrupts quoting, `$(…)`, backticks and `;`. `cmd /C` remains
-the fallback when no POSIX shell is present, and is also retried automatically
-if the preferred shell cannot be spawned. `%SystemRoot%\System32\bash.exe` is
-skipped: that is the WSL launcher, which would run the command inside a Linux
-distro rather than against the host filesystem. `CLAUDE_CODE_GIT_BASH_PATH` is
-honoured when set. Set `SQUEEZ_SHELL` to force a specific shell:
-
-```bash
-SQUEEZ_SHELL="C:/Program Files/Git/bin/bash.exe" squeez wrap 'ls -la'
-```
-
-### `squeez filter`
-
-Reads from stdin. Use for manual pipelines:
-
-```bash
-git log --oneline | squeez filter git
-docker logs mycontainer 2>&1 | squeez filter docker
-```
-
-### `squeez compress-md`
-
-Pure-Rust, zero-LLM compressor for markdown files. Preserves code blocks, inline code, URLs, headings, file paths, and tables. Compresses prose only. Always writes a backup at `<stem>.original.md`.
-
-```bash
-squeez compress-md CLAUDE.md             # Full mode (English default)
-squeez compress-md --ultra CLAUDE.md    # + abbreviations (with→w/, fn, cfg, etc.)
-squeez compress-md --lang pt CLAUDE.md  # pt-BR locale (articles, fillers, phrases)
-squeez compress-md --dry-run CLAUDE.md  # preview, no write
-squeez compress-md --all                # compress all known locations automatically
-```
-
-When `auto_compress_md = true` (default), `squeez init` runs `--all` silently on every session start.
-
-### `squeez benchmark`
-
-Reproducible measurement of token reduction, cost, latency, and quality across 46 scenarios (bash output, markdown, wrap / cross-call engine, structured reporters, built-in filter rules, and adversarial cases where squeez should not win):
-
-```bash
-squeez benchmark                          # human-readable report
-squeez benchmark --json                   # JSON to stdout
-squeez benchmark --output report.json     # save JSON report
-squeez benchmark --scenario git           # run only git scenarios
-squeez benchmark --iterations 5           # more iterations per scenario
-squeez benchmark --list                   # list all scenarios
-```
-
-Quality is scored by checking that **signal terms** (words from error/warning/failed lines in the baseline) survive compression. 46/46 pass at ≥ 50% threshold.
-
-`squeez benchmark --efficiency-proof` additionally reports **cache-aware effective costs**: list-price ratios (input ×1.0, cache write ×1.25, cache read ×0.1, output ×5) applied identically to both sides of every row under the same cache state — so the provider's caching discount is never miscounted as compression savings. Negative savings are representable, never floored; JSON output is `schema_version: 2`. Savings are reported per compressed slice; end-to-end depends on workload.
-
-### `squeez mcp`
-
-Runs a Model Context Protocol JSON-RPC 2.0 server over stdin/stdout. Hand-rolled, no `mcp.server` / `fastmcp` dependency — keeps the `libc`-only constraint intact. Wire it into Claude Code:
-
-```bash
-claude mcp add squeez -- /path/to/squeez mcp
-```
-
-Eighteen read-only tools become available to the LLM:
-
-| Tool | Returns |
-|------|---------|
-| `squeez_recent_calls` | Last N bash invocations with hash + length + cmd snippet — check before re-running |
-| `squeez_seen_files` | Files this session has touched, with the call number where each was last seen, sorted by recency |
-| `squeez_seen_errors` | Distinct error fingerprints observed this session (FNV-1a hashes of normalized errors) |
-| `squeez_seen_error_details` | Error fingerprints with the first 128 chars of message text — find *what* the error was |
-| `squeez_session_summary` | Token accounting + call counts (tokens_bash / tokens_read / tokens_other / seen_files / seen_errors / seen_git_refs) |
-| `squeez_session_stats` | Dedup hit counts (exact + fuzzy), summarize triggers, Ultra-mode calls, tokens saved per category |
-| `squeez_agent_costs` | Sub-agent usage: spawn count, cumulative estimated tokens, per-call breakdown |
-| `squeez_session_efficiency` | Session efficiency scores: compression ratio, tool choice, context reuse, budget conservation (basis points) |
-| `squeez_prior_summaries` | Last N finalized prior-session summaries with structured fields: investigated / learned / completed / next_steps |
-| `squeez_search_history` | Full-text search across all session summaries — find when you last saw an error or touched a file |
-| `squeez_file_history` | Sessions where a given file path was touched, with token-savings and commit status |
-| `squeez_session_detail` | Full structured view of a past session by date: calls, files, errors, git events, test summary |
-| `squeez_protocol` | Auto-teach payload — read once per session to learn squeez's markers + memory protocol |
-| `squeez_context_pressure` | Budget used %, calls remaining, tokens saved, and a recommendation (ok / compact_soon / use_state_first) |
-| `squeez_handler_stats` | Per-program cumulative compression across sessions (keyed by the program that produced the output, e.g. `cargo` for `cd pkg && cargo test`); flags under- (<10%) and over-performers (≥90%) at ≥5 calls |
-| `squeez_enterprise_savings` | Enterprise transport mode (Bedrock/Vertex/OTEL) + USD saved this session at public Sonnet rates |
-| `squeez_retrieve` | Expands a stashed output back to its verbatim original by `key`; optional `start_line`/`count` to page a slice |
-| `squeez_stash_search` | Finds a stashed output by meaning when the key is lost — term overlap + fuzzy shingle match, returns key + preview |
-
-All read-only. Backed by `SessionContext::load()`, `memory::read_last_n()`, and `memory::search_history()`. No side effects.
-
-### `squeez protocol`
-
-Prints the auto-teach payload — a 2.4 KB self-describing block covering:
-
-- The 5-rule **memory protocol** (what to do with `[squeez: ...]` markers, when to call the MCP tools)
-- The **output marker spec** (`# squeez [...]`, `[squeez: identical to ...]`, `[squeez: ~95% similar to ...]`, `squeez:summary`, `# squeez hint:`)
-
-Same content the MCP `squeez_protocol` tool returns. Pipe it into a `system` prompt or paste it into a one-shot session that doesn't have the MCP server connected.
-
----
-
-## Configuration
-
-Optional config file — all fields have defaults, none are required.
-
-| Platform | Config path |
-|----------|------------|
-| Claude Code / default | `~/.claude/squeez/config.ini` |
-| Copilot CLI | `~/.copilot/squeez/config.ini` |
-| OpenCode | `$XDG_STATE_HOME/squeez/opencode/config.ini` (`~/.local/state/squeez/opencode/` by default) |
-| Gemini CLI | `~/.gemini/squeez/config.ini` |
-| Codex CLI | `~/.codex/squeez/config.ini` |
-| Pi | `~/.pi/agent/squeez/config.ini` |
-| Hermes | `$HERMES_HOME/squeez/config.ini` (`~/.hermes/squeez/` by default) |
-
-`SQUEEZ_DIR` overrides the data directory (sessions, memory and `config.ini`) for any host. `squeez config path` prints the file in use.
-
-```ini
-# ── Compression ────────────────────────────────────────────────
-max_lines              = 200     # generic truncation limit
-dedup_min              = 3       # collapse lines appearing ≥N times
-git_log_max_commits    = 20
-git_diff_max_lines     = 150
-docker_logs_max_lines  = 100
-find_max_results       = 50
-bypass                 = docker exec, psql, mysql, ssh   # never compress these
-wrap_bash              = true    # false = never rewrite Bash calls to `squeez wrap`
-bash_risk_patterns     = rm -rf, rm -fr, rm -r -f, git push --force, …   # run unwrapped under native permission rules
-wrap_timeout_secs      = 120     # give up on a wrapped command after this long
-builtin_filters        = true    # ship the 41-rule filter pack (project/user rules shadow it)
-preservation_floor     = 0.70    # on ≥90% reductions, stash the original when fewer anchors than this survive
-
-# ── Context engine ─────────────────────────────────────────────
-adaptive_intensity         = true    # truly adaptive: Full <80% budget, Ultra ≥80%
-context_cache_enabled      = true    # track seen files/errors across calls
-redundancy_cache_enabled   = true    # collapse identical OR fuzzy-similar recent outputs
-read_dedup_session_long    = true    # also collapse a re-read of an unchanged file past the 16-call window
-summarize_threshold_lines  = 500     # outputs above this trigger summarize fallback (×2 if benign)
-compact_threshold_tokens   = 120000  # session token budget — drives adaptive intensity
-context_window_tokens      = 0       # pin the real context window; 0 = detect it from the host transcript (200K / 1M)
-
-# ── Session memory ─────────────────────────────────────────────
-memory_retention_days   = 30
-memory_file_warn_tokens = 1000   # warn when CLAUDE.md / AGENTS.md / SOUL.md grows past this
-
-# ── Output / persona ───────────────────────────────────────────
-persona          = ultra    # off | lite | full | ultra
-focus            = off      # off | adhd — output *structure*, orthogonal to persona
-auto_compress_md = true     # run compress-md on every session start
-lang             = en       # compress-md locale: en | pt (pt-BR) — more languages extensible
-
-# ── Advanced tuning (rarely needed) ───────────────────────────
-max_call_log              = 32    # rolling call log depth (also caps redundancy window)
-recent_window             = 16    # how many recent calls are eligible for redundancy lookup
-similarity_threshold      = 0.85  # Jaccard threshold for fuzzy dedup (0.0–1.0)
-ultra_trigger_pct         = 0.80  # fraction of context budget at which Full → Ultra
-class_density             = true  # content-class token estimate: dense chars/2.0, prose chars/3.7 (false = legacy flat path)
-net_win_min_tokens        = 24    # skip compression + header when it saves less than this (0 = gate off)
-mcp_prior_summaries_default = 5   # default n for squeez_prior_summaries
-mcp_recent_calls_default    = 10  # default n for squeez_recent_calls
-
-# ── Token economy ─────────────────────────────────────────────
-agent_warn_threshold_pct  = 0.50  # warn when agent cost > 50% of budget
-burn_rate_warn_calls      = 20    # warn when < 20 calls remaining
-agent_spawn_cost          = 200000 # fallback estimate per Agent/Task spawn, used until the real usage is measured
-agent_prompt_max_tokens   = 2000   # compress an Agent/Task prompt above this at dispatch
-read_max_lines            = 0     # max lines injected into Read tool_input (0 = off)
-grep_max_results          = 0     # max results injected into Grep tool_input (0 = off)
-
-# ── Auto-curation nudges ──────────────────────────────────────
-nudge_enabled              = true   # emit [squeez: hint ...] markers on recurring patterns
-nudge_error_threshold      = 3      # fingerprint repeats before a nudge fires
-nudge_file_mod_threshold   = 5      # writes/creates to same path before nudge fires
-nudge_cmd_repeat_threshold = 4      # expensive-command repeats before nudge fires
-
-# ── Continuous handler calibration ────────────────────────────
-handler_stats_enabled      = true   # accumulate per-handler savings across sessions
-```
-
-### Adaptive intensity — Full / Ultra split
-
-When `adaptive_intensity = true` (default), squeez **actually adapts** to session pressure rather than always running Ultra:
-
-| Used / budget | Tier | Scaling |
+| Tool | Approach | Trade-off vs squeez |
 |---|---|---|
-| `< 80%` | **Full** | ×0.6 limits, dedup_min ×0.66 (floor 2) |
-| `≥ 80%` | **Ultra** | ×0.3 limits, dedup_min ×0.5 (floor 2) |
-| `adaptive_intensity = false` | **Lite** | passthrough — no scaling |
-
-Floors are enforced so we never reduce to zero: `max_lines ≥ 20`, `git_diff_max_lines ≥ 20`, `dedup_min ≥ 2`, `summarize_threshold_lines ≥ 50`.
-
-The active level is shown in every bash header: `[adaptive: Full]` or `[adaptive: Ultra]`.
-
-Pre-0.3 squeez was effectively always-Ultra. The new behavior preserves more verbatim text in the common case (empty / mid-session) and only graduates to aggressive compression when the context budget is genuinely under pressure.
-
-### Caveman persona
-
-Three intensity levels (`lite`, `full`, `ultra`) and `off`. Default is `ultra`. The persona prompt is injected into:
-- The Claude Code session banner (printed at `SessionStart`)
-- The `<!-- squeez:start -->…<!-- squeez:end -->` block in `~/.copilot/copilot-instructions.md` for Copilot CLI
-
-### ADHD focus mode
-
-`focus = adhd` is a second, independent axis. Persona decides *how terse* the
-prose is; focus decides *how it is ordered*. They stack — `persona = ultra` plus
-`focus = adhd` keeps maximum compression while forcing action-first structure.
-
-Turning it on changes three surfaces:
-
-1. **The model's prose** — a 10-rule block (EN or pt-BR, per `lang`) rides
-   alongside the persona block: lead with the next action, number multi-step
-   work, restate state in one line, concrete time estimates, cap lists at 5, no
-   preamble or closing pleasantries.
-2. **The session banner** — the pending next step becomes line 1, remaining
-   steps are numbered, one prior session is shown instead of three, and the
-   stats line sinks to the bottom (state, not an action).
-3. **Advisories and doctor** — `[squeez: …]` bursts are capped at 5 per command
-   with an honest `+N more advisories suppressed` tail, and `squeez doctor`
-   sorts failures first and ends with one command to run.
-
-```bash
-squeez config set focus adhd    # then `squeez init` to rewrite the memory block
-squeez config set focus off     # back to the default ordering
-```
-
-The ruleset is adapted from the MIT-licensed
-[i-have-adhd](https://github.com/ayghri/i-have-adhd) skill by ayghri.
-
----
-
-## How it works
-
-### Compression pipeline
-
-Output a dedicated handler doesn't claim passes through four strategies in order, each a single linear pass:
-
-1. **smart_filter** — strips ANSI codes, progress bars, spinner chars, timestamps, and tool-specific noise (npm download lines, stack frame noise, etc.)
-2. **dedup** — lines appearing ≥ `dedup_min` times are collapsed to one entry annotated `[×N]`
-3. **log_template** — near-identical lines that differ only by a timestamp, id or counter collapse to one `[×N] <template>` line
-4. **relevance truncation** — over the line limit, the highest-scoring lines (error/signal words, terms from the command, head/tail bias) are kept in original order; the full original stays retrievable
-
-Per-directory **grouping** (≥5 siblings → `dir/  N modified`) is reserved for `git status`, where the path list is the payload.
-
-### Supported handlers
-
-| Category | Commands |
-|----------|----------|
-| Git | `git` |
-| Docker / containers | `docker`, `docker-compose`, `podman` |
-| Package managers | `npm`, `pnpm`, `bun`, `yarn` |
-| Build systems | `make`, `cmake`, `gradle`, `mvn`, `xcodebuild`, `cargo` (build), `next build/dev/start`, `vite build`, `turbo build` |
-| Test runners | `cargo test`, `go test`, `jest`, `vitest`, `pytest`, `py.test`, `nextest`, `playwright`, `bun test` |
-| TypeScript / linters | `tsc`, `eslint`, `biome`, `ruff`, `next lint` |
-| Cloud CLIs | `kubectl`, `gh`, `aws`, `gcloud`, `az`, `wrangler` |
-| Databases | `psql`, `prisma`, `mysql`, `drizzle-kit` |
-| Filesystem / viewers | `find`, `ls`, `du`, `ps`, `env`, `lsof`, `netstat`, `cat`, `head`, `tail`, `less`, `more`, `bat`, `bfs` |
-| JSON / YAML / IaC | `jq`, `yq`, `terraform`, `tofu`, `helm`, `pulumi` |
-| Text processing | `grep`, `rg`, `ugrep`, `awk`, `sed` |
-| Network | `curl`, `wget`, `http` |
-| Runtimes | `node`, `python`, `python3`, `ruby` |
-| Generic fallback | everything else — plus the 41 built-in filter-DSL rules and any `filters.ini` rule of your own |
-
-Dispatch looks at the program that produced the output: runner wrappers (`npx`, `bunx`, `pnpm exec`, `sudo`, `time`, `env`), `VAR=value` prefixes, leading `cd … &&` / `export …;` segments and `(` / `{` openers are peeled first, and a pipeline ending in a transforming stage (`cargo build 2>&1 | grep error`) dispatches on that stage.
-
-### Hooks (Claude Code & Copilot CLI)
-
-Six hooks work together automatically after install on Claude Code (three on Copilot CLI):
-
-- **`PreToolUse`** — rewrites safe Bash calls: `git status` → `squeez wrap git status` (risky/bypassed commands pass through to native permission rules); injects Read/Grep/Glob limits; compresses Agent/Task prompts
-- **`SessionStart`** — runs `squeez init`: finalizes previous session into a memory summary, injects the persona prompt
-- **`PostToolUse`** — tracks every tool result; rewrites Read/Grep/Glob/Monitor output via `updatedToolOutput` when content is redundant or oversized (Claude Code v2.1.119+)
-- **`SubagentStop`** *(Claude Code only)* — feeds `last_assistant_message` into SessionContext so the parent agent can dedup against what the sub-agent saw
-- **`PreCompact`** *(Claude Code only)* — logs compaction events for session efficiency metrics; allows compaction to proceed
-- **`PostCompact`** *(Claude Code only)* — logs the compaction. Session state (files, errors, git refs, retrievable blob ids) is re-injected by `SessionStart` with `source: compact` (`squeez compact-summary --session-start`), since Claude Code does not deliver PostCompact output to the model
-
-### Cross-call redundancy
-
-Two-path dedup across the last 16 calls:
-
-**Exact match** — FNV-1a hash of the compressed output. When a subsequent call produces the same bytes, it collapses to:
-
-```
-[squeez: identical to 515ba5b2 at bash#35 — re-run with --no-squeez]
-```
-
-**Fuzzy match** — bottom-k MinHash over whitespace-token trigrams (k=96, Jaccard ≥ 0.85, length-ratio guard ≥ 0.80). Survives timestamp changes, added/removed blank lines, and single-line edits. Collapses to:
-
-```
-[squeez: ~92% similar to 515ba5b2 at bash#35 — re-run with --no-squeez]
-```
-
-Minimum 6 lines to attempt fuzzy match (below that, exact-only).
-
-### Summarize fallback
-
-When raw output exceeds `summarize_threshold_lines` (default 500), the full pipeline is bypassed and replaced with a ≤40-line dense summary:
-
-```
-squeez:summary cmd=docker logs app
-total_lines=5003
-top_errors:
-  - error: connection refused on tcp://10.0.0.1:5432
-top_files:
-  - /var/log/app/error.log
-test_summary=FAILED: 3 of 248
-ids_preserved:
-  - 3f2ec81ea3e4ce24
-  - 550e8400-e29b-41d4-a716-446655440000
-  - PROJ-1482
-tail_preserved=20
-[last 20 lines verbatim...]
-```
-
-**Identifier factsheet:** the `ids_preserved:` block carries exact identifiers found in the region the summary drops — git SHAs / hex ids (≥7 chars with a digit), UUIDs, ticket codes, versions, and large integers — so the most dangerous failure mode of lossy summarization (a silently lost hash) can't happen. Extraction is deterministic and budget-capped at 16 facts / 256 chars; bulk generated sequences (hundreds of version strings in a build log) are recognized as noise and dropped wholesale while opaque ids survive. The Structured summary shape carries the same list as `"ids":[...]`.
-
-**Benign-aware threshold:** before summarizing, squeez scans for error markers (`error:`, `panic`, `traceback`, `FAILED`, `EXCEPTION`, `Fatal`). If none are found, the threshold is doubled (1,000 lines default) so successful builds, clean test runs, and uneventful logs stay verbatim unless they are genuinely huge.
+| [rtk-ai/rtk](https://github.com/rtk-ai/rtk) | Rewrites commands (`git status` → `rtk git status`), filters 100+ outputs | Changes what runs; no cross-call memory or retrieve |
+| [mksglu/context-mode](https://github.com/mksglu/context-mode) | MCP sandbox + FTS5 index of outputs | A server in the path of every call |
+| [chopratejas/headroom](https://github.com/chopratejas/headroom) | API proxy with ML compression, incl. history | Proxy + ML dependencies |
+| [teamchong/pxpipe](https://github.com/teamchong/pxpipe) | Proxy that renders context as images | Lossy: exact strings unreliable |
+| [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez) | Task-conditioned ML filtering | Runs a local model; unrelated project of the same name |
 
 ---
 
 ## Platform notes
 
-### OpenCode
-
-Plugin installed at `~/.config/opencode/plugins/squeez.js`. OpenCode auto-loads plugins on startup. All Bash commands are automatically compressed via `squeez wrap`.
-
-### Hermes
-
-Directory plugin installed at `$HERMES_HOME/plugins/squeez-fallback/` —
-`~/.hermes/plugins/` when `HERMES_HOME` is unset (a leading `~` is expanded).
-Set `HERMES_HOME` if Hermes lives elsewhere (e.g. `%LOCALAPPDATA%\hermes` on
-Windows), otherwise
-`squeez setup --host=hermes` will not detect it. Directory plugins are opt-in;
-enable it once with `hermes plugins enable squeez-fallback`.
-
-The plugin uses Hermes's `transform_terminal_output` hook: the command runs
-unchanged and its output goes through `squeez filter`, so piped and chained
-commands are compressed too. The full output is saved, redacted, and the
-compressed text ends with its path (`$HERMES_HOME/cache/squeez-raw/`, mode
-0600, pruned after 24 h). Output under `SQUEEZ_OUTPUT_MIN_CHARS` (default
-4000) is left as is, and `SQUEEZ_OUTPUT_DISABLE=1` turns the hook off. Set
-`SQUEEZ_BIN` if squeez is not on `PATH`. To test it through the real Hermes
-terminal tool, run `.venv/bin/python <squeez>/plugins/hermes/tests/e2e_hermes.py`
-from a hermes-agent checkout.
-
-On `on_session_start` the plugin runs `squeez init --host=hermes`, which opens
-a squeez session under `$HERMES_HOME/squeez/` (and writes the persona block
-into `SOUL.md` when that file exists). Each output passed through
-`squeez filter` is then logged with `squeez track-filter`, so
-`squeez_session_summary` reports what Hermes actually saved. Outputs under the
-size threshold are never sent to squeez, so they are not counted.
-
-### GitHub Copilot CLI
-
-Hooks registered in `~/.copilot/settings.json`. Session memory written to `~/.copilot/copilot-instructions.md` (Copilot CLI reads this automatically). State stored separately at `~/.copilot/squeez/`.
-
-Refresh memory manually:
-
-```bash
-SQUEEZ_DIR=~/.copilot/squeez ~/.claude/squeez/bin/squeez init --copilot
-```
-
-### Pi
-
-TypeScript extension installed at `~/.pi/agent/extensions/squeez/index.ts`. Pi auto-discovers extensions from that directory — no settings patching needed. Session memory is injected via a skill at `~/.pi/agent/skills/squeez/SKILL.md`; Pi includes the skill description in every system prompt and loads full instructions on demand. Unlike other hosts, Pi achieves `BUDGET_HARD` output compression via the `tool_result` event (return-patch API), not just soft hints.
+- **Windows** — `wrap` runs commands under `bash -c` (then `sh -c`, then `cmd /C`); the WSL launcher `System32\bash.exe` is skipped; `SQUEEZ_SHELL` forces a shell, `CLAUDE_CODE_GIT_BASH_PATH` is honoured.
+- **Hermes** — plugin at `$HERMES_HOME/plugins/squeez-fallback/`, using `transform_terminal_output`: commands run unchanged and their output goes through `squeez filter`; the full output is kept redacted under `$HERMES_HOME/cache/squeez-raw/`. `SQUEEZ_OUTPUT_MIN_CHARS` (4000) and `SQUEEZ_OUTPUT_DISABLE=1` tune it.
+- **Copilot CLI** — refresh memory by hand with `SQUEEZ_DIR=~/.copilot/squeez squeez init --copilot`.
+- **Pi** — compresses output through the `tool_result` return-patch API, so limits are hard there too.
 
 ---
 
-## Local development
-
-Requires Rust stable. Windows requires Git Bash.
+## Development
 
 ```bash
-git clone https://github.com/claudioemmanuel/squeez.git
-cd squeez
-
-cargo test                  # run all tests (1,300+ tests across 96 integration suites + unit tests)
-cargo build --release       # build release binary
-
-bash bench/run.sh           # filter-mode benchmark (24 fixtures)
-bash bench/run_context.sh   # context-engine benchmark (wrap scenarios, isolated SQUEEZ_DIR each)
-./target/release/squeez benchmark   # full 46-scenario benchmark suite
-
-bash build.sh               # build + install to ~/.claude/squeez/bin/
-```
-
----
-
-## Contributing
-
-```bash
-git checkout -b feature/your-change
-cargo test
+cargo test                          # unit + integration suites
 cargo build --release
-bash bench/run.sh
-git push -u origin feature/your-change
-gh pr create --base main --title "Short title" --body "Description"
+./target/release/squeez benchmark   # 46-scenario suite
+bash build.sh                       # build + install to ~/.claude/squeez/bin (SQUEEZ_HOSTS limits hosts)
 ```
 
-CI runs `cargo test`, `bench/run.sh`, `bench/run_context.sh`, and `squeez benchmark` on every push and pull request.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for coding standards.
-
----
-
-## Similar projects
-
-There is an unrelated project with the same name at [KRLabsOrg/squeez](https://github.com/KRLabsOrg/squeez). This project (claudioemmanuel/squeez) is a hook-based token compressor for AI coding CLIs.
-
----
+Zero runtime dependencies is a hard rule. Commits need a DCO sign-off (`git commit -s`). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) + [NOTICE](NOTICE).
-
-Contributions require a DCO sign-off (`git commit -s …`) rather than a CLA. You keep copyright on what you contribute; sign-off is a lightweight affirmation that you have the right to submit it under Apache 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md#license--contributor-sign-off) for details.
+[Apache License 2.0](LICENSE) — see also [NOTICE](NOTICE). Contributions use a DCO sign-off, not a CLA.

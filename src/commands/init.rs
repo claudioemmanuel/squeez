@@ -76,8 +76,11 @@ fn read_stdin_payload() -> String {
 
 /// Entry point called from main.rs: `squeez init`
 pub fn run(host: &HostSession) -> i32 {
+    // Claude Code: this session's state lives in its own context file.
+    crate::context::cache::set_session_key(&host.id);
     let cfg = Config::load();
     let sessions = session::sessions_dir();
+    crate::context::cache::prune_session_contexts(&sessions, 7 * 86400);
     let mem = session::memory_dir();
     let _ = std::fs::create_dir_all(&sessions);
     let _ = std::fs::create_dir_all(&mem);
@@ -349,7 +352,13 @@ pub fn run_with_dirs_for_host(
     // focus=adhd reorders the banner action-first and shows one prior session
     // instead of three (working memory is small; stats are not an action).
     let adhd = config.focus == focus::Focus::Adhd;
-    let summaries = memory::read_last_n(memory_dir, if adhd { 1 } else { 3 });
+    // Only sessions in this repository, from every installed host.
+    let summaries = memory::read_for_repo(
+        memory_dir,
+        &memory::other_host_memory_dirs(),
+        &host.cwd,
+        if adhd { 1 } else { 3 },
+    );
     println!("─── squeez active ─────────────────────────────────────────");
     let stats_line = format!(
         "{}: ~{}K tokens | Compression: {} | Memory: ON | Persona: {}{}",

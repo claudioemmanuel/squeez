@@ -19,6 +19,68 @@ pub fn blobs_dir() -> PathBuf {
     squeez_dir().join("blobs")
 }
 
+// ── Origins: which handler produced a stashed output ─────────────────────
+//
+// `squeez_retrieve` is the one signal that a compression cut too much: the
+// model asked for the original. To learn from it, each stash records the
+// handler that compressed it, and the first retrieve of an id is credited
+// back to that handler (`HandlerStats::record_retrieve`).
+
+const ORIGINS_FILE: &str = "origins.tsv";
+const RETRIEVED_FILE: &str = "retrieved.ids";
+const LEDGER_MAX_BYTES: u64 = 256 * 1024;
+
+fn append_bounded(path: &Path, line: &str) {
+    use std::io::Write;
+    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) > LEDGER_MAX_BYTES {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            let lines: Vec<&str> = s.lines().collect();
+            let _ = std::fs::write(path, lines[lines.len() / 2..].join("\n") + "\n");
+        }
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+/// Remember that `handler` produced the output stashed as `id`.
+pub fn record_origin_in(dir: &Path, id: &str, handler: &str) {
+    if is_valid_id(id) && !handler.is_empty() && !handler.contains(['\t', '\n']) {
+        append_bounded(&dir.join(ORIGINS_FILE), &format!("{id}\t{handler}"));
+    }
+}
+
+pub fn record_origin(id: &str, handler: &str) {
+    record_origin_in(&blobs_dir(), id, handler);
+}
+
+/// The handler behind `id`, the first time `id` is retrieved; `None` on any
+/// later retrieve (paging through one output is one regret, not many) or
+/// when the origin is unknown.
+pub fn take_first_retrieve_in(dir: &Path, id: &str) -> Option<String> {
+    if !is_valid_id(id) {
+        return None;
+    }
+    let seen = dir.join(RETRIEVED_FILE);
+    if std::fs::read_to_string(&seen).is_ok_and(|s| s.lines().any(|l| l == id)) {
+        return None;
+    }
+    let origins = std::fs::read_to_string(dir.join(ORIGINS_FILE)).ok()?;
+    let handler = origins
+        .lines()
+        .rev()
+        .find_map(|l| l.strip_prefix(id)?.strip_prefix('\t').map(str::to_string))?;
+    append_bounded(&seen, id);
+    Some(handler)
+}
+
+pub fn take_first_retrieve(id: &str) -> Option<String> {
+    take_first_retrieve_in(&blobs_dir(), id)
+}
+
 /// A retrieval id is exactly 16 lowercase hex chars. Validated on the way in
 /// (retrieve) so a model-supplied id can never escape `blobs_dir` via `..`
 /// or an absolute path.
@@ -209,6 +271,21 @@ fn prune_in(dir: &Path, ttl_secs: u64) -> (usize, u64) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn first_retrieve_credits_origin_once() {
+        let dir = std::env::temp_dir().join(format!("squeez-origins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let id = "0123456789abcdef";
+        assert_eq!(take_first_retrieve_in(&dir, id), None, "unknown origin");
+        record_origin_in(&dir, id, "pytest");
+        record_origin_in(&dir, "bad-id", "x"); // invalid ids are not recorded
+        assert_eq!(take_first_retrieve_in(&dir, id).as_deref(), Some("pytest"));
+        assert_eq!(take_first_retrieve_in(&dir, id), None, "paging is one regret");
+        assert_eq!(take_first_retrieve_in(&dir, "bad-id"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     // Unique temp dir per test → fully parallel-safe, no global SQUEEZ_DIR.

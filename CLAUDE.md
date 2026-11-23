@@ -8,7 +8,7 @@ Guidance for Claude Code working in this repo.
 cargo test                        # all unit tests; `cargo test <name>` for one
 cargo build --release
 bash build.sh                     # build + install to ~/.claude/squeez/bin/ + register hooks
-                                  # NOTE: re-registers every host adapter, not just Claude Code
+                                  # SQUEEZ_HOSTS=claude-code limits which host adapters register
 bash bench/run.sh                 # filter-mode benchmarks
 python3 bench/verify_tokens.py    # real-tokenizer check (tiktoken cl100k_base) vs chars/4
 ./target/release/squeez benchmark [--json|--baseline|--efficiency-proof]
@@ -38,15 +38,17 @@ Claude Code hooks: PreToolUse → wrap / budget / prompt-compress / **agent-spaw
 
 | Module | Role |
 |---|---|
-| `cache.rs` | seen outputs/paths/errors; session-long skill + file-read dedup; `dedup_floor_call` fences pre-compact sources. **One global `context.json`, unlocked — concurrent sessions can clobber counters.** |
+| `cache.rs` | seen outputs/paths/errors; session-long skill + file-read dedup; `dedup_floor_call` fences pre-compact sources. State is per host session (`sessions/ctx/<id>.json`, id from Claude hook payloads / `init` / `wrap --session` / `SQUEEZ_SESSION`), else the global `context.json`; read-modify-write goes through `SessionContext::update` (advisory lock, fail-open). Also holds per-path read snapshots (`read_diff`) and `last_model`. |
 | `redundancy.rs` | exact FNV-1a hash, then fuzzy bottom-k MinHash trigram Jaccard ≥0.85 |
 | `summarize.rs` | fires >500 lines (benign 2×); ≤40-line dense summary |
 | `factsheet.rs` | exact-identifier extraction; 16 facts / 256 chars budget |
 | `intensity.rs` | Full (×0.6) < `ultra_trigger_pct` of budget, else Ultra (×0.3). Budget honors `context_window_tokens` when pinned — **a pin above the real window makes Ultra unreachable** |
 | `transcript.rs` | tail-reads host transcript for real `usage` → `real_ctx_tokens` |
+| `read_diff.rs` | re-read after a small edit → one unified hunk vs the earlier full read (≤30% changed, ≥40 lines) |
+| `retrieve.rs` | content-addressed stash; `origins.tsv` maps blob → handler so a first `squeez_retrieve` credits that handler (`HandlerStats.retrieves` → one intensity level lighter) |
 | `hash.rs` | FNV-1a-64, streamed bottom-k `shingle_minhash()` (keep bit-identical: persisted), `jaccard()` |
 
-Guards: identical image payloads dedup session-long; MCP results are dedup-only; fuzzy dedup suppressed on first re-read after a Write (needs compress-output before track-result in `posttooluse.sh`); repeated quota errors and oversized sub-agent returns queue `[squeez: …]` warnings.
+Guards: identical image payloads dedup session-long; oversized MCP images are downscaled by `commands/image_diet.rs` via `sips`/ImageMagick (fail-open); MCP text results are dedup-only; fuzzy dedup suppressed on first re-read after a Write (needs compress-output before track-result in `posttooluse.sh`); repeated quota errors and oversized sub-agent returns queue `[squeez: …]` warnings.
 
 **Hot path is linear**: score/hash each line once, never in a sort comparator. Context Vecs are capped ≤256, so linear scans are fine. Prove perf with `squeez benchmark --json` base vs branch, several runs.
 
@@ -65,6 +67,10 @@ Guards: identical image payloads dedup session-long; MCP results are dedup-only;
 | `src/session.rs` | token accounting; JSONL event log in `~/.claude/squeez/sessions/` |
 | `src/commands/mcp_server.rs` | JSON-RPC 2.0 MCP server over stdio; 18 read-only tools |
 | `src/commands/protocol.rs` | auto-teach payload; `full_payload()` returns ~2.4 KB |
+| `src/commands/hook/canary.rs` | host-contract canary: payload missing expected fields → `[squeez: host payload changed]` + `host_mismatch.log` (read by `doctor`) |
+| `src/commands/{receipt,export,gateway_sim}.rs` | `squeez receipt` (savings in USD/windows), `squeez export` (content-free JSON/OTLP), `squeez gateway-sim` (read-only transcript replay) |
+| `src/commands/{discover_suggest,filter_packs}.rs` | `discover --suggest` rule induction; `squeez filters add/list/remove` packs in `filters.d/` (test-gated) |
+| `src/economy/budget_advisor.rs` | PreToolUse `additionalContext` before an expensive program in a nearly full window |
 
 ### Tests
 

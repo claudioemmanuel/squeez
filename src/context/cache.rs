@@ -194,6 +194,11 @@ pub struct SessionContext {
     pub read_dedup_fp: Vec<u64>,
     /// `call_n` of the FIRST read for each (path, fingerprint) pair.
     pub read_dedup_call: Vec<u64>,
+    /// Latest full read per path (`read_diff`): path, stash id of the content
+    /// the model was shown, and its call number. Parallel, capped.
+    pub read_snap_path: Vec<String>,
+    pub read_snap_blob: Vec<String>,
+    pub read_snap_call: Vec<u64>,
     // ── Real-context tracking (transcript audit CF-1) ──────────────────────
     /// Effective context tokens of the latest API turn, measured from the
     /// host transcript's `message.usage` (input + cache_read + cache_creation).
@@ -206,6 +211,9 @@ pub struct SessionContext {
     /// window instead of the legacy 112.5K default. `context_window_tokens`
     /// config still overrides it.
     pub real_ctx_window: u64,
+    /// Model id of the latest main-thread assistant turn (`squeez receipt`
+    /// prices savings at this model's input rate).
+    pub last_model: String,
     /// `cache_read_input_tokens` of the latest measured API turn. Used to
     /// compute the cache-read:I/O ratio for context-leak detection (G1).
     /// 0 = not yet measured.
@@ -318,8 +326,12 @@ impl Default for SessionContext {
             read_dedup_path: Vec::new(),
             read_dedup_fp: Vec::new(),
             read_dedup_call: Vec::new(),
+            read_snap_path: Vec::new(),
+            read_snap_blob: Vec::new(),
+            read_snap_call: Vec::new(),
             real_ctx_tokens: 0,
             real_ctx_window: 0,
+            last_model: String::new(),
             real_cache_read_tokens: 0,
             calls_this_minute: 0,
             calls_minute_ts: 0,
@@ -386,8 +398,13 @@ pub(crate) struct CtxLock {
 
 impl CtxLock {
     pub(crate) fn acquire(sessions_dir: &Path) -> Self {
-        let _ = std::fs::create_dir_all(sessions_dir);
-        let path = sessions_dir.join("context.lock");
+        let path = match session_key() {
+            Some(k) => sessions_dir.join(SESSION_CTX_DIR).join(format!("{k}.lock")),
+            None => sessions_dir.join("context.lock"),
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(LOCK_WAIT_MS);
         loop {
             match std::fs::OpenOptions::new()
@@ -462,20 +479,141 @@ fn heal_backslash_runs(raw: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
+// ── Per-session context files ──────────────────────────────────────────────
+//
+// One global `context.json` was shared by every concurrent session: session B
+// starting reset session A's totals, raised A's dedup floor (A lost dedup of
+// its own earlier output) and bumped the epoch that A's in-flight `wrap`
+// compares before saving, so A's write was dropped. When the host tells us
+// which session a process belongs to, its state lives in `ctx/<id>.json`.
+// Without a session id, behaviour is exactly the old global file.
+
+/// Subdirectory of the sessions dir holding one context file per session.
+pub const SESSION_CTX_DIR: &str = "ctx";
+
+static SESSION_KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// File-name-safe form of a host session id (UUIDs pass through unchanged).
+pub fn sanitize_key(id: &str) -> String {
+    id.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect()
+}
+
+/// Bind this process to a host session. First call wins; empty ids are ignored.
+pub fn set_session_key(id: &str) {
+    let k = sanitize_key(id);
+    if !k.is_empty() {
+        let _ = SESSION_KEY.set(k);
+    }
+}
+
+/// The session this process belongs to: set explicitly, else `SQUEEZ_SESSION`.
+pub fn session_key() -> Option<String> {
+    if let Some(k) = SESSION_KEY.get() {
+        return Some(k.clone());
+    }
+    std::env::var("SQUEEZ_SESSION")
+        .ok()
+        .map(|v| sanitize_key(&v))
+        .filter(|k| !k.is_empty())
+}
+
+/// Where the context for `key` lives (`None` = the legacy global file).
+pub fn context_path_for(sessions_dir: &Path, key: Option<&str>) -> std::path::PathBuf {
+    match key {
+        Some(k) => sessions_dir.join(SESSION_CTX_DIR).join(format!("{k}.json")),
+        None => sessions_dir.join("context.json"),
+    }
+}
+
+/// The most recently written context file — for readers that are not bound
+/// to a session (status line, MCP server).
+pub fn latest_context_path(sessions_dir: &Path) -> std::path::PathBuf {
+    let global = sessions_dir.join("context.json");
+    let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut best = (mtime(&global), global);
+    if let Ok(rd) = std::fs::read_dir(sessions_dir.join(SESSION_CTX_DIR)) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let t = mtime(&p);
+            if t > best.0 {
+                best = (t, p);
+            }
+        }
+    }
+    best.1
+}
+
+/// Delete per-session context and lock files untouched for `max_age_secs`.
+pub fn prune_session_contexts(sessions_dir: &Path, max_age_secs: u64) -> usize {
+    let Ok(rd) = std::fs::read_dir(sessions_dir.join(SESSION_CTX_DIR)) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for e in rd.flatten() {
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age.as_secs() >= max_age_secs);
+        if old && std::fs::remove_file(e.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+fn read_context_file(path: &Path) -> Option<SessionContext> {
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size > crate::memory::MAX_FILE_BYTES {
+        return Some(SessionContext::default());
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    Some(SessionContext::from_json(&heal_backslash_runs(&content)))
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 
 impl SessionContext {
     pub fn load(sessions_dir: &Path) -> Self {
-        let path = sessions_dir.join("context.json");
-        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        if size > crate::memory::MAX_FILE_BYTES {
+        Self::load_keyed(sessions_dir, session_key().as_deref())
+    }
+
+    /// The context of this process's session, or — for a process bound to no
+    /// session (a command run by hand) — the most recently written one.
+    pub fn load_current_or_latest(sessions_dir: &Path) -> Self {
+        match session_key() {
+            Some(_) => Self::load(sessions_dir),
+            None => read_context_file(&latest_context_path(sessions_dir)).unwrap_or_default(),
+        }
+    }
+
+    /// Load the context of session `key` (`None` = the global file). A
+    /// session with no file yet inherits the history of the newest context
+    /// on disk and starts a fresh session on top of it: that output is not in
+    /// this session's model context, so nothing before it may be cited.
+    pub fn load_keyed(sessions_dir: &Path, key: Option<&str>) -> Self {
+        let path = context_path_for(sessions_dir, key);
+        if let Some(c) = read_context_file(&path) {
+            return c;
+        }
+        if key.is_none() {
             return Self::default();
         }
-        let content = match std::fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(_) => return Self::default(),
-        };
-        Self::from_json(&heal_backslash_runs(&content))
+        match read_context_file(&latest_context_path(sessions_dir)) {
+            Some(mut seed) => {
+                let file = seed.session_file.clone();
+                seed.begin_session(&file);
+                seed
+            }
+            None => Self::default(),
+        }
     }
 
     /// Copy tunable values from Config into this context so all methods use
@@ -563,12 +701,18 @@ impl SessionContext {
     }
 
     pub fn save(&self, sessions_dir: &Path) {
-        let _ = std::fs::create_dir_all(sessions_dir);
-        let path = sessions_dir.join("context.json");
+        self.save_keyed(sessions_dir, session_key().as_deref());
+    }
+
+    pub fn save_keyed(&self, sessions_dir: &Path, key: Option<&str>) {
+        let path = context_path_for(sessions_dir, key);
+        let dir = path.parent().unwrap_or(sessions_dir).to_path_buf();
+        let _ = std::fs::create_dir_all(&dir);
         // Per-process temp name. A shared `context.json.tmp` is its own race:
         // two writers truncate the same file and the second rename publishes a
         // half-written mix of both.
-        let tmp = sessions_dir.join(format!("context.json.{}.tmp", std::process::id()));
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("context.json");
+        let tmp = dir.join(format!("{name}.{}.tmp", std::process::id()));
         let json = self.to_json();
         #[cfg(unix)]
         {
@@ -802,6 +946,35 @@ impl SessionContext {
     /// is a real change, same content at a different path is a different
     /// answer to a different question. Never cites a call at or below
     /// `dedup_floor_call`.
+    /// The stash id and call of the latest full read of `path` that is still
+    /// in the model's context (above the dedup floor).
+    pub fn read_snap_lookup(&self, path: &str) -> Option<(String, u64)> {
+        let i = self.read_snap_path.iter().rposition(|p| p == path)?;
+        let call = *self.read_snap_call.get(i)?;
+        (call > self.dedup_floor_call).then(|| (self.read_snap_blob.get(i).cloned().unwrap_or_default(), call))
+    }
+
+    /// Remember the content shown for a full read of `path` (one entry per path).
+    pub fn read_snap_record(&mut self, path: &str, blob: &str, call_n: u64) {
+        let n = self.read_snap_path.len().min(self.read_snap_blob.len()).min(self.read_snap_call.len());
+        self.read_snap_path.truncate(n);
+        self.read_snap_blob.truncate(n);
+        self.read_snap_call.truncate(n);
+        if let Some(i) = self.read_snap_path.iter().position(|p| p == path) {
+            self.read_snap_path.remove(i);
+            self.read_snap_blob.remove(i);
+            self.read_snap_call.remove(i);
+        }
+        self.read_snap_path.push(path.to_string());
+        self.read_snap_blob.push(blob.to_string());
+        self.read_snap_call.push(call_n);
+        if self.read_snap_path.len() > 64 {
+            self.read_snap_path.remove(0);
+            self.read_snap_blob.remove(0);
+            self.read_snap_call.remove(0);
+        }
+    }
+
     pub fn read_dedup_lookup(&self, path: &str, fp: u64) -> Option<u64> {
         self.read_dedup_path
             .iter()
@@ -1399,7 +1572,8 @@ impl SessionContext {
 \"skill_inject_fp\":{},\"skill_inject_call\":{},\
 \"dedup_floor_call\":{},\
 \"read_dedup_path\":{},\"read_dedup_fp\":{},\"read_dedup_call\":{},\
-\"real_ctx_tokens\":{},\"real_ctx_window\":{},\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
+\"read_snap_path\":{},\"read_snap_blob\":{},\"read_snap_call\":{},\
+\"real_ctx_tokens\":{},\"real_ctx_window\":{},\"last_model\":\"{}\",\"real_cache_read_tokens\":{},\"calls_this_minute\":{},\"calls_minute_ts\":{},\"pending_warnings\":{},\
 \"image_fp\":{},\"image_call\":{},\
 \"shot_url_fp\":{},\"shot_url_ts\":{},\
 \"last_activity_ts\":{},\"subagent_file_map_ids\":{},\"subagent_file_map_paths\":{},\
@@ -1452,8 +1626,12 @@ impl SessionContext {
             json_util::str_array(&self.read_dedup_path),
             json_util::u64_array(&self.read_dedup_fp),
             json_util::u64_array(&self.read_dedup_call),
+            json_util::str_array(&self.read_snap_path),
+            json_util::str_array(&self.read_snap_blob),
+            json_util::u64_array(&self.read_snap_call),
             self.real_ctx_tokens,
             self.real_ctx_window,
+            json_util::escape_str(&self.last_model),
             self.real_cache_read_tokens,
             self.calls_this_minute,
             self.calls_minute_ts,
@@ -1640,11 +1818,15 @@ impl SessionContext {
         c.read_dedup_path = rd_path.iter().take(rd_len).cloned().collect();
         c.read_dedup_fp = rd_fp.iter().take(rd_len).copied().collect();
         c.read_dedup_call = rd_call.iter().take(rd_len).copied().collect();
+        c.read_snap_path = json_util::map_str_array(&map, "read_snap_path");
+        c.read_snap_blob = json_util::map_str_array(&map, "read_snap_blob");
+        c.read_snap_call = json_util::map_u64_array(&map, "read_snap_call");
 
         // Real-context + pending warnings + image dedup — optional for
         // backward compat with older context.json files.
         c.real_ctx_tokens = json_util::map_u64(&map, "real_ctx_tokens").unwrap_or(0);
         c.real_ctx_window = json_util::map_u64(&map, "real_ctx_window").unwrap_or(0);
+        c.last_model = json_util::map_str(&map, "last_model").unwrap_or_default();
         c.real_cache_read_tokens = json_util::map_u64(&map, "real_cache_read_tokens").unwrap_or(0);
         c.calls_this_minute = json_util::map_u64(&map, "calls_this_minute").unwrap_or(0) as u32;
         c.calls_minute_ts = json_util::map_u64(&map, "calls_minute_ts").unwrap_or(0);
@@ -1811,9 +1993,11 @@ mod tests {
         let mut c = SessionContext::default();
         c.real_ctx_tokens = 286_129;
         c.real_ctx_window = 1_000_000;
+        c.last_model = "claude-opus-5-5".to_string();
         let restored = SessionContext::from_json(&c.to_json());
         assert_eq!(restored.real_ctx_tokens, 286_129);
         assert_eq!(restored.real_ctx_window, 1_000_000);
+        assert_eq!(restored.last_model, "claude-opus-5-5");
     }
 
     #[test]

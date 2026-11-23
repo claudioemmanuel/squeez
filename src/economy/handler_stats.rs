@@ -22,7 +22,13 @@ pub struct HandlerStats {
     pub calls: Vec<u64>,
     pub in_tokens: Vec<u64>,
     pub out_tokens: Vec<u64>,
+    /// How often the model asked for the stashed original of this handler's
+    /// output (`squeez_retrieve`). A high rate means the handler cut too much.
+    pub retrieves: Vec<u64>,
 }
+
+/// Calls a handler needs before its retrieve rate is trusted.
+pub const RETRIEVE_MIN_CALLS: u64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct HandlerRow {
@@ -32,6 +38,7 @@ pub struct HandlerRow {
     pub out_tokens: u64,
     /// Compression ratio in basis points (0-10000 = 0-100%). 0 when in_tokens == 0.
     pub savings_bp: u32,
+    pub retrieves: u64,
 }
 
 impl HandlerStats {
@@ -51,11 +58,15 @@ impl HandlerStats {
         let in_tk = json_util::map_u64_array(&map, "in_tokens");
         let out_tk = json_util::map_u64_array(&map, "out_tokens");
         let n = names.len().min(calls.len()).min(in_tk.len()).min(out_tk.len());
+        // Older files have no `retrieves`: pad with zeros.
+        let mut retrieves = json_util::map_u64_array(&map, "retrieves");
+        retrieves.resize(n, 0);
         Self {
             names: names.into_iter().take(n).collect(),
             calls: calls.into_iter().take(n).collect(),
             in_tokens: in_tk.into_iter().take(n).collect(),
             out_tokens: out_tk.into_iter().take(n).collect(),
+            retrieves,
         }
     }
 
@@ -64,11 +75,12 @@ impl HandlerStats {
         let path = sessions_dir.join("handler_stats.json");
         let tmp = path.with_extension("json.tmp");
         let json = format!(
-            "{{\"names\":{},\"calls\":{},\"in_tokens\":{},\"out_tokens\":{}}}",
+            "{{\"names\":{},\"calls\":{},\"in_tokens\":{},\"out_tokens\":{},\"retrieves\":{}}}",
             json_util::str_array(&self.names),
             json_util::u64_array(&self.calls),
             json_util::u64_array(&self.in_tokens),
             json_util::u64_array(&self.out_tokens),
+            json_util::u64_array(&self.retrieves),
         );
         #[cfg(unix)]
         {
@@ -99,6 +111,7 @@ impl HandlerStats {
         if name.is_empty() {
             return;
         }
+        self.retrieves.resize(self.names.len(), 0);
         if let Some(idx) = self.names.iter().position(|n| n == name) {
             self.calls[idx] = self.calls[idx].saturating_add(1);
             self.in_tokens[idx] = self.in_tokens[idx].saturating_add(in_tk);
@@ -113,11 +126,29 @@ impl HandlerStats {
             self.calls.remove(evict);
             self.in_tokens.remove(evict);
             self.out_tokens.remove(evict);
+            self.retrieves.remove(evict);
         }
         self.names.push(name.to_string());
         self.calls.push(1);
         self.in_tokens.push(in_tk);
         self.out_tokens.push(out_tk);
+        self.retrieves.push(0);
+    }
+
+    /// The model expanded a stashed output that `name` produced.
+    pub fn record_retrieve(&mut self, name: &str) {
+        self.retrieves.resize(self.names.len(), 0);
+        if let Some(i) = self.names.iter().position(|n| n == name) {
+            self.retrieves[i] = self.retrieves[i].saturating_add(1);
+        }
+    }
+
+    /// Retrieves per call for `name`, once it has `RETRIEVE_MIN_CALLS` calls.
+    pub fn retrieve_rate(&self, name: &str) -> Option<f64> {
+        let i = self.names.iter().position(|n| n == name)?;
+        let calls = self.calls[i];
+        (calls >= RETRIEVE_MIN_CALLS)
+            .then(|| self.retrieves.get(i).copied().unwrap_or(0) as f64 / calls as f64)
     }
 
     /// Sorted view: most-called first. Caller may further filter by savings.
@@ -138,6 +169,7 @@ impl HandlerStats {
                     in_tokens: in_tk,
                     out_tokens: out_tk,
                     savings_bp,
+                    retrieves: self.retrieves.get(i).copied().unwrap_or(0),
                 }
             })
             .collect();
@@ -176,6 +208,17 @@ pub fn format_table(stats: &HandlerStats) -> String {
     if !over.is_empty() {
         out.push_str("over-performers (savings ≥90%, ≥5 calls): ");
         out.push_str(&over.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", "));
+        out.push('\n');
+    }
+    // The model had to ask for the original: these handlers cut too much.
+    let regret: Vec<String> = rows
+        .iter()
+        .filter(|r| r.calls >= RETRIEVE_MIN_CALLS && r.retrieves > 0)
+        .map(|r| format!("{} {}%", r.name, r.retrieves * 100 / r.calls))
+        .collect();
+    if !regret.is_empty() {
+        out.push_str("originals retrieved (per call, ≥5 calls): ");
+        out.push_str(&regret.join(", "));
         out.push('\n');
     }
     out
@@ -329,6 +372,31 @@ mod tests {
         assert!(table.contains("good"));
         // `rare` has 4 calls (<5) so it's not flagged.
         assert!(!table.contains("under-performers") || !table.split('\n').any(|l| l.starts_with("under-performers") && l.contains("rare")));
+    }
+
+    #[test]
+    fn retrieves_persist_pad_and_rate() {
+        let d = tmp();
+        let mut s = HandlerStats::default();
+        for _ in 0..4 {
+            s.record("pytest", 100, 10);
+        }
+        s.record_retrieve("pytest");
+        assert_eq!(s.retrieve_rate("pytest"), None, "4 calls: not trusted yet");
+        s.record("pytest", 100, 10);
+        assert_eq!(s.retrieve_rate("pytest"), Some(0.2));
+        s.record_retrieve("unknown"); // never recorded: ignored
+        s.save(&d);
+        let r = HandlerStats::load(&d);
+        assert_eq!(r.retrieves, vec![1]);
+        assert!(format_table(&r).contains("originals retrieved (per call, ≥5 calls): pytest 20%"));
+        // A file written before `retrieves` existed loads with zeros.
+        std::fs::write(
+            d.join("handler_stats.json"),
+            r#"{"names":["a"],"calls":[3],"in_tokens":[1],"out_tokens":[1]}"#,
+        )
+        .unwrap();
+        assert_eq!(HandlerStats::load(&d).retrieves, vec![0]);
     }
 
     #[test]

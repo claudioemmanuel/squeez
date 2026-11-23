@@ -203,6 +203,51 @@ impl Summary {
     }
 }
 
+/// How far back each host's log is searched for sessions in one repository.
+const REPO_SCAN: usize = 200;
+
+/// The prior sessions worth showing at session start in `cwd`: the newest `n`
+/// that ran in that directory, from this host's memory and every other
+/// installed host's (`others`: label + memory dir). A session from another
+/// host is labelled `(<date> via <host>)`, so work begun in Codex shows up
+/// when the same repo is opened in Claude Code. With no `cwd` known, this
+/// host's last `n` as before. Next steps that look like secrets are dropped.
+pub fn read_for_repo(own: &Path, others: &[(String, std::path::PathBuf)], cwd: &str, n: usize) -> Vec<Summary> {
+    let mut out: Vec<Summary> = if cwd.is_empty() {
+        read_last_n(own, n)
+    } else {
+        let want = cwd.trim_end_matches(['/', '\\']);
+        let same = |s: &Summary| s.cwd.trim_end_matches(['/', '\\']) == want;
+        let mut all: Vec<Summary> = read_last_n(own, REPO_SCAN).into_iter().filter(same).collect();
+        for (label, dir) in others {
+            if dir == own {
+                continue;
+            }
+            all.extend(read_last_n(dir, REPO_SCAN).into_iter().filter(same).map(|mut s| {
+                s.date = format!("{} via {}", s.date, label);
+                s
+            }));
+        }
+        all.sort_by(|a, b| b.ts.cmp(&a.ts));
+        all.truncate(n);
+        all
+    };
+    for s in &mut out {
+        s.next_steps.retain(|step| crate::context::sensitive::is_sensitive(step).is_none());
+    }
+    out
+}
+
+/// Memory dirs of the other installed hosts, labelled by host name.
+pub fn other_host_memory_dirs() -> Vec<(String, std::path::PathBuf)> {
+    crate::hosts::all_hosts()
+        .into_iter()
+        .filter(|h| h.is_installed())
+        .map(|h| (h.name().to_string(), h.data_dir().join("memory")))
+        .filter(|(_, d)| d.join("summaries.jsonl").is_file())
+        .collect()
+}
+
 pub fn read_last_n(memory_dir: &Path, n: usize) -> Vec<Summary> {
     if n == 0 {
         return Vec::new();

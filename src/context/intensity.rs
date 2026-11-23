@@ -134,6 +134,14 @@ impl Intensity {
         }
     }
 
+    /// One level less aggressive (Lite stays Lite).
+    pub fn lighter(self) -> Intensity {
+        match self {
+            Intensity::Ultra => Intensity::Full,
+            _ => Intensity::Lite,
+        }
+    }
+
     pub fn strongest(a: Intensity, b: Intensity) -> Intensity {
         if a.rank() >= b.rank() {
             a

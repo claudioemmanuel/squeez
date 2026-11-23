@@ -20,7 +20,7 @@ pub fn render(squeez_dir: &Path) -> Option<String> {
     let saved = int_field(session.as_ref(), "tokens_saved");
     let calls = int_field(session.as_ref(), "total_calls");
 
-    let context = read_obj(&sessions.join("context.json"));
+    let context = read_obj(&crate::context::cache::latest_context_path(&sessions));
     let spawns = int_field(context.as_ref(), "agent_spawns");
     let total_in: i64 = ["tokens_bash", "tokens_read", "tokens_grep", "tokens_other"]
         .iter()

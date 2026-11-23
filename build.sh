@@ -36,6 +36,8 @@ cp "$BINARY" "$REPO/bin/squeez"
 # `settings.hooks.<event>` (the schema Claude Code v2.x reads from) — earlier
 # versions of this script wrote to top-level `settings.<event>`, which silently
 # disabled compression because the harness never read those entries.
+# SQUEEZ_HOSTS=claude-code (comma list) limits registration to those hosts;
+# unset = every detected host, as before.
 "$INSTALL_DIR/bin/squeez" setup
 
 # Auto-calibrate: run benchmark analysis to generate optimized config

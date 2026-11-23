@@ -101,27 +101,45 @@ fn install_one(adapter: &dyn HostAdapter, bin_path: &std::path::Path) -> Result<
     })
 }
 
+/// Hosts named by `--host=a,b` (or `--hosts=`), else by `SQUEEZ_HOSTS`, else
+/// `None` = every detected host. `build.sh` runs `setup`, so `SQUEEZ_HOSTS`
+/// is how a single-host user stops every rebuild re-registering the rest.
+pub fn host_selection(args: &[String], env: Option<String>) -> Option<Vec<String>> {
+    let flag = args.iter().rev().find_map(|a| {
+        a.strip_prefix("--host=")
+            .or_else(|| a.strip_prefix("--hosts="))
+            .map(str::to_string)
+    });
+    let list: Vec<String> = flag
+        .or(env)?
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    (!list.is_empty()).then_some(list)
+}
+
 pub fn run(args: &[String]) -> i32 {
-    let mut host_filter: Option<String> = None;
-    for a in args {
-        if let Some(rest) = a.strip_prefix("--host=") {
-            host_filter = Some(rest.to_string());
-        }
-    }
+    let selection = host_selection(args, std::env::var("SQUEEZ_HOSTS").ok());
 
     let bin_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("squeez"));
 
-    let targets: Vec<Box<dyn HostAdapter>> = match &host_filter {
-        Some(slug) => match find(slug) {
-            Some(a) => vec![a],
-            None => {
-                eprintln!("squeez setup: unknown host '{}'", slug);
-                eprintln!(
-                    "available: claude-code, copilot, opencode, gemini, codex"
-                );
-                return 1;
+    let targets: Vec<Box<dyn HostAdapter>> = match &selection {
+        Some(slugs) => {
+            let mut out = Vec::new();
+            for slug in slugs {
+                match find(slug) {
+                    Some(a) => out.push(a),
+                    None => {
+                        eprintln!("squeez setup: unknown host '{}'", slug);
+                        let names: Vec<&str> = all_hosts().iter().map(|h| h.name()).collect();
+                        eprintln!("available: {}", names.join(", "));
+                        return 1;
+                    }
+                }
             }
-        },
+            out
+        }
         None => all_hosts(),
     };
 
@@ -173,8 +191,41 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  squeez setup                 Install into every detected host");
-    println!("  squeez setup --host=<slug>   Install into one host");
+    println!("  squeez setup --host=<a,b>    Install into the listed hosts only");
+    println!("  SQUEEZ_HOSTS=<a,b>           Same, from the environment (build.sh honours it)");
     println!();
-    println!("Supported hosts: claude-code, copilot, opencode, gemini, codex");
+    println!("Supported hosts: claude-code, copilot, opencode, gemini, codex, pi, hermes");
+    println!("Extras are opt-out in config.ini: persona = off, buddy = false, auto_compress_md = false");
 }
 
+#[cfg(test)]
+mod host_selection_tests {
+    use super::host_selection;
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn flag_list_env_and_default() {
+        assert_eq!(host_selection(&args(&[]), None), None);
+        assert_eq!(
+            host_selection(&args(&["--host=claude-code"]), None),
+            Some(vec!["claude-code".to_string()])
+        );
+        assert_eq!(
+            host_selection(&args(&["--hosts=claude-code, codex"]), None),
+            Some(vec!["claude-code".to_string(), "codex".to_string()])
+        );
+        assert_eq!(
+            host_selection(&args(&[]), Some("opencode".into())),
+            Some(vec!["opencode".to_string()])
+        );
+        // The flag wins over the environment.
+        assert_eq!(
+            host_selection(&args(&["--host=pi"]), Some("opencode".into())),
+            Some(vec!["pi".to_string()])
+        );
+        assert_eq!(host_selection(&args(&[]), Some(" , ".into())), None);
+    }
+}

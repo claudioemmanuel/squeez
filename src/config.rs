@@ -27,6 +27,9 @@ pub struct Config {
     /// of `redundancy_cache_enabled` only in the off direction: it requires
     /// that flag too. Kill-switch for the store without a rebuild.
     pub read_dedup_session_long: bool,
+    /// Re-read of a file whose earlier full read is still in context and that
+    /// changed in one small region: send the hunk, not the file (`read_diff`).
+    pub read_diff_enabled: bool,
     pub summarize_threshold_lines: usize,
     // ── Output / memory-file flags ──────────────────────────────────────
     pub persona: Persona,
@@ -158,6 +161,18 @@ pub struct Config {
     /// plan riding in the prefix for 100 turns costs ~2.4M cache-read tokens.
     /// 0 = disabled. Default: 3000.
     pub subagent_result_warn_tokens: usize,
+    /// Images in MCP tool results whose long edge exceeds this are downscaled
+    /// to it (image tokens ≈ width × height / 750). 0 = disabled. Default 1024.
+    pub image_max_edge: u32,
+    /// Share of the context window in use (0–1) above which a Bash call to a
+    /// program that has averaged `budget_advice_min_tokens` per call gets a
+    /// one-time advisory. 0 = disabled. Default 0.7.
+    pub budget_advice_pct: f32,
+    pub budget_advice_min_tokens: u64,
+    /// A handler whose stashed originals are retrieved at least this often per
+    /// call (after 5 calls) is compressed one intensity level lighter.
+    /// 0 = disabled. Default 0.2.
+    pub retrieve_soften_rate: f32,
     /// Occurrence count at which a repeated quota/plan-limit error (e.g.
     /// "rate limit", "upgrade your plan") triggers a stop-retrying warning.
     /// Lower than `nudge_error_threshold` because quota errors are never
@@ -295,6 +310,7 @@ impl Default for Config {
             context_cache_enabled: true,
             redundancy_cache_enabled: true,
             read_dedup_session_long: true,
+            read_diff_enabled: true,
             summarize_threshold_lines: 300,
             persona: Persona::Ultra,
             focus: Focus::Off,
@@ -336,6 +352,10 @@ impl Default for Config {
             wrap_timeout_secs: DEFAULT_WRAP_TIMEOUT_SECS,
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
+            image_max_edge: 1024,
+            budget_advice_pct: 0.7,
+            budget_advice_min_tokens: 1500,
+            retrieve_soften_rate: 0.2,
             quota_error_threshold: 2,
             doctor_stale_days: 3,
             cache_idle_warn_secs: 270,
@@ -440,6 +460,7 @@ impl Config {
                     "context_cache_enabled" => c.context_cache_enabled = v == "true",
                     "redundancy_cache_enabled" => c.redundancy_cache_enabled = v == "true",
                     "read_dedup_session_long" => c.read_dedup_session_long = v == "true",
+                    "read_diff_enabled" => c.read_diff_enabled = v == "true",
                     "summarize_threshold_lines" => {
                         c.summarize_threshold_lines =
                             v.parse().unwrap_or(c.summarize_threshold_lines)
@@ -559,6 +580,14 @@ impl Config {
                         c.amplification_min_call_tokens =
                             v.parse().unwrap_or(c.amplification_min_call_tokens)
                     }
+                    "retrieve_soften_rate" => {
+                        c.retrieve_soften_rate = v.parse().unwrap_or(c.retrieve_soften_rate)
+                    }
+                    "budget_advice_pct" => c.budget_advice_pct = v.parse().unwrap_or(c.budget_advice_pct),
+                    "budget_advice_min_tokens" => {
+                        c.budget_advice_min_tokens = v.parse().unwrap_or(c.budget_advice_min_tokens)
+                    }
+                    "image_max_edge" => c.image_max_edge = v.parse().unwrap_or(c.image_max_edge),
                     "subagent_result_warn_tokens" => {
                         c.subagent_result_warn_tokens =
                             v.parse().unwrap_or(c.subagent_result_warn_tokens)
