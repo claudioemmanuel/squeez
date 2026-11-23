@@ -114,6 +114,9 @@ fn main() {
             // to session memory + the protocol payload. See `commands/mcp_server.rs`.
             std::process::exit(squeez::commands::mcp_server::run());
         }
+        Some("export") => {
+            std::process::exit(squeez::commands::export::run(&args[2..]));
+        }
         Some("receipt") => {
             std::process::exit(squeez::commands::receipt::run(&args[2..]));
         }
