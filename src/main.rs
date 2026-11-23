@@ -117,6 +117,9 @@ fn main() {
         Some("export") => {
             std::process::exit(squeez::commands::export::run(&args[2..]));
         }
+        Some("gateway-sim") => {
+            std::process::exit(squeez::commands::gateway_sim::run(&args[2..]));
+        }
         Some("receipt") => {
             std::process::exit(squeez::commands::receipt::run(&args[2..]));
         }

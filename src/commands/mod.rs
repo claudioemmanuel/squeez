@@ -6,6 +6,7 @@ pub trait Handler {
 
 pub mod compress_output;
 pub mod receipt;
+pub mod gateway_sim;
 pub mod export;
 pub mod filter_packs;
 pub mod discover_suggest;
