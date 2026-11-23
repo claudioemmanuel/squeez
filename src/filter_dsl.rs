@@ -336,7 +336,7 @@ pub fn builtin_defs() -> Vec<FilterDef> {
     parse(BUILTIN_FILTERS)
 }
 
-/// Loads and merges all layers, BUILT-IN first, then USER, then PROJECT:
+/// Loads and merges all layers, BUILT-IN first, then PACKS, USER, PROJECT:
 /// `find_in` breaks a same-length-name tie by keeping the last element seen
 /// (`Iterator::max_by_key`'s documented tie-break), so the later a layer
 /// appears in this list the more it wins. Built-in is first precisely so
@@ -346,6 +346,9 @@ fn load_all(builtin: bool) -> Vec<FilterDef> {
     if builtin {
         defs.extend(builtin_defs());
     }
+    // Installed packs (`squeez filters add`): above the shipped pack, below
+    // the user's own rules.
+    defs.extend(crate::commands::filter_packs::installed_defs());
     if let Ok(content) = std::fs::read_to_string(user_filters_path()) {
         defs.extend(parse(&content));
     }

@@ -140,6 +140,9 @@ fn main() {
             }
             std::process::exit(squeez::commands::discover::run());
         }
+        Some("filters") => {
+            std::process::exit(squeez::commands::filter_packs::run(&args[2..]));
+        }
         Some("filter-test") => {
             std::process::exit(squeez::filter_dsl::run_cli());
         }
