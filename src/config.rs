@@ -158,6 +158,9 @@ pub struct Config {
     /// plan riding in the prefix for 100 turns costs ~2.4M cache-read tokens.
     /// 0 = disabled. Default: 3000.
     pub subagent_result_warn_tokens: usize,
+    /// Images in MCP tool results whose long edge exceeds this are downscaled
+    /// to it (image tokens ≈ width × height / 750). 0 = disabled. Default 1024.
+    pub image_max_edge: u32,
     /// Occurrence count at which a repeated quota/plan-limit error (e.g.
     /// "rate limit", "upgrade your plan") triggers a stop-retrying warning.
     /// Lower than `nudge_error_threshold` because quota errors are never
@@ -336,6 +339,7 @@ impl Default for Config {
             wrap_timeout_secs: DEFAULT_WRAP_TIMEOUT_SECS,
             tokenizer_scale: 1.0,
             subagent_result_warn_tokens: 3000,
+            image_max_edge: 1024,
             quota_error_threshold: 2,
             doctor_stale_days: 3,
             cache_idle_warn_secs: 270,
@@ -559,6 +563,7 @@ impl Config {
                         c.amplification_min_call_tokens =
                             v.parse().unwrap_or(c.amplification_min_call_tokens)
                     }
+                    "image_max_edge" => c.image_max_edge = v.parse().unwrap_or(c.image_max_edge),
                     "subagent_result_warn_tokens" => {
                         c.subagent_result_warn_tokens =
                             v.parse().unwrap_or(c.subagent_result_warn_tokens)

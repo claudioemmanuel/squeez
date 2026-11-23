@@ -58,6 +58,13 @@ pub fn render_for_test(raw: &str, tool: &str, sessions_dir: &Path, cfg: &Config)
         };
     }
     let rewrite = compute_rewrite(raw, tool, sessions_dir, cfg);
+    if rewrite.is_none() {
+        // Oversized screenshots: same block array, smaller image (image_diet).
+        let store = sessions_dir.parent().unwrap_or(sessions_dir).join("images");
+        if let Some(out) = super::image_diet::rewrite(raw, tool, cfg, &store) {
+            return out;
+        }
+    }
     // Economy warnings must not depend on a Bash command happening to run.
     // `burst_warning`/`agent_cost_warning` were reachable ONLY from wrap.rs, so
     // through the whole 2026-08-21 fan-out — which used Agent, WebFetch and
