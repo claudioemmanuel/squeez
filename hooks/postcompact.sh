@@ -14,4 +14,9 @@ if [ ! -x "$SQUEEZ" ]; then
 fi
 [ ! -x "$SQUEEZ" ] && exit 0
 
+_payload=""
+[ ! -t 0 ] && _payload=$(cat 2>/dev/null || true)
+# Bind to this chat's per-session context file (src/context/cache.rs).
+_sid=$(printf '%s' "$_payload" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+export SQUEEZ_SESSION="$_sid"
 "$SQUEEZ" track PostCompact 0 >/dev/null 2>&1 || true

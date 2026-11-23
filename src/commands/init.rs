@@ -76,8 +76,11 @@ fn read_stdin_payload() -> String {
 
 /// Entry point called from main.rs: `squeez init`
 pub fn run(host: &HostSession) -> i32 {
+    // Claude Code: this session's state lives in its own context file.
+    crate::context::cache::set_session_key(&host.id);
     let cfg = Config::load();
     let sessions = session::sessions_dir();
+    crate::context::cache::prune_session_contexts(&sessions, 7 * 86400);
     let mem = session::memory_dir();
     let _ = std::fs::create_dir_all(&sessions);
     let _ = std::fs::create_dir_all(&mem);

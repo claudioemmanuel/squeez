@@ -112,6 +112,14 @@ pub fn run(args: &[String]) -> i32 {
     if std::io::stdin().read_to_string(&mut raw).is_err() {
         return 0;
     }
+    // Claude Code events carry the host session id: bind this process to that
+    // session's context file. Other hosts' wrap commands carry no id, so they
+    // stay on the global file.
+    if matches!(event, "pre-tool-use" | "post-tool-use" | "subagent-stop" | "session-context") {
+        if let Some(id) = json_util::extract_str(&raw, "session_id") {
+            crate::context::cache::set_session_key(&id);
+        }
+    }
     let env = HookEnv::from_process();
     let cfg = Config::load();
     let out = match event {
@@ -201,7 +209,11 @@ pub(super) fn pre_bash(d: &mut JsonValue, env: &HookEnv, cfg: &Config) -> Option
     if !cfg.should_wrap_bash(&cmd) {
         return None;
     }
-    let wrapped = format!("{} wrap {}", env.squeez_bin, shell_quote(&cmd));
+    // `--session` keeps the wrap process on this session's context file.
+    let session = crate::context::cache::session_key()
+        .map(|k| format!("--session {k} "))
+        .unwrap_or_default();
+    let wrapped = format!("{} wrap {}{}", env.squeez_bin, session, shell_quote(&cmd));
     input.set("command", JsonValue::Str(wrapped));
     Some(allow(input))
 }

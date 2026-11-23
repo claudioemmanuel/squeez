@@ -13,6 +13,9 @@ _payload=""
 if [ ! -t 0 ]; then
     _payload=$(cat 2>/dev/null || true)
 fi
+# Bind every call below to this chat's per-session context file.
+_sid=$(printf '%s' "$_payload" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+export SQUEEZ_SESSION="$_sid"
 # After /compact (source=compact on the stdin payload), restore squeez's
 # session state first: it must read the pre-compaction session before init
 # rolls it over, and SessionStart stdout is what reaches the model — PostCompact

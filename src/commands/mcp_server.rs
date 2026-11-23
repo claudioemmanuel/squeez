@@ -296,7 +296,7 @@ thread_local! {
 
 fn load_ctx() -> SessionContext {
     let sessions = session::sessions_dir();
-    let path = sessions.join("context.json");
+    let path = crate::context::cache::latest_context_path(&sessions);
     let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     CTX_CACHE.with(|cache| {
         // Check cache validity
@@ -509,7 +509,7 @@ fn read_rich_summaries(n: usize) -> Vec<RichSummary> {
 /// Falls back to fingerprint-only display if Worker 1 hasn't added snippet
 /// storage yet (graceful degradation via direct context.json read).
 fn tool_seen_error_details(limit: usize) -> String {
-    let path = session::sessions_dir().join("context.json");
+    let path = crate::context::cache::latest_context_path(&session::sessions_dir());
     if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
         return "(context.json too large)".to_string();
     }
@@ -735,7 +735,7 @@ fn tool_session_detail(date: &str) -> String {
 /// Reads dedup hit counters added by Worker 1 to context.json; defaults to 0
 /// for all counters if the fields are absent (backwards-compatible).
 fn tool_session_stats() -> String {
-    let path = session::sessions_dir().join("context.json");
+    let path = crate::context::cache::latest_context_path(&session::sessions_dir());
     if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::memory::MAX_FILE_BYTES {
         return "(context.json too large)".to_string();
     }

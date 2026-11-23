@@ -5,7 +5,12 @@ fn main() {
             println!("squeez {}", env!("CARGO_PKG_VERSION"));
         }
         Some("wrap") => {
-            let cmd = args[2..].join(" ");
+            let mut rest = &args[2..];
+            if rest.first().map(String::as_str) == Some("--session") && rest.len() > 2 {
+                squeez::context::cache::set_session_key(&rest[1]);
+                rest = &rest[2..];
+            }
+            let cmd = rest.join(" ");
             if cmd.is_empty() {
                 eprintln!("squeez wrap: no command given");
                 std::process::exit(1);

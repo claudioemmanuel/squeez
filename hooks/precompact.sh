@@ -16,4 +16,7 @@ fi
 
 input=$(cat)
 ctx_bytes=${#input}
+# Bind to this chat's per-session context file (src/context/cache.rs).
+_sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+export SQUEEZ_SESSION="$_sid"
 "$SQUEEZ" track PreCompact "$ctx_bytes" 2>/dev/null || true
